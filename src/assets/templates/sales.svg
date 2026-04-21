@@ -1,0 +1,19 @@
+<svg width="640" height="400" viewBox="0 0 640 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="640" height="400" rx="28" fill="#F8FAFC"/>
+  <rect x="54" y="26" width="532" height="348" rx="24" fill="#FFF1F2" stroke="#FECDD3"/>
+  <rect x="92" y="54" width="356" height="222" fill="white"/>
+  <rect x="92" y="54" width="356" height="40" fill="#BE123C"/>
+  <rect x="116" y="68" width="132" height="12" rx="6" fill="#FFE4E6"/>
+  <rect x="344" y="68" width="78" height="12" rx="6" fill="#FDA4AF"/>
+  <rect x="118" y="114" width="70" height="8" rx="4" fill="#BE123C"/>
+  <rect x="118" y="130" width="248" height="5" rx="2.5" fill="#E2E8F0"/>
+  <rect x="118" y="140" width="236" height="5" rx="2.5" fill="#E2E8F0"/>
+  <rect x="118" y="160" width="310" height="42" rx="10" fill="#FFF1F2"/>
+  <rect x="132" y="172" width="84" height="18" rx="9" fill="#FB7185"/>
+  <rect x="224" y="172" width="84" height="18" rx="9" fill="#F43F5E"/>
+  <rect x="316" y="172" width="84" height="18" rx="9" fill="#E11D48"/>
+  <rect x="118" y="220" width="88" height="8" rx="4" fill="#BE123C"/>
+  <rect x="118" y="236" width="246" height="5" rx="2.5" fill="#E2E8F0"/>
+  <rect x="92" y="276" width="356" height="66" fill="#E9EDF3"/>
+  <text x="92" y="329" fill="#18212F" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="700">Sales</text>
+</svg>

@@ -1,0 +1,20 @@
+<svg width="640" height="400" viewBox="0 0 640 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="640" height="400" rx="28" fill="#F8FAFC"/>
+<rect x="54" y="26" width="532" height="348" rx="24" fill="#EEF2F7" stroke="#D7DEE9"/>
+<rect x="92" y="54" width="356" height="222" fill="white"/>
+<rect x="92" y="54" width="356" height="44" rx="0" fill="#DDF6E5"/>
+<circle cx="138" cy="76" r="18" fill="#7DE2A3"/>
+<text x="176" y="73" fill="#1D5B33" font-family="Inter, Arial, sans-serif" font-size="11.5" font-weight="700">Charles Bloomberg</text>
+<rect x="176" y="81" width="82" height="5" rx="2.5" fill="#62717F"/>
+<text x="118" y="124" fill="#18212F" font-family="Inter, Arial, sans-serif" font-size="8" font-weight="700">PROFILE</text>
+<rect x="118" y="132" width="258" height="5" rx="2.5" fill="#D6EFE0"/>
+<rect x="118" y="142" width="242" height="5" rx="2.5" fill="#D6EFE0"/>
+<rect x="118" y="152" width="212" height="5" rx="2.5" fill="#D6EFE0"/>
+<text x="118" y="183" fill="#18212F" font-family="Inter, Arial, sans-serif" font-size="8" font-weight="700">EDUCATION</text>
+<rect x="118" y="191" width="266" height="5" rx="2.5" fill="#D6EFE0"/>
+<rect x="118" y="201" width="228" height="5" rx="2.5" fill="#D6EFE0"/>
+<rect x="118" y="221" width="60" height="12" rx="6" fill="#D9F7E3"/>
+<rect x="184" y="221" width="68" height="12" rx="6" fill="#C7F0D7"/>
+<rect x="92" y="276" width="356" height="66" fill="#E9EDF3"/>
+<text x="92" y="329" fill="#18212F" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="700">Fresher</text>
+</svg>

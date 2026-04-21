@@ -1,0 +1,20 @@
+<svg width="640" height="400" viewBox="0 0 640 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="640" height="400" rx="28" fill="#F8FAFC"/>
+  <rect x="54" y="26" width="532" height="348" rx="24" fill="#ECFEFF" stroke="#BAE6FD"/>
+  <rect x="92" y="54" width="356" height="222" fill="white"/>
+  <rect x="92" y="54" width="356" height="42" fill="#0F766E"/>
+  <circle cx="122" cy="75" r="10" fill="#99F6E4"/>
+  <rect x="138" y="70" width="96" height="10" rx="5" fill="#CCFBF1"/>
+  <rect x="118" y="118" width="240" height="6" rx="3" fill="#D1FAE5"/>
+  <rect x="118" y="130" width="224" height="6" rx="3" fill="#D1FAE5"/>
+  <rect x="118" y="142" width="196" height="6" rx="3" fill="#D1FAE5"/>
+  <rect x="118" y="168" width="84" height="8" rx="4" fill="#0F766E"/>
+  <rect x="118" y="184" width="248" height="5" rx="2.5" fill="#DCFCE7"/>
+  <rect x="118" y="194" width="232" height="5" rx="2.5" fill="#DCFCE7"/>
+  <rect x="118" y="204" width="212" height="5" rx="2.5" fill="#DCFCE7"/>
+  <rect x="118" y="226" width="62" height="12" rx="6" fill="#99F6E4"/>
+  <rect x="188" y="226" width="58" height="12" rx="6" fill="#CCFBF1"/>
+  <rect x="254" y="226" width="72" height="12" rx="6" fill="#D1FAE5"/>
+  <rect x="92" y="276" width="356" height="66" fill="#E9EDF3"/>
+  <text x="92" y="329" fill="#18212F" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="700">Startup</text>
+</svg>

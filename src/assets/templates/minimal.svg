@@ -1,0 +1,19 @@
+<svg width="640" height="400" viewBox="0 0 640 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="640" height="400" rx="28" fill="#F8FAFC"/>
+<rect x="54" y="26" width="532" height="348" rx="24" fill="#EEF2F7" stroke="#D7DEE9"/>
+<rect x="92" y="54" width="356" height="222" fill="white"/>
+<text x="270" y="90" text-anchor="middle" fill="#29313B" font-family="Georgia, serif" font-size="14" font-weight="700">Charles Bloomberg</text>
+<text x="270" y="104" text-anchor="middle" fill="#8A8F98" font-family="Georgia, serif" font-size="5.4">Senior Infrastructure Engineer</text>
+<line x1="118" y1="122" x2="398" y2="122" stroke="#ECEDEF"/>
+<text x="118" y="148" fill="#4A4F57" font-family="Georgia, serif" font-size="7.6" font-weight="700">SUMMARY</text>
+<rect x="118" y="158" width="250" height="3.5" rx="1.75" fill="#D8DBE0"/>
+<rect x="118" y="166" width="234" height="3.5" rx="1.75" fill="#D8DBE0"/>
+<rect x="118" y="174" width="212" height="3.5" rx="1.75" fill="#D8DBE0"/>
+<text x="118" y="196" fill="#4A4F57" font-family="Georgia, serif" font-size="7.6" font-weight="700">EXPERIENCE</text>
+<rect x="118" y="206" width="240" height="1.2" fill="#B8BFC8"/>
+<text x="118" y="222" fill="#39414D" font-family="Georgia, serif" font-size="7.2" font-weight="700">Senior Infrastructure Engineer</text>
+<rect x="118" y="230" width="248" height="3.5" rx="1.75" fill="#D8DBE0"/>
+<rect x="118" y="238" width="226" height="3.5" rx="1.75" fill="#D8DBE0"/>
+<rect x="92" y="276" width="356" height="66" fill="#E9EDF3"/>
+<text x="92" y="329" fill="#18212F" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="700">Minimal</text>
+</svg>

@@ -1,0 +1,19 @@
+<svg width="640" height="400" viewBox="0 0 640 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="640" height="400" rx="28" fill="#F8FAFC"/>
+  <rect x="54" y="26" width="532" height="348" rx="24" fill="#EFF6FF" stroke="#BFDBFE"/>
+  <rect x="92" y="54" width="356" height="222" fill="white"/>
+  <rect x="92" y="54" width="356" height="46" fill="#1E3A8A"/>
+  <rect x="114" y="70" width="128" height="10" rx="5" fill="#DBEAFE"/>
+  <rect x="352" y="70" width="62" height="10" rx="5" fill="#93C5FD"/>
+  <rect x="118" y="118" width="252" height="5" rx="2.5" fill="#DBEAFE"/>
+  <rect x="118" y="128" width="228" height="5" rx="2.5" fill="#DBEAFE"/>
+  <rect x="118" y="138" width="214" height="5" rx="2.5" fill="#DBEAFE"/>
+  <rect x="118" y="162" width="92" height="8" rx="4" fill="#1E40AF"/>
+  <rect x="118" y="178" width="240" height="5" rx="2.5" fill="#E2E8F0"/>
+  <rect x="118" y="188" width="224" height="5" rx="2.5" fill="#E2E8F0"/>
+  <rect x="118" y="198" width="236" height="5" rx="2.5" fill="#E2E8F0"/>
+  <rect x="118" y="224" width="102" height="8" rx="4" fill="#1E40AF"/>
+  <rect x="118" y="240" width="248" height="5" rx="2.5" fill="#E2E8F0"/>
+  <rect x="92" y="276" width="356" height="66" fill="#E9EDF3"/>
+  <text x="92" y="329" fill="#18212F" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="700">Corporate</text>
+</svg>

@@ -1,0 +1,95 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: redresumes-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: redresumes
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d redresumes"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: redresumes-redis
+    restart: unless-stopped
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.13
+    container_name: redresumes-meili
+    restart: unless-stopped
+    environment:
+      MEILI_MASTER_KEY: masterKey
+    volumes:
+      - meili_data:/meili_data
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: redresumes-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/redresumes?schema=public
+      REDIS_URL: redis://redis:6379
+      MEILI_HOST: http://meilisearch:7700
+      MEILI_MASTER_KEY: masterKey
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      meilisearch:
+        condition: service_started
+    command: sh -c "npm run prisma:generate && npx prisma db push && node dist/src/main.js"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: redresumes-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/redresumes?schema=public
+      REDIS_URL: redis://redis:6379
+      MEILI_HOST: http://meilisearch:7700
+      MEILI_MASTER_KEY: masterKey
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      meilisearch:
+        condition: service_started
+      api:
+        condition: service_started
+    command: sh -c "npm run prisma:generate && node dist/src/worker.js"
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: redresumes-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      api:
+        condition: service_started
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  postgres_data:
+  meili_data:

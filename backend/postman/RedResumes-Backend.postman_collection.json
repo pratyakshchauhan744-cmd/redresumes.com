@@ -1,0 +1,320 @@
+{
+  "info": {
+    "_postman_id": "2a1607ef-61be-4ca4-8d4f-8d0acdfb9b33",
+    "name": "RedResumes Backend API",
+    "description": "Postman collection for RedResumes Node.js + PostgreSQL backend",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/health"
+      }
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register Candidate",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Candidate One\",\n  \"email\": \"candidate+new@example.com\",\n  \"password\": \"Password@123\",\n  \"role\": \"candidate\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/register"
+          }
+        },
+        {
+          "name": "Login Candidate",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"candidate@example.com\",\n  \"password\": \"Password@123\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.accessToken) pm.environment.set('accessToken', data.accessToken);",
+                  "if (data.refreshToken) pm.environment.set('refreshToken', data.refreshToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login Employer",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"employer@example.com\",\n  \"password\": \"Password@123\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.accessToken) pm.environment.set('accessToken', data.accessToken);",
+                  "if (data.refreshToken) pm.environment.set('refreshToken', data.refreshToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh Access Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/refresh"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.accessToken) pm.environment.set('accessToken', data.accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/logout"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Public",
+      "item": [
+        {
+          "name": "List Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs?keyword=engineer&location=india&remoteType=remote&page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs"],
+              "query": [
+                { "key": "keyword", "value": "engineer" },
+                { "key": "location", "value": "india" },
+                { "key": "remoteType", "value": "remote" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.items && data.items.length) pm.environment.set('jobId', data.items[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Job By ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/jobs/{{jobId}}"
+          }
+        },
+        {
+          "name": "Get Company By ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/companies/{{companyId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Candidate",
+      "item": [
+        {
+          "name": "Apply to Job",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resumeUrl\": \"https://example.com/resume.pdf\"\n}"
+            },
+            "url": "{{baseUrl}}/api/jobs/{{jobId}}/apply"
+          }
+        },
+        {
+          "name": "Save Job",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/jobs/{{jobId}}/save"
+          }
+        },
+        {
+          "name": "My Applications",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/users/me/applications"
+          }
+        },
+        {
+          "name": "My Saved Jobs",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/users/me/saved-jobs"
+          }
+        },
+        {
+          "name": "My Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/users/me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Employer",
+      "item": [
+        {
+          "name": "Create Job",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Node.js Backend Engineer\",\n  \"description\": \"Build API services, queues and search indexing for job platform.\",\n  \"companyId\": \"demo-company-id\",\n  \"city\": \"Bengaluru\",\n  \"state\": \"Karnataka\",\n  \"country\": \"India\",\n  \"remoteType\": \"hybrid\",\n  \"employmentType\": \"full_time\",\n  \"experienceLevel\": \"mid\",\n  \"salaryMin\": 1200000,\n  \"salaryMax\": 2400000,\n  \"currency\": \"INR\"\n}"
+            },
+            "url": "{{baseUrl}}/api/employer/jobs"
+          }
+        },
+        {
+          "name": "My Posted Jobs",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/employer/jobs"
+          }
+        },
+        {
+          "name": "My Job Applications",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/employer/applications"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Trigger Ingestion (Adzuna)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source\": \"adzuna\"\n}"
+            },
+            "url": "{{baseUrl}}/api/ingestion/trigger"
+          }
+        },
+        {
+          "name": "Get Admin Stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": "{{baseUrl}}/api/admin/stats"
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost" },
+    { "key": "accessToken", "value": "" },
+    { "key": "refreshToken", "value": "" },
+    { "key": "jobId", "value": "" },
+    { "key": "companyId", "value": "demo-company-id" }
+  ]
+}

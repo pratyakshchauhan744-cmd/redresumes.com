@@ -1,0 +1,46 @@
+{
+  "name": "redresumes-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "worker": "tsx src/worker.ts",
+    "worker:prod": "node dist/worker.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:seed": "tsx prisma/seed.ts"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.6.0",
+    "axios": "^1.8.4",
+    "bcryptjs": "^2.4.3",
+    "bullmq": "^5.49.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "ioredis": "^5.6.1",
+    "jsonwebtoken": "^9.0.2",
+    "meilisearch": "^0.50.0",
+    "morgan": "^1.10.0",
+    "zod": "^3.24.3"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.9",
+    "@types/morgan": "^1.9.9",
+    "@types/node": "^22.13.11",
+    "prisma": "^6.6.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

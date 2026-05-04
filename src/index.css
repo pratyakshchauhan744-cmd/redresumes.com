@@ -21,6 +21,37 @@
   }
 }
 
+@layer base {
+  html.dark body {
+    background: #09090b;
+    color: #f4f4f5;
+  }
+
+  html.dark .bg-white {
+    background-color: #111217 !important;
+  }
+
+  html.dark .bg-zinc-50 {
+    background-color: #18181b !important;
+  }
+
+  html.dark .text-zinc-900 {
+    color: #f4f4f5 !important;
+  }
+
+  html.dark .text-zinc-700,
+  html.dark .text-zinc-600,
+  html.dark .text-zinc-500 {
+    color: #d4d4d8 !important;
+  }
+
+  html.dark .border-zinc-100,
+  html.dark .border-zinc-200,
+  html.dark .border-zinc-300 {
+    border-color: #27272a !important;
+  }
+}
+
 .crimson-gradient {
   background: linear-gradient(135deg, #af101a 0%, #d32f2f 100%);
 }

@@ -35,7 +35,11 @@ export async function indexJobById(jobId: string): Promise<void> {
       id: job.id,
       title: job.title,
       description: job.description,
-      company: job.company.name,
+      company: {
+        id: job.company.id,
+        name: job.company.name,
+        website: job.company.website
+      },
       city: job.city,
       state: job.state,
       country: job.country,
@@ -45,6 +49,7 @@ export async function indexJobById(jobId: string): Promise<void> {
       salaryMin: job.salaryMin,
       salaryMax: job.salaryMax,
       currency: job.currency,
+      applyUrl: job.applyUrl,
       postedAt: job.postedAt.toISOString()
     }
   ]);

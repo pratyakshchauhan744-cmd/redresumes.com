@@ -1,4 +1,4 @@
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost";
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:4000";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -7,6 +7,32 @@ type RequestOptions = {
   token?: string;
   body?: unknown;
 };
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function ensureObject(value: unknown, context: string): Record<string, unknown> {
+  if (!isObject(value)) throw new Error(`Invalid ${context}: expected object response.`);
+  return value;
+}
+
+function ensureString(value: unknown, field: string): string {
+  if (typeof value !== "string") throw new Error(`Invalid response field: ${field}`);
+  return value;
+}
+
+function ensureNumber(value: unknown, field: string): number {
+  if (typeof value !== "number" || Number.isNaN(value)) throw new Error(`Invalid response field: ${field}`);
+  return value;
+}
+
+function ensureStringArray(value: unknown, field: string): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new Error(`Invalid response field: ${field}`);
+  }
+  return value;
+}
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {
@@ -17,11 +43,17 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     headers.Authorization = `Bearer ${options.token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: options.method ?? "GET",
-    headers,
-    body: options.body ? JSON.stringify(options.body) : undefined
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: options.method ?? "GET",
+      credentials: "include",
+      headers,
+      body: options.body ? JSON.stringify(options.body) : undefined
+    });
+  } catch {
+    throw new Error(`Cannot reach backend at ${API_BASE_URL}. Start backend server and verify VITE_API_BASE_URL.`);
+  }
 
   if (!response.ok) {
     let errorMessage = "Request failed";
@@ -54,11 +86,15 @@ export type BackendJob = {
   salaryMin?: number | null;
   salaryMax?: number | null;
   currency?: string | null;
+  applyUrl?: string | null;
   postedAt?: string;
-  company?: {
+  company?:
+    | {
     id: string;
     name: string;
-  };
+    website?: string | null;
+      }
+    | string;
 };
 
 export type JobsListResponse = {
@@ -80,6 +116,130 @@ export type JobFilters = {
   limit?: number;
 };
 
+export type AtsScoreResponse = {
+  score: number;
+  matchedKeywords: string[];
+  missingKeywords: string[];
+  strengths: string[];
+  improvements: string[];
+};
+
+export type ImproveResumeResponse = {
+  improvedSummary: string;
+  improvedBullets: string[];
+  keywordSuggestions: string[];
+  atsTips: string[];
+};
+
+export type AuthUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  createdAt?: string;
+  photoDataUrl?: string;
+  phone?: string;
+  location?: string;
+  bio?: string;
+};
+
+export type TranslateResumeResponse = {
+  jobTitle: string;
+  location: string;
+  summary: string;
+  experiences: Array<{ title: string; dates: string; bullets: string[] }>;
+  projects: string[];
+  certifications: string[];
+  languages: string[];
+  achievements: string[];
+  volunteer: string[];
+  skills: string[];
+  hobbies: string[];
+};
+
+function parseAuthUser(value: unknown): AuthUser {
+  const obj = ensureObject(value, "user");
+  return {
+    id: ensureString(obj.id, "user.id"),
+    name: ensureString(obj.name, "user.name"),
+    email: ensureString(obj.email, "user.email"),
+    role: ensureString(obj.role, "user.role"),
+    createdAt: typeof obj.createdAt === "string" ? obj.createdAt : undefined,
+    photoDataUrl: typeof obj.photoDataUrl === "string" ? obj.photoDataUrl : undefined,
+    phone: typeof obj.phone === "string" ? obj.phone : undefined,
+    location: typeof obj.location === "string" ? obj.location : undefined,
+    bio: typeof obj.bio === "string" ? obj.bio : undefined
+  };
+}
+
+function parseAuthResponse(value: unknown): { accessToken: string; user: AuthUser } {
+  const obj = ensureObject(value, "auth response");
+  return {
+    accessToken: ensureString(obj.accessToken, "accessToken"),
+    user: parseAuthUser(obj.user)
+  };
+}
+
+function parseAtsScore(value: unknown): AtsScoreResponse {
+  const obj = ensureObject(value, "ATS score");
+  return {
+    score: ensureNumber(obj.score, "score"),
+    matchedKeywords: ensureStringArray(obj.matchedKeywords, "matchedKeywords"),
+    missingKeywords: ensureStringArray(obj.missingKeywords, "missingKeywords"),
+    strengths: ensureStringArray(obj.strengths, "strengths"),
+    improvements: ensureStringArray(obj.improvements, "improvements")
+  };
+}
+
+function parseImproveResume(value: unknown): ImproveResumeResponse {
+  const obj = ensureObject(value, "improve response");
+  return {
+    improvedSummary: ensureString(obj.improvedSummary, "improvedSummary"),
+    improvedBullets: ensureStringArray(obj.improvedBullets, "improvedBullets"),
+    keywordSuggestions: ensureStringArray(obj.keywordSuggestions, "keywordSuggestions"),
+    atsTips: ensureStringArray(obj.atsTips, "atsTips")
+  };
+}
+
+function parseBackendJob(value: unknown): BackendJob {
+  const obj = ensureObject(value, "job");
+  return {
+    id: ensureString(obj.id, "job.id"),
+    title: ensureString(obj.title, "job.title"),
+    description: ensureString(obj.description, "job.description"),
+    city: typeof obj.city === "string" || obj.city === null ? obj.city : undefined,
+    state: typeof obj.state === "string" || obj.state === null ? obj.state : undefined,
+    country: typeof obj.country === "string" || obj.country === null ? obj.country : undefined,
+    remoteType: ensureString(obj.remoteType, "job.remoteType") as BackendJob["remoteType"],
+    employmentType: ensureString(obj.employmentType, "job.employmentType") as BackendJob["employmentType"],
+    experienceLevel: ensureString(obj.experienceLevel, "job.experienceLevel") as BackendJob["experienceLevel"],
+    salaryMin: typeof obj.salaryMin === "number" || obj.salaryMin === null ? obj.salaryMin : undefined,
+    salaryMax: typeof obj.salaryMax === "number" || obj.salaryMax === null ? obj.salaryMax : undefined,
+    currency: typeof obj.currency === "string" || obj.currency === null ? obj.currency : undefined,
+    applyUrl: typeof obj.applyUrl === "string" || obj.applyUrl === null ? obj.applyUrl : undefined,
+    postedAt: typeof obj.postedAt === "string" ? obj.postedAt : undefined,
+    company: typeof obj.company === "string" || isObject(obj.company) ? (obj.company as BackendJob["company"]) : undefined
+  };
+}
+
+function parseJobsList(value: unknown): JobsListResponse {
+  const obj = ensureObject(value, "jobs list");
+  if (!Array.isArray(obj.items)) throw new Error("Invalid jobs list: items");
+  return {
+    total: ensureNumber(obj.total, "total"),
+    page: ensureNumber(obj.page, "page"),
+    limit: ensureNumber(obj.limit, "limit"),
+    items: obj.items.map(parseBackendJob)
+  };
+}
+
+export const __internal = {
+  parseAuthResponse,
+  parseAtsScore,
+  parseImproveResume,
+  parseJobsList
+};
+
 function buildQuery(params: JobFilters): string {
   const query = new URLSearchParams();
 
@@ -97,23 +257,49 @@ export const backendApi = {
   health: () => request<{ status: string; service: string }>("/health"),
 
   register: (body: { name: string; email: string; password: string; role?: "candidate" | "employer" | "admin" }) =>
-    request<{ accessToken: string; refreshToken: string }>("/api/auth/register", { method: "POST", body }),
+    request<unknown>("/api/auth/register", { method: "POST", body }).then(parseAuthResponse),
 
   login: (body: { email: string; password: string }) =>
-    request<{ accessToken: string; refreshToken: string; user: { id: string; name: string; email: string; role: string } }>(
+    request<unknown>(
       "/api/auth/login",
+      { method: "POST", body }
+    ).then(parseAuthResponse),
+
+  startRegisterOtp: (body: { name: string; email: string; password: string; role?: "candidate" | "employer" | "admin" }) =>
+    request<{ message: string; sessionId: string; expiresInSeconds: number }>(
+      "/api/auth/register/start",
       { method: "POST", body }
     ),
 
-  refresh: (refreshToken: string) =>
-    request<{ accessToken: string }>("/api/auth/refresh", {
-      method: "POST",
-      body: { refreshToken }
-    }),
+  verifyRegisterOtp: (body: { sessionId: string; otp: string }) =>
+    request<{ accessToken: string; user: AuthUser }>(
+      "/api/auth/register/verify",
+      { method: "POST", body }
+    ),  startForgotPasswordOtp: (body: { email: string }) =>
+    request<{ message: string; sessionId: string; expiresInSeconds: number }>(
+      "/api/auth/forgot-password/start",
+      { method: "POST", body }
+    ),
 
-  listJobs: (filters: JobFilters = {}) => request<JobsListResponse>(`/api/jobs${buildQuery(filters)}`),
+  verifyForgotPasswordOtp: (body: { sessionId: string; otp: string }) =>
+    request<{ message: string }>(
+      "/api/auth/forgot-password/verify",
+      { method: "POST", body }
+    ),
 
-  getJobById: (jobId: string) => request<BackendJob>(`/api/jobs/${jobId}`),
+  resetPassword: (body: { sessionId: string; password: string }) =>
+    request<{ message: string }>(
+      "/api/auth/forgot-password/reset",
+      { method: "POST", body }
+    ),
+
+  refresh: () => request<{ accessToken: string }>("/api/auth/refresh", { method: "POST" }),
+
+  logout: () => request<void>("/api/auth/logout", { method: "POST" }),
+
+  listJobs: (filters: JobFilters = {}) => request<unknown>(`/api/jobs${buildQuery(filters)}`).then(parseJobsList),
+
+  getJobById: (jobId: string) => request<unknown>(`/api/jobs/${jobId}`).then(parseBackendJob),
 
   saveJob: (jobId: string, token: string) => request(`/api/jobs/${jobId}/save`, { method: "POST", token }),
 
@@ -126,13 +312,70 @@ export const backendApi = {
 
   getMyApplications: (token: string) => request(`/api/users/me/applications`, { token }),
 
-  getMySavedJobs: (token: string) => request(`/api/users/me/saved-jobs`, { token })
+  getMySavedJobs: (token: string) => request(`/api/users/me/saved-jobs`, { token }),
+
+  getMe: (token: string) => request<unknown>(`/api/users/me`, { token }).then(parseAuthUser),
+
+  getAtsScore: (body: { resumeText: string; jobDescription: string }, token: string) =>
+    request<unknown>("/api/ai/ats-score", { method: "POST", body, token }).then(parseAtsScore),
+
+  improveResume: (body: {
+    resumeText: string;
+    jobDescription?: string;
+    jobTitle?: string;
+    focus?: "summary" | "bullets" | "full";
+  }, token: string) => request<unknown>("/api/ai/improve-resume", { method: "POST", body, token }).then(parseImproveResume),
+
+  translateResume: (body: {
+    targetLanguage: "English" | "Hindi" | "Spanish" | "French";
+    resume: {
+      jobTitle: string;
+      location: string;
+      summary: string;
+      experiences: Array<{ title: string; dates: string; bullets: string[] }>;
+      projects: string[];
+      certifications: string[];
+      languages: string[];
+      achievements: string[];
+      volunteer: string[];
+      skills: string[];
+      hobbies: string[];
+    };
+  }, token: string) => request<TranslateResumeResponse>("/api/ai/translate-resume", { method: "POST", body, token }),
+
+  parseResume: async (file: File, token: string) => {
+    const formData = new FormData();
+    formData.append("resume", file);
+    
+    const response = await fetch(`${API_BASE_URL}/api/ai/parse-resume`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      let errorMessage = "Parse failed";
+      try {
+        const errorBody = await response.json();
+        errorMessage = errorBody.error ?? errorBody.message ?? errorMessage;
+      } catch {
+        // ignore
+      }
+      throw new Error(errorMessage);
+    }
+    
+    return response.json();
+  }
 };
 
 export function mapBackendJobToUiJob(job: BackendJob): {
   id: string;
   title: string;
   company: string;
+  companyUrl?: string;
   location: string;
   type: string;
   salary: string;
@@ -141,21 +384,41 @@ export function mapBackendJobToUiJob(job: BackendJob): {
   url?: string;
   postedAt?: string;
 } {
+  const formatSalaryAmount = (amount: number, currency: string) => {
+    if (currency === "INR") {
+      if (amount >= 10000000) {
+        return `Rs ${(amount / 10000000).toFixed(amount % 10000000 === 0 ? 0 : 1)} Cr`;
+      }
+      if (amount >= 100000) {
+        return `Rs ${(amount / 100000).toFixed(amount % 100000 === 0 ? 0 : 1)} L`;
+      }
+    }
+
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 0,
+      notation: "compact"
+    }).format(amount);
+  };
+
   const location = [job.city, job.state, job.country].filter(Boolean).join(", ") || "Remote / Global";
   const salary =
     job.salaryMin && job.salaryMax
-      ? `${job.currency ?? "USD"} ${job.salaryMin.toLocaleString()} - ${job.salaryMax.toLocaleString()}`
+      ? `${formatSalaryAmount(job.salaryMin, job.currency ?? "INR")} - ${formatSalaryAmount(job.salaryMax, job.currency ?? "INR")}`
       : "Competitive";
 
   return {
     id: job.id,
     title: job.title,
-    company: job.company?.name ?? "Unknown Company",
+    company: typeof job.company === "string" ? job.company : job.company?.name ?? "Unknown Company",
+    companyUrl: typeof job.company === "string" ? undefined : job.company?.website ?? undefined,
     location,
     type: job.remoteType,
     salary,
     match: 82,
     skills: [job.employmentType, job.experienceLevel].map((value) => value.replace("_", " ")),
+    url: job.applyUrl ?? undefined,
     postedAt: job.postedAt
   };
 }

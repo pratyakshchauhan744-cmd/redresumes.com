@@ -35,6 +35,11 @@ router.post("/jobs", async (req, res, next) => {
       return;
     }
 
+    if (req.user!.role !== "admin" && company.ownerId !== req.user!.id) {
+      res.status(403).json({ message: "Forbidden: You are not authorized to post jobs for this company" });
+      return;
+    }
+
     const dedupeHash = createJobDedupeHash({
       title: body.title,
       company: company.name,

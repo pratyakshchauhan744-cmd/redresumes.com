@@ -1,0 +1,118 @@
+import type { AuthUser } from './lib/backendApi';
+
+export type Page =
+  | 'home'
+  | 'builder'
+  | 'templates'
+  | 'cover-letter'
+  | 'pricing'
+  | 'examples'
+  | 'job-finder'
+  | 'blog'
+  | 'blog-post'
+  | 'login'
+  | 'dashboard'
+  | 'contact'
+  | 'privacy'
+  | 'terms'
+  | 'admin';
+
+export interface TemplateItem {
+  id: string;
+  name: string;
+  desc: string;
+  tag: string;
+  image: string;
+  fullPreviewImage?: string;
+}
+
+export interface JobItem {
+  id: string;
+  title: string;
+  company: string;
+  companyUrl?: string;
+  location: string;
+  type: string;
+  salary: string;
+  match: number;
+  skills: string[];
+  url?: string;
+  postedAt?: string;
+}
+
+export interface BlogArticle {
+  slug: string;
+  title: string;
+  excerpt: string;
+  readTime: string;
+  updated: string;
+  sections: Array<{
+    heading: string;
+    points: string[];
+  }>;
+}
+
+export interface PremiumFeatureItem {
+  id: 'portfolio-website-generator' | 'resume-shareable-link' | 'qr-code-resume';
+  title: string;
+  desc: string;
+  detail: string;
+  targetPage: Page;
+}
+
+export interface ResumeExamplePreset {
+  templateId: string;
+  fullName: string;
+  jobTitle: string;
+  email: string;
+  phone: string;
+  location: string;
+  profileLink: string;
+  summary: string;
+  experiences: Array<{ title: string; dates: string; bullets: string }>;
+  skillsInput: string;
+  educationDegree: string;
+  educationSchool: string;
+  educationYear: string;
+  projectsInput: string;
+  certificationsInput: string;
+  languagesInput: string;
+  achievementsInput: string;
+}
+
+export type TemplateResumeData = {
+  fullName: string;
+  jobTitle: string;
+  email: string;
+  phone: string;
+  location: string;
+  profileLink: string;
+  summary: string;
+  skills: string[];
+  educationDegree: string;
+  educationSchool: string;
+  educationYear: string;
+  bullets: string[];
+  experiences?: ExperienceItem[];
+  projects: string[];
+  certifications: string[];
+  languages: string[];
+  hobbies: string[];
+  achievements: string[];
+  volunteer: string[];
+  customColumns?: CustomColumnItem[];
+};
+
+export interface ExperienceItem {
+  title: string;
+  dates: string;
+  bullets: string;
+}
+
+export interface CustomColumnItem {
+  id: string;
+  title: string;
+  content: string;
+}
+
+export type LocalAccount = AuthUser;

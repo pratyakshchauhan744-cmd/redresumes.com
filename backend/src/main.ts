@@ -3,7 +3,11 @@ import { env } from "./config/env.js";
 import { ensureJobsIndex } from "./modules/search/search.service.js";
 
 async function bootstrap(): Promise<void> {
-  await ensureJobsIndex();
+  try {
+    await ensureJobsIndex();
+  } catch (error) {
+    console.warn("Search index init skipped:", error instanceof Error ? error.message : "unknown error");
+  }
 
   app.listen(env.PORT, () => {
     console.log(`API server listening on port ${env.PORT}`);

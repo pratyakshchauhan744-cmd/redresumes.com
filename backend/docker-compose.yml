@@ -9,6 +9,8 @@ services:
       POSTGRES_DB: redresumes
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d redresumes"]
       interval: 10s
@@ -19,6 +21,8 @@ services:
     image: redis:7-alpine
     container_name: redresumes-redis
     restart: unless-stopped
+    ports:
+      - "6379:6379"
 
   meilisearch:
     image: getmeili/meilisearch:v1.13
@@ -28,6 +32,8 @@ services:
       MEILI_MASTER_KEY: masterKey
     volumes:
       - meili_data:/meili_data
+    ports:
+      - "7700:7700"
 
   api:
     build:

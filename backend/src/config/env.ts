@@ -1,7 +1,23 @@
 import dotenv from "dotenv";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
-dotenv.config();
+const currentFilePath = fileURLToPath(import.meta.url);
+const currentDir = path.dirname(currentFilePath);
+
+const envCandidatePaths = [
+  path.resolve(currentDir, "../../.env"),
+  path.resolve(currentDir, "../../../.env"),
+  path.resolve(process.cwd(), ".env")
+];
+
+for (const envPath of envCandidatePaths) {
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath, override: false });
+  }
+}
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -19,7 +35,13 @@ const envSchema = z.object({
   S3_SECRET_ACCESS_KEY: z.string().optional(),
   ADZUNA_APP_ID: z.string().optional(),
   ADZUNA_APP_KEY: z.string().optional(),
-  JOOBLE_API_KEY: z.string().optional()
+  JOOBLE_API_KEY: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
+  FRONTEND_ORIGIN: z.string().optional(),
+  COOKIE_SECURE: z
+    .string()
+    .optional()
+    .transform((value) => value === "true")
 });
 
 const parsed = envSchema.safeParse(process.env);

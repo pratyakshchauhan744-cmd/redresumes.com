@@ -4,6 +4,7 @@ import { z } from "zod";
 import rateLimit from "express-rate-limit";
 import { createHash, randomBytes, randomInt } from "crypto";
 import nodemailer from "nodemailer";
+import { OAuth2Client } from "google-auth-library";
 import { prisma } from "../../db/prisma.js";
 import { env } from "../../config/env.js";
 import { signAccessToken, signRefreshToken, verifyToken } from "../../utils/jwt.js";
@@ -39,6 +40,10 @@ const registerVerifySchema = z.object({
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8)
+});
+
+const googleLoginSchema = z.object({
+  credential: z.string().min(20)
 });
 
 const loginStartSchema = z.object({
@@ -98,6 +103,262 @@ const pendingOtpForgot = new Map<string, PendingOtpForgot>();
 const OTP_TTL_MS = 5 * 60 * 1000;
 const REFRESH_COOKIE_NAME = "rr_refresh_token";
 const REFRESH_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const googleOAuthClient = new OAuth2Client();
+
+type VerifiedGooglePayload = {
+  sub: string;
+  email: string;
+  email_verified?: boolean | "true" | "false";
+  name?: string;
+  aud?: string;
+  iss?: string;
+  exp?: string | number;
+};
+
+type GoogleAuthFailureCode =
+  | "malformed_token"
+  | "tokeninfo_rejected"
+  | "missing_identity"
+  | "audience_mismatch"
+  | "issuer_mismatch"
+  | "expired"
+  | "verify_failed";
+
+class GoogleAuthError extends Error {
+  code: GoogleAuthFailureCode;
+  status?: number;
+  audience?: string;
+  expectedProjects?: string;
+
+  constructor(message: string, code: GoogleAuthFailureCode, details: { status?: number; audience?: string; expectedProjects?: string } = {}) {
+    super(message);
+    this.code = code;
+    this.status = details.status;
+    this.audience = details.audience;
+    this.expectedProjects = details.expectedProjects;
+  }
+}
+
+function getAllowedGoogleClientIds(): string[] {
+  return [
+    env.GOOGLE_CLIENT_ID,
+    env.VITE_GOOGLE_CLIENT_ID,
+    env.GOOGLE_CLIENT_IDS
+  ]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .flatMap((value) => value.split(","))
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function decodeBase64UrlJson(value: string): unknown {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  return JSON.parse(Buffer.from(padded, "base64").toString("utf8")) as unknown;
+}
+
+function decodeGoogleCredentialPayload(credential: string): Partial<VerifiedGooglePayload> {
+  const parts = credential.split(".");
+  if (parts.length !== 3) {
+    throw new GoogleAuthError("Google returned a malformed credential.", "malformed_token");
+  }
+
+  const payload = decodeBase64UrlJson(parts[1]);
+  if (!payload || typeof payload !== "object") {
+    throw new GoogleAuthError("Google credential payload is unreadable.", "malformed_token");
+  }
+
+  return payload as Partial<VerifiedGooglePayload>;
+}
+
+function getGoogleClientProjectNumber(clientId: string): string | null {
+  const match = clientId.match(/^(\d+)-[a-z0-9]+\.apps\.googleusercontent\.com$/i);
+  return match?.[1] ?? null;
+}
+
+function isAllowedGoogleAudience(audience: string | undefined, allowedClientIds: string[]): boolean {
+  if (!audience) return false;
+  if (allowedClientIds.includes(audience)) return true;
+
+  const audienceProject = getGoogleClientProjectNumber(audience);
+  if (!audienceProject) return false;
+
+  return allowedClientIds.some((clientId) => getGoogleClientProjectNumber(clientId) === audienceProject);
+}
+
+function getAllowedGoogleProjectNumbers(allowedClientIds: string[]): string[] {
+  return Array.from(new Set(allowedClientIds.map(getGoogleClientProjectNumber).filter((value): value is string => Boolean(value))));
+}
+
+function isGoogleEmailVerified(value: VerifiedGooglePayload["email_verified"]): boolean {
+  return value === true || value === "true";
+}
+
+async function verifyGoogleCredential(credential: string, allowedClientIds: string[]): Promise<VerifiedGooglePayload> {
+  const decodedPayload = decodeGoogleCredentialPayload(credential);
+  const decodedAudience = typeof decodedPayload.aud === "string" ? decodedPayload.aud : undefined;
+  const expectedProjects = getAllowedGoogleProjectNumbers(allowedClientIds).join(",");
+
+  if (!decodedAudience || !isAllowedGoogleAudience(decodedAudience, allowedClientIds)) {
+    throw new GoogleAuthError("Google credential belongs to a different OAuth client.", "audience_mismatch", {
+      audience: decodedAudience ?? "missing",
+      expectedProjects
+    });
+  }
+
+  // Primary method: use google-auth-library's verifyIdToken (recommended for production).
+  // This performs local JWT signature verification using Google's cached public keys.
+  try {
+    console.log("[Google Auth] Verifying credential via verifyIdToken, audience:", decodedAudience);
+    const ticket = await googleOAuthClient.verifyIdToken({
+      idToken: credential,
+      audience: decodedAudience
+    });
+    const payload = ticket.getPayload();
+    if (payload?.sub && payload.email) {
+      if (!isAllowedGoogleAudience(payload.aud, allowedClientIds)) {
+        throw new GoogleAuthError("Google token audience mismatch after verification.", "audience_mismatch", {
+          audience: payload.aud ?? "missing",
+          expectedProjects
+        });
+      }
+      console.log("[Google Auth] verifyIdToken succeeded for:", payload.email);
+      return {
+        sub: payload.sub,
+        email: payload.email,
+        email_verified: payload.email_verified,
+        name: payload.name,
+        aud: payload.aud,
+        iss: payload.iss,
+        exp: payload.exp
+      };
+    }
+    console.warn("[Google Auth] verifyIdToken returned payload but missing sub/email:", { sub: payload?.sub, email: payload?.email });
+  } catch (verifyError) {
+    console.warn("[Google Auth] verifyIdToken failed:", verifyError instanceof Error ? verifyError.message : verifyError);
+  }
+
+  // Fallback: try the tokeninfo endpoint (meant for debugging, but useful as a last resort).
+  console.log("[Google Auth] Trying tokeninfo endpoint as fallback...");
+  let fetchResponse: globalThis.Response | undefined;
+  try {
+    fetchResponse = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`);
+  } catch (fetchError) {
+    console.warn("[Google Auth] tokeninfo fetch failed:", fetchError);
+  }
+
+  if (fetchResponse && fetchResponse.ok) {
+    const payload = await fetchResponse.json() as VerifiedGooglePayload;
+    if (!payload.sub || !payload.email) {
+      throw new GoogleAuthError("Google token payload is missing required identity fields.", "missing_identity", {
+        audience: payload.aud,
+        expectedProjects
+      });
+    }
+    if (!isAllowedGoogleAudience(payload.aud, allowedClientIds)) {
+      throw new GoogleAuthError("Google token audience mismatch.", "audience_mismatch", {
+        audience: payload.aud ?? "missing",
+        expectedProjects
+      });
+    }
+    if (payload.iss && !["accounts.google.com", "https://accounts.google.com"].includes(payload.iss)) {
+      throw new GoogleAuthError("Google token issuer mismatch.", "issuer_mismatch", {
+        audience: payload.aud,
+        expectedProjects
+      });
+    }
+    if (payload.exp && Number(payload.exp) * 1000 < Date.now()) {
+      throw new GoogleAuthError("Google token is expired.", "expired", {
+        audience: payload.aud,
+        expectedProjects
+      });
+    }
+    console.log("[Google Auth] tokeninfo fallback succeeded for:", payload.email);
+    return payload;
+  }
+
+  const tokenInfoText = fetchResponse ? await fetchResponse.text().catch(() => "") : "network error";
+  console.warn("[Google Auth] tokeninfo also failed:", fetchResponse?.status, tokenInfoText.slice(0, 200));
+
+  // Both methods failed — try one more time with verifyIdToken using all allowed client IDs
+  try {
+    console.log("[Google Auth] Final attempt: verifyIdToken with all allowed client IDs");
+    const ticket = await googleOAuthClient.verifyIdToken({
+      idToken: credential,
+      audience: allowedClientIds
+    });
+    const payload = ticket.getPayload();
+    if (payload?.sub && payload.email) {
+      console.log("[Google Auth] Final verifyIdToken attempt succeeded for:", payload.email);
+      return {
+        sub: payload.sub,
+        email: payload.email,
+        email_verified: payload.email_verified,
+        name: payload.name,
+        aud: payload.aud,
+        iss: payload.iss,
+        exp: payload.exp
+      };
+    }
+  } catch (finalError) {
+    const msg = finalError instanceof Error ? finalError.message : String(finalError);
+    console.error("[Google Auth] All verification methods failed. Final error:", msg);
+    throw new GoogleAuthError(`Google token could not be verified: ${msg}`, "verify_failed", {
+      status: fetchResponse?.status,
+      audience: decodedAudience,
+      expectedProjects
+    });
+  }
+
+  throw new GoogleAuthError("Google token payload could not be verified after all attempts.", "verify_failed", {
+    status: fetchResponse?.status,
+    audience: decodedAudience,
+    expectedProjects
+  });
+}
+
+function getGoogleAuthClientMessage(error: unknown): string {
+  if (!(error instanceof GoogleAuthError)) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return `Google sign-in could not be verified (${msg}). Please refresh the page and try again.`;
+  }
+
+  if (error.code === "audience_mismatch") {
+    return `Google OAuth client mismatch. Token audience is ${error.audience}; expected Google project ${error.expectedProjects || "unknown"}. Add the matching Web Client ID to GOOGLE_CLIENT_IDS.`;
+  }
+  if (error.code === "malformed_token") {
+    return "Google returned an unreadable login credential. Refresh this page and try again.";
+  }
+  if (error.code === "expired") {
+    return "Google login expired. Please click the Google button again.";
+  }
+  if (error.code === "verify_failed") {
+    return `Google sign-in could not be verified (${error.message}). Please refresh the page and try again.`;
+  }
+
+  return "Google sign-in could not be verified. Please refresh the page and try again.";
+}
+
+function shouldExposeOtpForDemo(): boolean {
+  return env.NODE_ENV !== "production" || process.env.OTP_DEMO_FALLBACK === "true";
+}
+
+function buildOtpStartResponse(message: string, sessionId: string, otp: string, fallbackReason?: string) {
+  const response: { message: string; sessionId: string; expiresInSeconds: number; devOtp?: string } = {
+    message,
+    sessionId,
+    expiresInSeconds: OTP_TTL_MS / 1000
+  };
+
+  if (shouldExposeOtpForDemo()) {
+    response.devOtp = otp;
+    if (fallbackReason) {
+      response.message = `OTP email delivery is temporarily unavailable. Use OTP ${otp} to continue.`;
+    }
+  }
+
+  return response;
+}
 
 function tokenHash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -275,16 +536,16 @@ router.post("/register/start", otpStartLimiter, async (req, res, next) => {
     try {
       await sendOtpEmail(email, otp);
     } catch (emailError) {
+      if (shouldExposeOtpForDemo()) {
+        res.json(buildOtpStartResponse("OTP generated for account verification.", sessionId, otp, getEmailDeliveryMessage(emailError)));
+        return;
+      }
       pendingOtpSignups.delete(sessionId);
       res.status(503).json({ message: getEmailDeliveryMessage(emailError) });
       return;
     }
 
-    res.json({
-      message: "OTP sent to your email for account verification.",
-      sessionId,
-      expiresInSeconds: OTP_TTL_MS / 1000
-    });
+    res.json(buildOtpStartResponse("OTP sent to your email for account verification.", sessionId, otp));
   } catch (error) {
     next(error);
   }
@@ -376,6 +637,50 @@ router.post("/login", async (req, res, next) => {
       res.status(401).json({ message: "Invalid credentials" });
       return;
     }
+
+    await issueAuthResponse(res, user);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/google", async (req, res, next) => {
+  try {
+    const allowedClientIds = getAllowedGoogleClientIds();
+    console.log("[Google Auth] Allowed client IDs:", allowedClientIds);
+    if (allowedClientIds.length === 0) {
+      res.status(503).json({ message: "Google login is not configured. Set GOOGLE_CLIENT_ID on the server." });
+      return;
+    }
+
+    const body = googleLoginSchema.parse(req.body);
+    let payload: VerifiedGooglePayload;
+    try {
+      payload = await verifyGoogleCredential(body.credential, allowedClientIds);
+    } catch (error) {
+      console.warn("[Google Auth] credential rejected.", error instanceof Error ? error.message : error);
+      res.status(401).json({
+        message: getGoogleAuthClientMessage(error)
+      });
+      return;
+    }
+
+    if (!payload.sub || !payload.email || !isGoogleEmailVerified(payload.email_verified)) {
+      res.status(401).json({ message: "Google account email is not verified." });
+      return;
+    }
+
+    const email = normalizedEmail(payload.email);
+    const displayName = payload.name?.trim() || email.split("@")[0] || "Google User";
+    const existing = await prisma.user.findUnique({ where: { email } });
+    const user = existing ?? await prisma.user.create({
+      data: {
+        name: displayName,
+        email,
+        passwordHash: await bcrypt.hash(randomBytes(32).toString("hex"), 10),
+        role: "candidate"
+      }
+    });
 
     await issueAuthResponse(res, user);
   } catch (error) {
@@ -541,16 +846,16 @@ router.post("/forgot-password/start", otpStartLimiter, async (req, res, next) =>
     try {
       await sendOtpEmail(user.email, otp);
     } catch (emailError) {
+      if (shouldExposeOtpForDemo()) {
+        res.json(buildOtpStartResponse("OTP generated for password reset.", sessionId, otp, getEmailDeliveryMessage(emailError)));
+        return;
+      }
       pendingOtpForgot.delete(sessionId);
       res.status(503).json({ message: getEmailDeliveryMessage(emailError) });
       return;
     }
 
-    res.json({
-      message: "OTP sent to your email.",
-      sessionId,
-      expiresInSeconds: OTP_TTL_MS / 1000
-    });
+    res.json(buildOtpStartResponse("OTP sent to your email.", sessionId, otp));
   } catch (error) {
     next(error);
   }

@@ -1,17 +1,19 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, type ChangeEvent } from 'react';
 import { Download, Layout, Sparkles, User, FileText, CheckCircle, Save, HelpCircle, Briefcase, ChevronRight, PenTool, Type, Move, Plus, X, ArrowUp, ArrowDown, GripVertical, Check, MessageSquare, AlertCircle, Copy, Code, ArrowLeft, LoaderCircle, ClipboardCheck } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import QRCode from 'qrcode';
 import { Section } from '../components/Section';
 import { PrimaryButton, SecondaryButton } from '../components/Buttons';
-import { TemplateResumePage } from '../components/TemplateResumePage';
-import { backendApi, type AuthUser } from '../lib/backendApi';
-import { RESUME_HISTORY_STORAGE_KEY, buildUserScopedStorageKey, getStoredAccessToken } from '../lib/auth';
+import { TemplatePreviewScaler } from '../components/TemplatePreviewScaler';
+import { TemplateVisualPreview } from '../components/TemplateVisualPreview';
+import { backendApi, type AtsScoreResponse, type AuthUser, type ImproveResumeResponse } from '../lib/backendApi';
+import { RESUME_DRAFT_STORAGE_KEY, RESUME_HISTORY_STORAGE_KEY, buildUserScopedStorageKey, getStoredAccessToken } from '../lib/auth';
 import { templates } from '../data/templates';
 import { resumeExamplePresets } from '../data/resumeExamples';
 import { premiumFeatures } from '../data/premiumFeatures';
 import { generateResumeDocx } from '../lib/docxExport';
-import type { TemplateItem, TemplateResumeData, ExperienceItem, CustomColumnItem } from '../types';
+import type { PremiumFeatureItem, TemplateItem, TemplateResumeData, ExperienceItem, CustomColumnItem, EducationItem } from '../types';
 import { useLocation } from 'react-router-dom';
 
 const MAX_RESUME_HISTORY_ITEMS = 50;
@@ -52,6 +54,7 @@ export const ResumeBuilderPage = ({
     summary: string;
     experiences: ExperienceItem[];
     skillsInput: string;
+    educationItems?: EducationItem[];
     educationDegree: string;
     educationSchool: string;
     educationYear: string;
@@ -124,9 +127,12 @@ export const ResumeBuilderPage = ({
     },
   ]);
   const [skillsInput, setSkillsInput] = useState('Product Strategy, Analytics, Roadmapping, Leadership, SQL, Stakeholder Management');
-  const [educationDegree, setEducationDegree] = useState('B.Tech in Computer Science');
-  const [educationSchool, setEducationSchool] = useState('National Institute of Technology');
-  const [educationYear, setEducationYear] = useState('2018 - 2022');
+  const [educationItems, setEducationItems] = useState<EducationItem[]>([
+    { degree: 'B.Tech in Computer Science', school: 'National Institute of Technology', year: '2018 - 2022' },
+  ]);
+  const educationDegree = educationItems[0]?.degree ?? '';
+  const educationSchool = educationItems[0]?.school ?? '';
+  const educationYear = educationItems[0]?.year ?? '';
   const [projectsInput, setProjectsInput] = useState('Built a resume scoring tool using React and Node.js.\nCreated an analytics dashboard to track job applications.');
   const [certificationsInput, setCertificationsInput] = useState('Google Data Analytics, AWS Cloud Practitioner');
   const [languagesInput, setLanguagesInput] = useState('English, Hindi');
@@ -156,10 +162,13 @@ export const ResumeBuilderPage = ({
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [premiumActionMessage, setPremiumActionMessage] = useState<string | null>(null);
+  const [publishedResumeUrl, setPublishedResumeUrl] = useState('');
+  const [premiumActionLoading, setPremiumActionLoading] = useState<PremiumFeatureItem['id'] | null>(null);
   const [highlightedOrderSectionId, setHighlightedOrderSectionId] = useState<SectionId | null>(null);
   const [pendingOrderScrollSectionId, setPendingOrderScrollSectionId] = useState<SectionId | null>(null);
   const [saveStatus, setSaveStatus] = useState<'saving' | 'saved'>('saved');
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const [draftHydrated, setDraftHydrated] = useState(false);
   const [undoStack, setUndoStack] = useState<ResumeHistorySnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<ResumeHistorySnapshot[]>([]);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
@@ -167,7 +176,35 @@ export const ResumeBuilderPage = ({
   const sectionOrderItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const lastAutoSaveAtRef = useRef<number>(0);
   const applyFromHistoryRef = useRef(false);
+  const canSaveResumeHistory = Boolean(currentUser);
+  const resumeDraftStorageKey = buildUserScopedStorageKey(RESUME_DRAFT_STORAGE_KEY, currentUser?.id);
   const resumeHistoryStorageKey = buildUserScopedStorageKey(RESUME_HISTORY_STORAGE_KEY, currentUser?.id);
+  const normalizeEducationItems = (data: Partial<ResumeHistorySnapshot> | Partial<TemplateResumeData>): EducationItem[] => {
+    const items = Array.isArray(data.educationItems) ? data.educationItems : [];
+    const normalized = items
+      .map((item) => ({
+        degree: item.degree ?? '',
+        school: item.school ?? '',
+        year: item.year ?? '',
+      }))
+      .filter((item) => item.degree || item.school || item.year);
+
+    if (normalized.length > 0) {
+      return normalized;
+    }
+
+    return [{
+      degree: data.educationDegree ?? '',
+      school: data.educationSchool ?? '',
+      year: data.educationYear ?? '',
+    }];
+  };
+  const updateEducation = (index: number, key: keyof EducationItem, value: string) => {
+    setEducationItems((prev) => prev.map((item, idx) => (idx === index ? { ...item, [key]: value } : item)));
+  };
+  const setEducationDegree = (value: string) => updateEducation(0, 'degree', value);
+  const setEducationSchool = (value: string) => updateEducation(0, 'school', value);
+  const setEducationYear = (value: string) => updateEducation(0, 'year', value);
 
   useEffect(() => {
     if (!selectedExample) return;
@@ -192,9 +229,11 @@ export const ResumeBuilderPage = ({
     setSummary(preset.summary);
     setExperiences(preset.experiences);
     setSkillsInput(preset.skillsInput);
-    setEducationDegree(preset.educationDegree);
-    setEducationSchool(preset.educationSchool);
-    setEducationYear(preset.educationYear);
+    setEducationItems([{
+      degree: preset.educationDegree,
+      school: preset.educationSchool,
+      year: preset.educationYear,
+    }]);
     setProjectsInput(preset.projectsInput);
     setCertificationsInput(preset.certificationsInput);
     setLanguagesInput(preset.languagesInput);
@@ -233,6 +272,7 @@ export const ResumeBuilderPage = ({
     summary,
     experiences,
     skillsInput,
+    educationItems,
     educationDegree,
     educationSchool,
     educationYear,
@@ -248,6 +288,8 @@ export const ResumeBuilderPage = ({
   });
 
   const persistResumeHistory = (items: ResumeHistoryEntry[]) => {
+    if (!canSaveResumeHistory) return;
+
     try {
       window.localStorage.setItem(resumeHistoryStorageKey, JSON.stringify(items));
     } catch {
@@ -256,6 +298,11 @@ export const ResumeBuilderPage = ({
   };
 
   const saveCurrentResumeToHistory = (note = 'Saved version') => {
+    if (!canSaveResumeHistory) {
+      setHistoryMessage('Please sign in or create an account to save resume versions.');
+      return;
+    }
+
     const snapshot = buildResumeHistorySnapshot();
     const snapshotHash = JSON.stringify(snapshot);
 
@@ -300,9 +347,7 @@ export const ResumeBuilderPage = ({
     setSummary(data.summary);
     setExperiences(data.experiences);
     setSkillsInput(data.skillsInput);
-    setEducationDegree(data.educationDegree);
-    setEducationSchool(data.educationSchool);
-    setEducationYear(data.educationYear);
+    setEducationItems(normalizeEducationItems(data));
     setProjectsInput(data.projectsInput);
     setCertificationsInput(data.certificationsInput);
     setLanguagesInput(data.languagesInput);
@@ -365,6 +410,13 @@ export const ResumeBuilderPage = ({
   };
 
   useEffect(() => {
+    if (!canSaveResumeHistory) {
+      setResumeHistory([]);
+      setActiveHistoryId(null);
+      setHistoryMessage(null);
+      return;
+    }
+
     try {
       const raw = window.localStorage.getItem(resumeHistoryStorageKey);
       if (!raw) {
@@ -380,7 +432,7 @@ export const ResumeBuilderPage = ({
     } catch {
       // ignore parse/storage errors
     }
-  }, [resumeHistoryStorageKey]);
+  }, [canSaveResumeHistory, resumeHistoryStorageKey]);
 
   const parsedSkills = skillsInput.split(',').map((item) => item.trim()).filter(Boolean);
   const parsedProjects = projectsInput.split('\n').map((item) => item.trim()).filter(Boolean);
@@ -399,6 +451,55 @@ export const ResumeBuilderPage = ({
         .filter(Boolean),
     }))
     .filter((item) => item.title || item.lines.length > 0);
+  const liveTemplateResumeData: TemplateResumeData = useMemo(() => ({
+    fullName,
+    jobTitle,
+    email,
+    phone,
+    location,
+    profileLink,
+    summary,
+    skills: parsedSkills,
+    educationDegree,
+    educationSchool,
+    educationYear,
+    educationItems: educationItems.filter((item) => item.degree.trim() || item.school.trim() || item.year.trim()),
+    bullets: experiences.flatMap((exp) =>
+      exp.bullets
+        .split('\n')
+        .map((line) => line.replace(/^\s*-\s*/, '').trim())
+        .filter(Boolean),
+    ),
+    experiences,
+    projects: parsedProjects,
+    certifications: parsedCertifications,
+    languages: parsedLanguages,
+    hobbies: parsedHobbies,
+    achievements: parsedAchievements,
+    volunteer: parsedVolunteer,
+    customColumns,
+  }), [
+    fullName,
+    jobTitle,
+    email,
+    phone,
+    location,
+    profileLink,
+    summary,
+    skillsInput,
+    educationItems,
+    educationDegree,
+    educationSchool,
+    educationYear,
+    experiences,
+    projectsInput,
+    certificationsInput,
+    languagesInput,
+    hobbiesInput,
+    achievementsInput,
+    volunteerInput,
+    customColumns,
+  ]);
   const datePlaceText = [
     importantDate.trim() ? `Date: ${importantDate.trim()}` : '',
     importantPlace.trim() ? `Place: ${importantPlace.trim()}` : '',
@@ -410,7 +511,9 @@ export const ResumeBuilderPage = ({
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'candidate';
-  const resumeShareLink = `https://redresumes.com/r/${resumeSlug}-${selectedTemplate.id}`;
+  const resumePdfFileName = `${resumeSlug}-${selectedTemplate.id}-resume.pdf`;
+  const appOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://redresumescom.vercel.app';
+
   const templateThemeById: Record<string, { accent: string; headingBg: string; font: string; layout: 'single' | 'two-column' }> = {
     professional: { accent: '#991b1b', headingBg: '#f8fafc', font: 'Inter, Arial, sans-serif', layout: 'single' },
     modern: { accent: '#2563eb', headingBg: '#eff6ff', font: 'Inter, Arial, sans-serif', layout: 'single' },
@@ -490,6 +593,7 @@ export const ResumeBuilderPage = ({
       educationDegree,
       educationSchool,
       educationYear,
+      educationItems,
       projectsInput,
       certificationsInput,
       languagesInput,
@@ -505,6 +609,32 @@ export const ResumeBuilderPage = ({
     () => JSON.stringify(currentBuilderSnapshot),
     [currentBuilderSnapshot],
   );
+
+  useEffect(() => {
+    setPublishedResumeUrl('');
+    setShareLinkCopied(false);
+  }, [currentBuilderSnapshotHash]);
+
+  useEffect(() => {
+    try {
+      const rawDraft = window.localStorage.getItem(resumeDraftStorageKey);
+      if (rawDraft) {
+        const parsed = JSON.parse(rawDraft) as ResumeHistorySnapshot;
+        if (parsed && typeof parsed === 'object') {
+          applySnapshotToBuilder({
+            ...parsed,
+            experiences: Array.isArray(parsed.experiences) ? parsed.experiences : [],
+            customColumns: Array.isArray(parsed.customColumns) ? parsed.customColumns : [],
+          });
+          setHistoryMessage('Restored your locally saved draft.');
+        }
+      }
+    } catch {
+      // ignore corrupt or unavailable draft storage
+    } finally {
+      setDraftHydrated(true);
+    }
+  }, [resumeDraftStorageKey]);
 
   const handleUndo = () => {
     setUndoStack((prev) => {
@@ -536,13 +666,22 @@ export const ResumeBuilderPage = ({
   }, [undoStack.length, currentBuilderSnapshot]);
 
   useEffect(() => {
+    if (!draftHydrated) {
+      return;
+    }
+
     if (applyFromHistoryRef.current) {
       applyFromHistoryRef.current = false;
-      return;
     }
 
     setSaveStatus('saving');
     const timer = window.setTimeout(() => {
+      try {
+        window.localStorage.setItem(resumeDraftStorageKey, currentBuilderSnapshotHash);
+      } catch {
+        // ignore storage errors
+      }
+
       setUndoStack((prev) => {
         const last = prev[prev.length - 1];
         if (last && JSON.stringify(last) === currentBuilderSnapshotHash) {
@@ -556,7 +695,7 @@ export const ResumeBuilderPage = ({
     }, 380);
 
     return () => window.clearTimeout(timer);
-  }, [currentBuilderSnapshot, currentBuilderSnapshotHash]);
+  }, [currentBuilderSnapshot, currentBuilderSnapshotHash, draftHydrated, resumeDraftStorageKey]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -617,6 +756,10 @@ export const ResumeBuilderPage = ({
   };
 
   useEffect(() => {
+    if (!canSaveResumeHistory) {
+      return;
+    }
+
     const timer = window.setTimeout(() => {
       const now = Date.now();
       if (now - lastAutoSaveAtRef.current < 12000) {
@@ -648,6 +791,7 @@ export const ResumeBuilderPage = ({
     educationDegree,
     educationSchool,
     educationYear,
+    educationItems,
     projectsInput,
     certificationsInput,
     languagesInput,
@@ -658,6 +802,7 @@ export const ResumeBuilderPage = ({
     selectedTemplate.id,
     selectedTemplate.name,
     resumeHistory,
+    canSaveResumeHistory,
   ]);
 
   const updateExperience = (index: number, key: keyof ExperienceItem, value: string) => {
@@ -672,6 +817,24 @@ export const ResumeBuilderPage = ({
     setExperiences((prev) => {
       const source = prev[prev.length - 1] || { title: '', dates: '', bullets: '' };
       return [...prev, { ...source }];
+    });
+  };
+
+  const addAnotherEducation = () => {
+    setEducationItems((prev) => [...prev, { degree: '', school: '', year: '' }]);
+  };
+
+  const duplicateEducationSection = () => {
+    setEducationItems((prev) => {
+      const source = prev[prev.length - 1] || { degree: '', school: '', year: '' };
+      return [...prev, { ...source }];
+    });
+  };
+
+  const removeEducation = (index: number) => {
+    setEducationItems((prev) => {
+      const next = prev.filter((_, idx) => idx !== index);
+      return next.length > 0 ? next : [{ degree: '', school: '', year: '' }];
     });
   };
 
@@ -737,8 +900,9 @@ export const ResumeBuilderPage = ({
     const safeLocation = escapeHtml(location || '-');
     const safeProfile = escapeHtml(profileLink || '-');
     const safeDatePlace = escapeHtml(datePlaceText || '');
-    const educationSummary = escapeHtml([educationDegree, educationSchool].filter(Boolean).join(' - ') || 'Add your education details');
-    const educationYears = escapeHtml(educationYear || 'Years not specified');
+    const firstEducation = normalizeEducationItems({ educationItems, educationDegree, educationSchool, educationYear })[0];
+    const educationSummary = escapeHtml([firstEducation.degree, firstEducation.school].filter(Boolean).join(' - ') || 'Add your education details');
+    const educationYears = escapeHtml(firstEducation.year || 'Years not specified');
     const accent = currentTheme.accent;
 
     const skillChips = (parsedSkills.slice(0, 14).map((skill) => `<span class="chip">${escapeHtml(skill)}</span>`).join(''))
@@ -1198,53 +1362,96 @@ export const ResumeBuilderPage = ({
       return;
     }
 
+    const publishCurrentResume = async () => {
+      const published = await backendApi.publishPublicResume({
+        slug: resumeSlug,
+        templateId: selectedTemplate.id,
+        resumeData: liveTemplateResumeData,
+      });
+      const url = `${appOrigin}/r/${published.id}`;
+      setPublishedResumeUrl(url);
+      return url;
+    };
+
     if (featureId === 'resume-shareable-link') {
+      setPremiumActionLoading(featureId);
       try {
+        const url = await publishCurrentResume();
         if (navigator.clipboard?.writeText) {
-          await navigator.clipboard.writeText(resumeShareLink);
+          await navigator.clipboard.writeText(url);
           setShareLinkCopied(true);
-          setPremiumActionMessage('Resume shareable link copied.');
+          setPremiumActionMessage('Resume published and shareable link copied.');
         } else {
           setShareLinkCopied(false);
-          setPremiumActionMessage('Clipboard access is not available in this browser.');
+          setPremiumActionMessage('Resume published. Copy the live URL from the box below.');
         }
-      } catch {
+      } catch (error) {
         setShareLinkCopied(false);
-        setPremiumActionMessage('Unable to copy link. Please copy it manually from the preview box.');
+        setPremiumActionMessage(error instanceof Error ? error.message : 'Unable to publish resume link. Please try again.');
+      } finally {
+        setPremiumActionLoading(null);
       }
       return;
     }
 
     if (featureId === 'qr-code-resume') {
+      setPremiumActionLoading(featureId);
       const popup = window.open('', '_blank', 'width=600,height=700');
-      if (!popup) return;
-      const qrCodeSrc = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(resumeShareLink)}`;
-      popup.document.write(`
-        <html>
-          <head>
-            <title>Resume QR Code</title>
-            <style>
-              body { margin: 0; font-family: Inter, Arial, sans-serif; background: #f8fafc; color: #111827; }
-              .wrap { padding: 30px; max-width: 480px; margin: 0 auto; text-align: center; }
-              .card { border: 1px solid #e5e7eb; border-radius: 16px; background: white; padding: 24px; }
-              img { border-radius: 12px; border: 1px solid #e5e7eb; }
-              p { color: #4b5563; line-height: 1.5; }
-            </style>
-          </head>
-          <body>
-            <div class="wrap">
-              <div class="card">
-                <h2>QR code resume</h2>
-                <p>Scan this QR to open your latest shareable resume.</p>
-                <img src="${qrCodeSrc}" alt="Resume QR code" width="280" height="280" />
-                <p style="margin-top: 14px; word-break: break-all;">${resumeShareLink}</p>
+      if (!popup) {
+        setPremiumActionLoading(null);
+        setPremiumActionMessage('Allow popups to generate the QR code.');
+        return;
+      }
+
+      popup.document.write('<p style="font-family: Inter, Arial, sans-serif; padding: 24px;">Publishing resume and generating QR code...</p>');
+      try {
+        const url = await publishCurrentResume();
+        const qrCodeSrc = await QRCode.toDataURL(url, {
+          width: 280,
+          margin: 2,
+          errorCorrectionLevel: 'M',
+          color: {
+            dark: '#111827',
+            light: '#ffffff',
+          },
+        });
+
+        popup.document.open();
+        popup.document.write(`
+          <html>
+            <head>
+              <title>Resume QR Code</title>
+              <style>
+                body { margin: 0; font-family: Inter, Arial, sans-serif; background: #f8fafc; color: #111827; }
+                .wrap { padding: 30px; max-width: 480px; margin: 0 auto; text-align: center; }
+                .card { border: 1px solid #e5e7eb; border-radius: 16px; background: white; padding: 24px; box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08); }
+                img { border-radius: 12px; border: 1px solid #e5e7eb; }
+                p { color: #4b5563; line-height: 1.5; }
+                button, a.button { display: inline-flex; margin-top: 14px; border: 0; border-radius: 12px; background: #e11d48; color: white; padding: 10px 14px; font-weight: 700; text-decoration: none; cursor: pointer; }
+              </style>
+            </head>
+            <body>
+              <div class="wrap">
+                <div class="card">
+                  <h2>QR code resume</h2>
+                  <p>Scan this QR to open your latest shareable resume.</p>
+                  <img src="${qrCodeSrc}" alt="Resume QR code" width="280" height="280" />
+                  <p style="margin-top: 14px; word-break: break-all;">${url}</p>
+                  <a class="button" href="${qrCodeSrc}" download="${resumeSlug}-resume-qr.png">Download QR PNG</a>
+                  <button onclick="window.print()">Print QR</button>
+                </div>
               </div>
-            </div>
-          </body>
-        </html>
-      `);
-      popup.document.close();
-      setPremiumActionMessage('QR code generated in a new tab.');
+            </body>
+          </html>
+        `);
+        popup.document.close();
+        setPremiumActionMessage('Resume published and QR code generated in a new tab.');
+      } catch (error) {
+        popup.close();
+        setPremiumActionMessage(error instanceof Error ? error.message : 'Unable to generate QR code. Please try again.');
+      } finally {
+        setPremiumActionLoading(null);
+      }
       return;
     }
 
@@ -1299,7 +1506,8 @@ export const ResumeBuilderPage = ({
     const hasSummary = summary.trim().length > 0;
     const hasExperience = experiences.some((item) => item.title.trim() || item.dates.trim() || item.bullets.trim());
     const hasSkills = parsedSkills.length > 0;
-    const hasEducation = educationDegree.trim() || educationSchool.trim() || educationYear.trim();
+    const activeEducationItems = educationItems.filter((item) => item.degree.trim() || item.school.trim() || item.year.trim());
+    const hasEducation = activeEducationItems.length > 0;
     const hasProjects = parsedProjects.length > 0;
     const hasCertifications = parsedCertifications.length > 0;
     const hasLanguages = parsedLanguages.length > 0;
@@ -1307,10 +1515,21 @@ export const ResumeBuilderPage = ({
     const hasAchievements = parsedAchievements.length > 0;
     const hasVolunteer = parsedVolunteer.length > 0;
     const hasCustomColumns = parsedCustomColumns.length > 0;
-    const educationHeadline = educationDegree.trim() || educationSchool.trim() || educationYear.trim();
-    const educationSubline = [educationSchool.trim(), educationYear.trim() ? `(${educationYear.trim()})` : ""]
-      .filter(Boolean)
-      .join(' ');
+    const educationMarkup = activeEducationItems
+      .map((item) => {
+        const educationHeadline = item.degree.trim() || item.school.trim() || item.year.trim();
+        const educationSubline = [item.school.trim(), item.year.trim() ? `(${item.year.trim()})` : ""]
+          .filter(Boolean)
+          .join(' ');
+
+        return `
+          <div class="education-item">
+            <p><strong>${escapeHtml(educationHeadline)}</strong></p>
+            ${educationSubline ? `<p>${escapeHtml(educationSubline)}</p>` : ''}
+          </div>
+        `;
+      })
+      .join('');
 
     const orderedPrintableSections = [
       ...sectionSelectionOrder.filter((id) => printableSectionIds.includes(id)),
@@ -1342,8 +1561,7 @@ export const ResumeBuilderPage = ({
       education: hasEducation ? `
         <section class="section">
           <h2>Education</h2>
-          <p><strong>${escapeHtml(educationHeadline)}</strong></p>
-          ${educationSubline ? `<p>${escapeHtml(educationSubline)}</p>` : ''}
+          ${educationMarkup}
         </section>
       ` : '',
       projects: hasProjects ? `
@@ -1391,31 +1609,46 @@ export const ResumeBuilderPage = ({
     };
 
     const singleColumnMarkup = orderedPrintableSections.map((id) => sectionBlockById[id]).filter(Boolean).join('');
-    const twoColumnSideMarkup = (
-      ['skills', 'education', 'languages', 'certifications', 'hobbies'] as SectionId[]
-    )
+    const twoColumnSideIds = new Set<SectionId>(['skills', 'education', 'languages', 'certifications', 'hobbies']);
+    const twoColumnSideMarkup = orderedPrintableSections
+      .filter((id) => twoColumnSideIds.has(id))
       .map((id) => sectionBlockById[id])
       .filter(Boolean)
       .join('');
-    const twoColumnMainMarkup = (
-      ['summary', 'experience', 'projects', 'achievements', 'volunteer', 'custom-columns'] as SectionId[]
-    )
+    const twoColumnMainMarkup = orderedPrintableSections
+      .filter((id) => !twoColumnSideIds.has(id))
       .map((id) => sectionBlockById[id])
       .filter(Boolean)
       .join('');
 
+    const safePdfFileName = escapeHtml(resumePdfFileName);
+
     return `
       <html>
         <head>
-          <title>${escapeHtml(fullName)} Resume</title>
+          <title>${safePdfFileName}</title>
+          <link rel="preconnect" href="https://fonts.googleapis.com">
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
           <style>
-            @page { size: A4; margin: 14mm; }
+            @page { size: A4; margin: 12mm; }
             * { box-sizing: border-box; }
-            body { margin: 0; color: #111827; background: #f8fafc; font-family: ${currentTheme.font}; line-height: 1.45; ${previewMode ? 'overflow: hidden;' : ''} }
+            html { width: 100%; }
+            body {
+              width: 100%;
+              margin: 0;
+              color: #111827;
+              background: #f8fafc;
+              font-family: ${currentTheme.font};
+              line-height: 1.45;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+              ${previewMode ? 'overflow: hidden;' : ''}
+            }
             .preview-shell { ${previewMode ? 'display: flex; justify-content: center; align-items: flex-start; padding: 8px; height: 100%; overflow: hidden;' : ''} }
             .resume {
-              width: 820px;
-              max-width: 820px;
+              width: 100%;
+              max-width: 186mm;
               margin: 0 auto;
               background: #fff;
               border: 1px solid #e5e7eb;
@@ -1428,10 +1661,11 @@ export const ResumeBuilderPage = ({
             ${previewMode ? '@media (min-width: 720px) { .resume { transform: scale(0.58); } }' : ''}
             .header { background: ${currentTheme.headingBg}; border-bottom: 1px solid #e5e7eb; padding: 20px; }
             .top { display: flex; gap: 12px; align-items: center; }
+            .top > div { min-width: 0; }
             .avatar { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; border: 1px solid #d4d4d8; }
-            h1 { margin: 0; font-size: 42px; line-height: 1.05; letter-spacing: -0.02em; }
-            .role { margin: 5px 0 0; font-size: 30px; font-weight: 700; color: #3f3f46; }
-            .meta { margin: 8px 0 0; color: #52525b; font-size: 20px; word-break: break-word; }
+            h1 { margin: 0; font-size: 28pt; line-height: 1.05; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+            .role { margin: 5px 0 0; font-size: 16pt; font-weight: 700; color: #3f3f46; overflow-wrap: anywhere; }
+            .meta { margin: 8px 0 0; color: #52525b; font-size: 10pt; overflow-wrap: anywhere; word-break: break-word; }
             .content { padding: 20px; }
             .content.single { display: block; }
             .content.two { display: grid; grid-template-columns: 0.86fr 1.35fr; gap: 18px; }
@@ -1439,15 +1673,19 @@ export const ResumeBuilderPage = ({
             .main { min-width: 0; }
             .section { margin-bottom: 16px; break-inside: avoid; page-break-inside: avoid; }
             .section h2 { margin: 0 0 8px; font-size: 16px; text-transform: uppercase; letter-spacing: 0.12em; color: ${currentTheme.accent}; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; }
-            .section p { margin: 4px 0; font-size: 14px; color: #374151; }
-            .exp-item { margin-bottom: 10px; }
+            .section p { margin: 4px 0; font-size: 14px; color: #374151; overflow-wrap: anywhere; }
+            .exp-item { margin-bottom: 10px; break-inside: avoid; page-break-inside: avoid; }
             .exp-item h3 { margin: 0; font-size: 14px; color: #111827; }
             ul { margin: 5px 0 0; padding-left: 18px; }
-            li { font-size: 13px; color: #374151; margin-bottom: 2px; }
+            li { font-size: 13px; color: #374151; margin-bottom: 2px; overflow-wrap: anywhere; }
             .tag { display: inline-block; border: 1px solid #d4d4d8; border-radius: 999px; padding: 2px 8px; margin: 0 6px 6px 0; font-size: 12px; color: #1f2937; }
             @media print {
               body { background: #fff; }
-              .resume { border: none; border-radius: 0; }
+              .resume { max-width: none; border: none; border-radius: 0; box-shadow: none; }
+              .content.two { grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.38fr); }
+            }
+            @media screen {
+              body { padding: 24px; }
             }
           </style>
         </head>
@@ -1483,10 +1721,20 @@ export const ResumeBuilderPage = ({
     const popup = window.open('', '_blank', 'width=1000,height=900');
     if (!popup) return;
 
+    popup.document.open();
     popup.document.write(generateResumePdfHtml(false));
     popup.document.close();
-    popup.focus();
-    popup.print();
+
+    const printPdf = () => {
+      popup.focus();
+      popup.print();
+    };
+    const fontsReady = popup.document.fonts?.ready;
+    if (fontsReady) {
+      fontsReady.then(() => window.setTimeout(printPdf, 100)).catch(printPdf);
+      return;
+    }
+    window.setTimeout(printPdf, 250);
   };
 
   const handleDownloadDocx = () => {
@@ -1503,6 +1751,7 @@ export const ResumeBuilderPage = ({
       educationDegree,
       educationSchool,
       educationYear,
+      educationItems: educationItems.filter((item) => item.degree.trim() || item.school.trim() || item.year.trim()),
       bullets: experiences.flatMap(exp => exp.bullets.split('\n').map(b => b.replace(/^-/, '').trim()).filter(Boolean)),
       experiences: experiences,
       projects: parsedProjects,
@@ -1560,7 +1809,10 @@ export const ResumeBuilderPage = ({
       parsedSkills.join(', '),
       '',
       'Education',
-      `${educationDegree} - ${educationSchool} (${educationYear})`,
+      educationItems
+        .filter((item) => item.degree.trim() || item.school.trim() || item.year.trim())
+        .map((item) => `${item.degree} - ${item.school} (${item.year})`)
+        .join('\n'),
       '',
       'Projects',
       parsedProjects.join('\n'),
@@ -1966,18 +2218,75 @@ export const ResumeBuilderPage = ({
 
   return (
     <div className="bg-white">
-      <div className="max-w-7xl mx-auto px-6 py-12">
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:py-12">
         <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-zinc-400 font-semibold">Resume Builder</p>
-            <h1 className="text-3xl md:text-4xl font-extrabold text-zinc-900 mt-2">Build your resume</h1>
+            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-zinc-400 md:text-xs md:tracking-[0.2em]">Resume Builder</p>
+            <h1 className="mt-2 text-3xl font-extrabold leading-tight text-zinc-900 md:text-4xl">Build your resume</h1>
             {selectedExample && (
               <div className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-primary bg-primary/5 px-3 py-1 rounded-full">
                 Viewing example: {selectedExample}
               </div>
             )}
           </div>
-          <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-6 md:w-auto">
+          <div className="grid gap-2 sm:hidden">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={openPreviewPanel}
+                className="rounded-full border border-zinc-300 px-4 py-2.5 text-sm font-semibold text-zinc-900 transition hover:border-zinc-900"
+              >
+                Preview
+              </button>
+              <button
+                onClick={downloadResumePdf}
+                className="rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+              >
+                Download PDF
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => saveCurrentResumeToHistory('Manual save')}
+                className="rounded-full border border-zinc-300 px-4 py-2.5 text-sm font-semibold text-zinc-900 transition hover:border-zinc-900"
+              >
+                Save
+              </button>
+              <button
+                onClick={() => parseInputRef.current?.click()}
+                disabled={parseLoading}
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary/10 disabled:opacity-50"
+              >
+                {parseLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                {parseLoading ? 'Parsing' : 'Auto-fill'}
+              </button>
+            </div>
+            <details className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+              <summary className="cursor-pointer text-center text-sm font-semibold text-zinc-700">More actions</summary>
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                <button
+                  onClick={handleUndo}
+                  disabled={undoStack.length <= 1}
+                  className="rounded-full border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-900 transition hover:border-zinc-900 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Undo
+                </button>
+                <button
+                  onClick={handleRedo}
+                  disabled={redoStack.length === 0}
+                  className="rounded-full border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-900 transition hover:border-zinc-900 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Redo
+                </button>
+                <button
+                  onClick={handleDownloadDocx}
+                  className="rounded-full bg-zinc-900 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-zinc-800"
+                >
+                  DOCX
+                </button>
+              </div>
+            </details>
+          </div>
+          <div className="hidden w-full grid-cols-2 gap-2 sm:grid sm:grid-cols-6 md:w-auto">
             <button
               onClick={handleUndo}
               disabled={undoStack.length <= 1}
@@ -2018,15 +2327,17 @@ export const ResumeBuilderPage = ({
             </button>
           </div>
         </div>
-        <div className="mt-3 flex items-center justify-between">
+        <div className="mt-3 flex items-center justify-between gap-3">
           <p className="text-xs text-zinc-500">
-            {saveStatus === 'saving'
+            {!canSaveResumeHistory
+              ? 'Sign in to save resume versions'
+              : saveStatus === 'saving'
               ? 'Saving...'
               : lastSavedAt
                 ? `Saved ${new Date(lastSavedAt).toLocaleTimeString()}`
                 : 'Saved'}
           </p>
-          <div className="flex items-center gap-3">
+          <div className="hidden items-center gap-3 sm:flex">
             {parseError && <p className="text-xs text-red-500 font-medium">{parseError}</p>}
             <input
               type="file"
@@ -2053,22 +2364,22 @@ export const ResumeBuilderPage = ({
           </div>
         </div>
 
-        <div className="mt-10 grid lg:grid-cols-[220px_1fr_380px] gap-6">
-          <aside className="border border-zinc-100 rounded-2xl p-4 bg-zinc-50 h-fit">
+        <div className="mt-6 grid gap-5 lg:mt-10 lg:grid-cols-[220px_1fr_380px] lg:gap-6">
+          <aside className="h-fit rounded-2xl border border-zinc-100 bg-zinc-50 p-3 md:p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-zinc-400 font-semibold">Sections</p>
-            <div className="mt-4 space-y-2 text-sm">
+            <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3 lg:mt-4 lg:block lg:space-y-2">
               {sectionItems.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => focusSection(item.id)}
-                  className={`w-full flex items-center justify-between rounded-lg px-3 py-2 border transition ${
+                  className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left transition ${
                     activeSection === item.id
                       ? 'border-primary bg-primary/5 text-primary'
                       : 'border-zinc-100 bg-white text-zinc-900 hover:border-zinc-300'
                   }`}
                 >
-                  <span>{item.label}</span>
-                  <ChevronRight className="w-4 h-4" />
+                  <span className="truncate">{item.label}</span>
+                  <ChevronRight className="h-4 w-4 shrink-0" />
                 </button>
               ))}
             </div>
@@ -2083,6 +2394,7 @@ export const ResumeBuilderPage = ({
                 {orderedPrintableSections.map((sectionId, index) => (
                   <div
                     key={`order-${sectionId}`}
+                    data-testid={`section-order-${sectionId}`}
                     ref={(el) => {
                       sectionOrderItemRefs.current[sectionId] = el;
                     }}
@@ -2100,6 +2412,7 @@ export const ResumeBuilderPage = ({
                         type="button"
                         onClick={() => movePrintableSection(sectionId, 'up')}
                         disabled={index === 0}
+                        data-testid={`section-order-${sectionId}-up`}
                         className="rounded border border-zinc-200 px-2 py-1 text-[10px] font-semibold text-zinc-600 disabled:opacity-40"
                       >
                         Up
@@ -2108,6 +2421,7 @@ export const ResumeBuilderPage = ({
                         type="button"
                         onClick={() => movePrintableSection(sectionId, 'down')}
                         disabled={index === orderedPrintableSections.length - 1}
+                        data-testid={`section-order-${sectionId}-down`}
                         className="rounded border border-zinc-200 px-2 py-1 text-[10px] font-semibold text-zinc-600 disabled:opacity-40"
                       >
                         Down
@@ -2120,7 +2434,7 @@ export const ResumeBuilderPage = ({
           </aside>
 
           <div className="space-y-6">
-            <div id="builder-section-contact" className="border border-zinc-100 rounded-2xl p-6 bg-white">
+            <div id="builder-section-contact" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Contact Information</h2>
               <div className="mt-4 grid md:grid-cols-2 gap-4 text-sm">
                 <input value={fullName} onChange={(e) => setFullName(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Full name" />
@@ -2132,7 +2446,7 @@ export const ResumeBuilderPage = ({
               </div>
             </div>
 
-            <div id="builder-section-photo" className="border border-zinc-100 rounded-2xl p-6 bg-white">
+            <div id="builder-section-photo" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Photo</h2>
               <div className="mt-4 flex items-center gap-4">
                 <div className="h-20 w-20 rounded-xl border border-zinc-200 bg-zinc-50 overflow-hidden flex items-center justify-center">
@@ -2160,7 +2474,7 @@ export const ResumeBuilderPage = ({
               </div>
             </div>
 
-            <div id="builder-section-date-place" className="border border-zinc-100 rounded-2xl p-6 bg-white">
+            <div id="builder-section-date-place" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Date & Place</h2>
               <div className="mt-4 grid md:grid-cols-2 gap-4 text-sm">
                 <input
@@ -2178,7 +2492,7 @@ export const ResumeBuilderPage = ({
               </div>
             </div>
 
-            <div id="builder-section-summary" className="border border-zinc-100 rounded-2xl p-6 bg-white">
+            <div id="builder-section-summary" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Professional Summary</h2>
               <textarea
                 value={summary}
@@ -2193,7 +2507,7 @@ export const ResumeBuilderPage = ({
               </div>
             </div>
 
-            <div id="builder-section-premium" className="border border-zinc-100 rounded-2xl p-6 bg-white">
+            <div id="builder-section-premium" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <p className="text-xs uppercase tracking-[0.2em] text-zinc-400 font-semibold">Upgrade</p>
               <h2 className="font-semibold text-zinc-900 mt-2">Premium tools inside builder</h2>
               <p className="text-sm text-zinc-500 mt-2">Use all premium features directly while editing your resume.</p>
@@ -2206,15 +2520,18 @@ export const ResumeBuilderPage = ({
 
                     <button
                       onClick={() => handlePremiumFeatureInBuilder(feature.id)}
-                      className="mt-3 text-sm font-semibold text-primary"
+                      disabled={premiumActionLoading === feature.id}
+                      className="mt-3 text-sm font-semibold text-primary disabled:cursor-wait disabled:opacity-60"
                     >
-                      {feature.id === 'resume-shareable-link'
-                        ? shareLinkCopied
-                          ? 'Link copied'
-                          : 'Copy share link'
-                        : feature.id === 'qr-code-resume'
-                          ? 'Generate QR code'
-                          : 'Generate portfolio site'}
+                      {premiumActionLoading === feature.id
+                        ? 'Working...'
+                        : feature.id === 'resume-shareable-link'
+                          ? shareLinkCopied
+                            ? 'Link copied'
+                            : 'Publish & copy link'
+                          : feature.id === 'qr-code-resume'
+                            ? 'Publish & generate QR'
+                            : 'Generate portfolio site'}
                     </button>
                     {feature.id === 'portfolio-website-generator' && (
                       <button
@@ -2230,12 +2547,14 @@ export const ResumeBuilderPage = ({
 
               <div className="mt-4 rounded-xl border border-zinc-200 p-3 text-sm bg-white">
                 <p className="text-zinc-500">Live shareable URL</p>
-                <p className="mt-1 break-all text-zinc-900">{resumeShareLink}</p>
+                <p className="mt-1 break-all text-zinc-900">
+                  {publishedResumeUrl || 'Publish your resume to create a live URL.'}
+                </p>
               </div>
               {premiumActionMessage && <p className="mt-3 text-sm text-primary font-medium">{premiumActionMessage}</p>}
             </div>
 
-            <div id="builder-section-experience" className="border border-zinc-100 rounded-2xl p-6 bg-white">
+            <div id="builder-section-experience" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Work Experience</h2>
               <div className="mt-4 space-y-4 text-sm">
                 {experiences.map((exp, index) => (
@@ -2260,7 +2579,7 @@ export const ResumeBuilderPage = ({
               </div>
             </div>
 
-            <div id="builder-section-skills" className="border border-zinc-100 rounded-2xl p-6 bg-white">
+            <div id="builder-section-skills" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Skills</h2>
               <input
                 value={skillsInput}
@@ -2277,31 +2596,54 @@ export const ResumeBuilderPage = ({
               </div>
             </div>
 
-            <div id="builder-section-education" className="border border-zinc-100 rounded-2xl p-6 bg-white">
+            <div id="builder-section-education" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Education</h2>
-              <div className="mt-4 grid md:grid-cols-2 gap-4 text-sm">
-                <input value={educationDegree} onChange={(e) => setEducationDegree(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Degree" />
-                <input value={educationSchool} onChange={(e) => setEducationSchool(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="School / University" />
-                <input value={educationYear} onChange={(e) => setEducationYear(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 md:col-span-2" placeholder="Years" />
+              <div className="mt-4 space-y-4 text-sm">
+                {educationItems.map((education, index) => (
+                  <div key={index} className="rounded-2xl border border-zinc-100 bg-zinc-50/60 p-3">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <p className="text-xs font-semibold text-zinc-500">Education {index + 1}</p>
+                      {educationItems.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeEducation(index)}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-500 hover:text-primary"
+                          aria-label={`Remove education ${index + 1}`}
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <input value={education.degree} onChange={(e) => updateEducation(index, 'degree', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 bg-white" placeholder="Degree" />
+                      <input value={education.school} onChange={(e) => updateEducation(index, 'school', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 bg-white" placeholder="School / University" />
+                      <input value={education.year} onChange={(e) => updateEducation(index, 'year', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 bg-white md:col-span-2" placeholder="Years" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 flex gap-3">
+                <button onClick={addAnotherEducation} className="text-xs font-semibold text-primary">+ Add another education</button>
+                <button onClick={duplicateEducationSection} className="text-xs font-semibold text-zinc-500">Duplicate section</button>
               </div>
             </div>
 
-            <div id="builder-section-projects" className="border border-zinc-100 rounded-2xl p-6 bg-white">
+            <div id="builder-section-projects" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Projects</h2>
               <textarea value={projectsInput} onChange={(e) => setProjectsInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 h-24" placeholder="One project per line" />
             </div>
 
-            <div id="builder-section-certifications" className="border border-zinc-100 rounded-2xl p-6 bg-white">
+            <div id="builder-section-certifications" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Certifications</h2>
               <input value={certificationsInput} onChange={(e) => setCertificationsInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm" placeholder="Comma-separated certifications" />
             </div>
 
-            <div id="builder-section-languages" className="border border-zinc-100 rounded-2xl p-6 bg-white">
+            <div id="builder-section-languages" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Languages</h2>
               <input value={languagesInput} onChange={(e) => setLanguagesInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm" placeholder="Comma-separated languages" />
             </div>
 
-            <div id="builder-section-hobbies" className="border border-zinc-100 rounded-2xl p-6 bg-white">
+            <div id="builder-section-hobbies" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Hobbies</h2>
               <input
                 value={hobbiesInput}
@@ -2318,17 +2660,17 @@ export const ResumeBuilderPage = ({
               </div>
             </div>
 
-            <div id="builder-section-achievements" className="border border-zinc-100 rounded-2xl p-6 bg-white">
+            <div id="builder-section-achievements" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Achievements</h2>
               <textarea value={achievementsInput} onChange={(e) => setAchievementsInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 h-24" placeholder="One achievement per line" />
             </div>
 
-            <div id="builder-section-volunteer" className="border border-zinc-100 rounded-2xl p-6 bg-white">
+            <div id="builder-section-volunteer" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Volunteer</h2>
               <textarea value={volunteerInput} onChange={(e) => setVolunteerInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 h-24" placeholder="Volunteer work details" />
             </div>
 
-            <div id="builder-section-custom-columns" className="border border-zinc-100 rounded-2xl p-6 bg-white">
+            <div id="builder-section-custom-columns" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Custom Columns</h2>
               <p className="mt-2 text-xs text-zinc-500">Add your own section title and content. Reorder with up/down.</p>
               <div className="mt-4 space-y-3">
@@ -2400,7 +2742,7 @@ export const ResumeBuilderPage = ({
           </div>
 
           <div className="space-y-6">
-            <div id="builder-live-preview" className="border border-zinc-100 rounded-2xl p-6 bg-white">
+            <div id="builder-live-preview" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold text-zinc-900">Live Preview</h2>
                 <div className="flex items-center gap-2">
@@ -2429,163 +2771,11 @@ export const ResumeBuilderPage = ({
                   <span className="font-bold text-zinc-900">{selectedTemplate.name}</span>
                 </div>
 
-                {/* Resume card */}
-                <div className="mx-3 mb-4 overflow-hidden rounded-xl border border-zinc-200 bg-white">
-                  <div className="max-h-[700px] overflow-y-auto">
-                    {/* Header */}
-                    <div className="border-b border-zinc-200 px-6 py-5" style={{ background: currentTheme.headingBg }}>
-                      <div className="flex items-start gap-3">
-                        {photoDataUrl ? (
-                          <img src={photoDataUrl} alt="Profile" className="h-12 w-12 rounded-xl border border-zinc-200 object-cover" />
-                        ) : (
-                          <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-100">
-                            <User className="h-5 w-5 text-zinc-400" />
-                          </div>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <h3 className="text-lg font-black tracking-tight text-zinc-900">{fullName || 'Your Name'}</h3>
-                          <p className="text-sm font-semibold text-zinc-600">{jobTitle || 'Job Title'}</p>
-                        </div>
-                      </div>
-                      <p className="mt-2 break-words text-xs leading-5 text-zinc-500">
-                        {[email, phone, location].filter(Boolean).join(' • ')}
-                      </p>
-                      {profileLink && <p className="break-words text-xs text-zinc-500">{profileLink}</p>}
-                      {datePlaceText && <p className="mt-1 break-words text-xs text-zinc-500">{datePlaceText}</p>}
-                    </div>
-
-                    {/* Sections */}
-                    <div className="space-y-4 px-6 py-5">
-                      {orderedPrintableSections.map((sectionId) => {
-                        if (sectionId === 'summary' && summary.trim()) {
-                          return (
-                            <div key="preview-summary">
-                              <p className="text-xs font-extrabold uppercase tracking-[0.2em]" style={{ color: currentTheme.accent }}>Summary</p>
-                              <p className="mt-1.5 text-sm leading-6 text-zinc-700">{summary}</p>
-                            </div>
-                          );
-                        }
-                        if (sectionId === 'experience' && experiences.some((exp) => exp.title.trim() || exp.bullets.trim())) {
-                          return (
-                            <div key="preview-experience">
-                              <p className="text-xs font-extrabold uppercase tracking-[0.2em]" style={{ color: currentTheme.accent }}>Experience</p>
-                              {experiences.map((exp, idx) => {
-                                const bulletLines = exp.bullets.split('\n').map((l) => l.trim()).filter(Boolean);
-                                return (
-                                  <div key={`preview-exp-${idx}`} className="mt-2">
-                                    {exp.title && <p className="text-sm font-bold text-zinc-900">{exp.title}</p>}
-                                    {exp.dates && <p className="text-xs text-zinc-500">{exp.dates}</p>}
-                                    {bulletLines.length > 0 && (
-                                      <ul className="mt-1.5 list-disc space-y-1 pl-4 text-sm leading-5 text-zinc-700">
-                                        {bulletLines.map((line, li) => <li key={li}>{line}</li>)}
-                                      </ul>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          );
-                        }
-                        if (sectionId === 'skills' && parsedSkills.length > 0) {
-                          return (
-                            <div key="preview-skills">
-                              <p className="text-xs font-extrabold uppercase tracking-[0.2em]" style={{ color: currentTheme.accent }}>Skills</p>
-                              <div className="mt-2 flex flex-wrap gap-1.5">
-                                {parsedSkills.map((skill) => (
-                                  <span key={skill} className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs text-zinc-700">{skill}</span>
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        }
-                        if (sectionId === 'education' && (educationDegree.trim() || educationSchool.trim())) {
-                          return (
-                            <div key="preview-education">
-                              <p className="text-xs font-extrabold uppercase tracking-[0.2em]" style={{ color: currentTheme.accent }}>Education</p>
-                              <p className="mt-1.5 text-sm font-semibold text-zinc-800">{educationDegree}</p>
-                              <p className="text-xs text-zinc-500">
-                                {educationSchool}{educationYear ? ` (${educationYear})` : ''}
-                              </p>
-                            </div>
-                          );
-                        }
-                        if (sectionId === 'projects' && parsedProjects.length > 0) {
-                          return (
-                            <div key="preview-projects">
-                              <p className="text-xs font-extrabold uppercase tracking-[0.2em]" style={{ color: currentTheme.accent }}>Projects</p>
-                              <ul className="mt-1.5 list-disc space-y-1 pl-4 text-sm leading-5 text-zinc-700">
-                                {parsedProjects.map((item, i) => <li key={i}>{item}</li>)}
-                              </ul>
-                            </div>
-                          );
-                        }
-                        if (sectionId === 'certifications' && parsedCertifications.length > 0) {
-                          return (
-                            <div key="preview-certifications">
-                              <p className="text-xs font-extrabold uppercase tracking-[0.2em]" style={{ color: currentTheme.accent }}>Certifications</p>
-                              <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-sm text-zinc-700">
-                                {parsedCertifications.map((item, i) => <li key={i}>{item}</li>)}
-                              </ul>
-                            </div>
-                          );
-                        }
-                        if (sectionId === 'languages' && parsedLanguages.length > 0) {
-                          return (
-                            <div key="preview-languages">
-                              <p className="text-xs font-extrabold uppercase tracking-[0.2em]" style={{ color: currentTheme.accent }}>Languages</p>
-                              <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-sm text-zinc-700">
-                                {parsedLanguages.map((item, i) => <li key={i}>{item}</li>)}
-                              </ul>
-                            </div>
-                          );
-                        }
-                        if (sectionId === 'hobbies' && parsedHobbies.length > 0) {
-                          return (
-                            <div key="preview-hobbies">
-                              <p className="text-xs font-extrabold uppercase tracking-[0.2em]" style={{ color: currentTheme.accent }}>Hobbies</p>
-                              <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-sm text-zinc-700">
-                                {parsedHobbies.map((item, i) => <li key={i}>{item}</li>)}
-                              </ul>
-                            </div>
-                          );
-                        }
-                        if (sectionId === 'achievements' && parsedAchievements.length > 0) {
-                          return (
-                            <div key="preview-achievements">
-                              <p className="text-xs font-extrabold uppercase tracking-[0.2em]" style={{ color: currentTheme.accent }}>Achievements</p>
-                              <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-sm text-zinc-700">
-                                {parsedAchievements.map((item, i) => <li key={i}>{item}</li>)}
-                              </ul>
-                            </div>
-                          );
-                        }
-                        if (sectionId === 'volunteer' && parsedVolunteer.length > 0) {
-                          return (
-                            <div key="preview-volunteer">
-                              <p className="text-xs font-extrabold uppercase tracking-[0.2em]" style={{ color: currentTheme.accent }}>Volunteer</p>
-                              <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-sm text-zinc-700">
-                                {parsedVolunteer.map((item, i) => <li key={i}>{item}</li>)}
-                              </ul>
-                            </div>
-                          );
-                        }
-                        if (sectionId === 'custom-columns' && parsedCustomColumns.length > 0) {
-                          return (
-                            <div key="preview-custom">
-                              {parsedCustomColumns.map((col) => (
-                                <div key={col.id} className="mb-3">
-                                  <p className="text-xs font-extrabold uppercase tracking-[0.2em]" style={{ color: currentTheme.accent }}>{col.title || 'Custom Section'}</p>
-                                  <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-sm text-zinc-700">
-                                    {col.lines.map((line, i) => <li key={i}>{line}</li>)}
-                                  </ul>
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        }
-                        return null;
-                      })}
-                    </div>
+                <div className="mx-3 mb-4 max-h-[700px] overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-2">
+                  <div data-testid="builder-template-preview" className="mx-auto w-full min-w-0 max-w-[960px]">
+                    <TemplatePreviewScaler pageWidth={760}>
+                      <TemplateVisualPreview template={selectedTemplate} data={liveTemplateResumeData} sectionOrder={orderedPrintableSections} />
+                    </TemplatePreviewScaler>
                   </div>
                 </div>
               </div>
@@ -2600,45 +2790,55 @@ export const ResumeBuilderPage = ({
               </div>
             </div>
 
-          <div className="border border-zinc-100 rounded-2xl p-6 bg-white">
+          <div className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-zinc-900">Resume History</h3>
               <span className="text-xs px-3 py-1 rounded-full bg-zinc-100 text-zinc-500">{resumeHistory.length} saved</span>
             </div>
-            <p className="mt-2 text-xs text-zinc-500">Each version is stored locally in this browser.</p>
-            <div className="mt-3 grid grid-cols-1 gap-2">
-              <input
-                value={historySearchTerm}
-                onChange={(e) => setHistorySearchTerm(e.target.value)}
-                className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-xs"
-                placeholder="Search by name, role, or note"
-              />
-              <div className="grid grid-cols-2 gap-2">
-                <select
-                  value={historyRoleFilter}
-                  onChange={(e) => setHistoryRoleFilter(e.target.value)}
-                  className="rounded-lg border border-zinc-200 px-2 py-2 text-xs bg-white"
-                >
-                  <option value="all">All roles</option>
-                  {historyRoleOptions.map((role) => (
-                    <option key={role} value={role}>{role}</option>
-                  ))}
-                </select>
-                <select
-                  value={historyDateFilter}
-                  onChange={(e) => setHistoryDateFilter(e.target.value as 'all' | 'today' | '7d' | '30d')}
-                  className="rounded-lg border border-zinc-200 px-2 py-2 text-xs bg-white"
-                >
-                  <option value="all">Any date</option>
-                  <option value="today">Today</option>
-                  <option value="7d">Last 7 days</option>
-                  <option value="30d">Last 30 days</option>
-                </select>
+            <p className="mt-2 text-xs text-zinc-500">
+              {canSaveResumeHistory
+                ? 'Each version is stored locally for your signed-in account.'
+                : 'Sign in or create an account before saving resume versions.'}
+            </p>
+            {canSaveResumeHistory && (
+              <div className="mt-3 grid grid-cols-1 gap-2">
+                <input
+                  value={historySearchTerm}
+                  onChange={(e) => setHistorySearchTerm(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-xs"
+                  placeholder="Search by name, role, or note"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <select
+                    value={historyRoleFilter}
+                    onChange={(e) => setHistoryRoleFilter(e.target.value)}
+                    className="rounded-lg border border-zinc-200 px-2 py-2 text-xs bg-white"
+                  >
+                    <option value="all">All roles</option>
+                    {historyRoleOptions.map((role) => (
+                      <option key={role} value={role}>{role}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={historyDateFilter}
+                    onChange={(e) => setHistoryDateFilter(e.target.value as 'all' | 'today' | '7d' | '30d')}
+                    className="rounded-lg border border-zinc-200 px-2 py-2 text-xs bg-white"
+                  >
+                    <option value="all">Any date</option>
+                    <option value="today">Today</option>
+                    <option value="7d">Last 7 days</option>
+                    <option value="30d">Last 30 days</option>
+                  </select>
+                </div>
               </div>
-            </div>
+            )}
             {historyMessage && <p className="mt-3 text-xs text-primary">{historyMessage}</p>}
             <div className="mt-4 space-y-2 max-h-56 overflow-auto pr-1">
-              {filteredResumeHistory.length === 0 ? (
+              {!canSaveResumeHistory ? (
+                <p className="rounded-xl border border-primary/15 bg-primary/5 px-3 py-3 text-xs font-medium leading-5 text-primary">
+                  Login or create an account to keep saved resume versions.
+                </p>
+              ) : filteredResumeHistory.length === 0 ? (
                 <p className="text-xs text-zinc-400">
                   {resumeHistory.length === 0 ? 'No history yet. Edit resume and click Save version.' : 'No versions match current filters.'}
                 </p>
@@ -2697,7 +2897,7 @@ export const ResumeBuilderPage = ({
             )}
           </div>
 
-          <div className="border border-zinc-100 rounded-2xl p-6 bg-white">
+          <div className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-zinc-900">ATS Checker</h3>
               <span className="text-xs px-3 py-1 rounded-full bg-zinc-100 text-zinc-500">
@@ -2763,7 +2963,7 @@ export const ResumeBuilderPage = ({
             {atsApplyMessage && <p className="mt-3 text-xs font-medium text-emerald-700">{atsApplyMessage}</p>}
           </div>
 
-          <div className="border border-zinc-100 rounded-2xl p-6 bg-white">
+          <div className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
             <h3 className="font-semibold text-zinc-900">AI Writing Assistant</h3>
             <p className="text-sm text-zinc-500 mt-2">Improve bullets or generate a stronger summary.</p>
             <div className="mt-4 flex flex-wrap gap-2 text-xs">
@@ -2819,7 +3019,7 @@ export const ResumeBuilderPage = ({
             {aiApplyMessage && <p className="mt-3 text-xs font-medium text-emerald-700">{aiApplyMessage}</p>}
           </div>
 
-          <div className="border border-zinc-100 rounded-2xl p-6 bg-white">
+          <div className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
             <h3 className="font-semibold text-zinc-900">Job Description Match</h3>
             <textarea
               value={jobDescriptionInput}

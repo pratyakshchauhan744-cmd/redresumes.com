@@ -1,6 +1,6 @@
 import { FileText, Wand2, Download } from 'lucide-react';
 import { Section } from '../components/Section';
-import { PrimaryButton } from '../components/Buttons';
+import { PrimaryButton, SecondaryButton } from '../components/Buttons';
 
 export const CoverLetterPage = () => (
   <Section title="Cover letter builder" kicker="Cover letters">
@@ -34,4 +34,3 @@ export const CoverLetterPage = () => (
     </div>
   </Section>
 );
-

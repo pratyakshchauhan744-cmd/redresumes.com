@@ -13,6 +13,7 @@ import usersRoutes from "./modules/users/routes.js";
 import ingestionRoutes from "./modules/ingestion/routes.js";
 import adminRoutes from "./modules/admin/routes.js";
 import aiRoutes from "./modules/ai/routes.js";
+import publicResumeRoutes from "./modules/public-resumes/routes.js";
 import { notFoundHandler } from "./middleware/not-found.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { env } from "./config/env.js";
@@ -25,6 +26,24 @@ const explicitOrigins = (env.FRONTEND_ORIGIN ?? "")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+function isAllowedCorsOrigin(origin: string): boolean {
+  if (explicitOrigins.includes(origin) || /^https?:\/\/localhost(:\d+)?$/.test(origin)) {
+    return true;
+  }
+
+  try {
+    const hostname = new URL(origin).hostname.toLowerCase();
+    return (
+      hostname === "redresumes.com" ||
+      hostname === "www.redresumes.com" ||
+      hostname === "redresumescom.vercel.app" ||
+      /^redresumes-[a-z0-9-]+-krishchauhan2808-2544s-projects\.vercel\.app$/.test(hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -32,7 +51,7 @@ app.use(
         callback(null, true);
         return;
       }
-      if (explicitOrigins.includes(origin) || /^https?:\/\/localhost(:\d+)?$/.test(origin)) {
+      if (isAllowedCorsOrigin(origin)) {
         callback(null, true);
         return;
       }
@@ -60,6 +79,7 @@ app.use("/api/employer", employerRoutes);
 app.use("/api/ingestion", ingestionRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/ai", aiRoutes);
+app.use("/api/public-resumes", publicResumeRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

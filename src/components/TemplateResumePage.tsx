@@ -26,6 +26,11 @@ export const TemplateResumePage = ({ template, data, embedded = false }: { templ
   const educationDegree = data?.educationDegree?.trim() || (isLiveData ? '' : 'B.Tech in Computer Science');
   const educationSchool = data?.educationSchool?.trim() || (isLiveData ? '' : 'National Institute of Technology');
   const educationYear = data?.educationYear?.trim() || (isLiveData ? '' : '2018 - 2022');
+  const educationItems = (data?.educationItems?.length ? data.educationItems : [{
+    degree: educationDegree,
+    school: educationSchool,
+    year: educationYear,
+  }]).filter((item) => item.degree || item.school || item.year);
   const contactLine = [emailText, phoneText, locationText].filter(Boolean).join(' • ');
 
   const sectionTitle = (label: string, color?: string) => (
@@ -34,9 +39,31 @@ export const TemplateResumePage = ({ template, data, embedded = false }: { templ
     </p>
   );
 
-  const embeddedClass = embedded
-    ? 'w-full max-w-full overflow-hidden text-[10px] leading-[1.35] sm:text-[11px] [&_h2]:!text-[1.45rem] [&_p]:leading-[1.35] [&_ul]:text-[10px] [&_li]:leading-[1.35]'
-    : '';
+  const renderEducationItems = (degreeClass: string, detailClass: string, compact = false) => (
+    <div className={compact ? 'mt-2 space-y-2' : 'mt-3 space-y-3'}>
+      {educationItems.map((item, index) => {
+        const detail = compact
+          ? [item.school, item.year ? `(${item.year})` : ''].filter(Boolean).join(' ')
+          : '';
+
+        return (
+          <div key={`${item.degree}-${item.school}-${index}`}>
+            {item.degree && <p className={degreeClass}>{item.degree}</p>}
+            {compact ? (
+              detail && <p className={detailClass}>{detail}</p>
+            ) : (
+              <>
+                {item.school && <p className={detailClass}>{item.school}</p>}
+                {item.year && <p className={detailClass.replace('text-zinc-600', 'text-zinc-500')}>{item.year}</p>}
+              </>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const embeddedClass = embedded ? 'template-preview-embedded w-full max-w-full' : '';
   const twoColMainClass = embedded ? 'grid-cols-1 md:grid-cols-[0.95fr_1.65fr]' : 'grid-cols-[0.95fr_1.65fr]';
   const creativeClass = embedded ? 'grid-cols-1 md:grid-cols-[0.35fr_1fr]' : 'grid-cols-[0.35fr_1fr]';
   const technicalClass = embedded ? 'grid-cols-1 md:grid-cols-[0.85fr_1.7fr]' : 'grid-cols-[0.85fr_1.7fr]';
@@ -64,6 +91,40 @@ export const TemplateResumePage = ({ template, data, embedded = false }: { templ
               {bullets.map((item) => <li key={item}>{item}</li>)}
             </ul>
           </div>}
+          <div className={`grid ${equalTwoColClass} gap-6`}>
+            {skills.length > 0 && (
+              <div>
+                <p className="border-b border-zinc-300 pb-2 text-sm font-extrabold uppercase tracking-[0.22em] text-rose-700">Core Skills</p>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-base text-zinc-700">
+                  {skills.map((skill) => <p key={skill}>• {skill}</p>)}
+                </div>
+              </div>
+            )}
+            {educationItems.length > 0 && (
+              <div>
+                <p className="border-b border-zinc-300 pb-2 text-sm font-extrabold uppercase tracking-[0.22em] text-rose-700">Education</p>
+                {renderEducationItems('text-lg font-semibold text-zinc-900', 'text-base text-zinc-600')}
+              </div>
+            )}
+          </div>
+          <div className={`grid ${equalTwoColClass} gap-6`}>
+            {projects.length > 0 && (
+              <div>
+                <p className="border-b border-zinc-300 pb-2 text-sm font-extrabold uppercase tracking-[0.22em] text-rose-700">Projects</p>
+                <ul className="mt-3 list-disc space-y-2 pl-6 text-base text-zinc-700">
+                  {projects.map((item) => <li key={item}>{item}</li>)}
+                </ul>
+              </div>
+            )}
+            {certifications.length > 0 && (
+              <div>
+                <p className="border-b border-zinc-300 pb-2 text-sm font-extrabold uppercase tracking-[0.22em] text-rose-700">Certifications</p>
+                <div className="mt-3 space-y-2 text-base text-zinc-700">
+                  {certifications.map((item) => <p key={item}>• {item}</p>)}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -151,7 +212,7 @@ export const TemplateResumePage = ({ template, data, embedded = false }: { templ
         <div className="bg-slate-900 px-10 py-8 text-white">
           <h2 className="text-5xl font-black tracking-[-0.04em]">{fullName}</h2>
           <p className="mt-2 text-2xl font-semibold text-slate-200">{roleTitle}</p>
-          <p className="mt-3 text-base text-slate-300">{emailText} • {phoneText} • {locationText}</p>
+          <p className="mt-3 break-words text-base text-slate-300">{[emailText, phoneText, locationText, profileText].filter(Boolean).join(' • ')}</p>
         </div>
         <div className={`grid ${unevenTwoColClass} gap-8 p-8`}>
           <div>
@@ -161,10 +222,40 @@ export const TemplateResumePage = ({ template, data, embedded = false }: { templ
               {sectionTitle('Key Results', '#1e293b')}
               <ul className="mt-3 list-disc space-y-2 pl-6 text-base text-zinc-700">{bullets.map((item) => <li key={item}>{item}</li>)}</ul>
             </div>
+            {projects.length > 0 && (
+              <div className="mt-6">
+                {sectionTitle('Strategic Projects', '#1e293b')}
+                <ul className="mt-3 list-disc space-y-2 pl-6 text-base text-zinc-700">{projects.slice(0, 3).map((item) => <li key={item}>{item}</li>)}</ul>
+              </div>
+            )}
+            {achievements.length > 0 && (
+              <div className="mt-6">
+                {sectionTitle('Leadership Achievements', '#1e293b')}
+                <ul className="mt-3 list-disc space-y-2 pl-6 text-base text-zinc-700">{achievements.slice(0, 3).map((item) => <li key={item}>{item}</li>)}</ul>
+              </div>
+            )}
           </div>
           <div>
             {sectionTitle('Core Skills', '#1e293b')}
             <div className="mt-3 grid grid-cols-2 gap-2 text-sm text-zinc-700">{skills.map((skill) => <p key={skill}>• {skill}</p>)}</div>
+            {educationItems.length > 0 && (
+              <div className="mt-6">
+                {sectionTitle('Education', '#1e293b')}
+                {renderEducationItems('text-base font-semibold text-zinc-800', 'text-sm leading-6 text-zinc-600')}
+              </div>
+            )}
+            {certifications.length > 0 && (
+              <div className="mt-6">
+                {sectionTitle('Certifications', '#1e293b')}
+                <div className="mt-3 space-y-2 text-sm text-zinc-700">{certifications.map((item) => <p key={item}>• {item}</p>)}</div>
+              </div>
+            )}
+            {languages.length > 0 && (
+              <div className="mt-6">
+                {sectionTitle('Languages', '#1e293b')}
+                <p className="mt-3 text-sm text-zinc-700">{languages.join(', ')}</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -211,8 +302,7 @@ export const TemplateResumePage = ({ template, data, embedded = false }: { templ
             <p className="mt-3 text-base leading-7 text-zinc-700">{summary}</p>
             <div className="mt-5">
               {sectionTitle('Education', '#15803d')}
-              <p className="mt-2 text-base font-semibold text-zinc-800">{educationDegree}</p>
-              <p className="text-base text-zinc-600">{educationSchool} ({educationYear})</p>
+              {renderEducationItems('text-base font-semibold text-zinc-800', 'text-base text-zinc-600', true)}
             </div>
           </div>
           <div>
@@ -462,8 +552,7 @@ export const TemplateResumePage = ({ template, data, embedded = false }: { templ
             </div>
             <div>
               <p className="text-sm font-extrabold uppercase tracking-[0.2em]" style={{ color: theme.accent }}>Education</p>
-              <p className="mt-2 text-base font-semibold text-zinc-800">{educationDegree}</p>
-              <p className="text-base text-zinc-600">{educationSchool} ({educationYear})</p>
+              {renderEducationItems('text-base font-semibold text-zinc-800', 'text-base text-zinc-600', true)}
             </div>
             <div>
               <p className="text-sm font-extrabold uppercase tracking-[0.2em]" style={{ color: theme.accent }}>Languages</p>

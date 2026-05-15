@@ -1,8 +1,36 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Eye, EyeOff, Check } from 'lucide-react';
 import { backendApi, type AuthUser } from '../lib/backendApi';
 import { LOCAL_ACCOUNTS_STORAGE_KEY, setStoredAuthTokens, USER_STORAGE_KEY } from '../lib/auth';
 import type { LocalAccount } from '../types';
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        id?: {
+          initialize: (options: {
+            client_id: string;
+            callback: (response: { credential?: string }) => void;
+            auto_select?: boolean;
+            cancel_on_tap_outside?: boolean;
+          }) => void;
+          renderButton: (
+            parent: HTMLElement,
+            options: {
+              theme?: 'outline' | 'filled_blue' | 'filled_black';
+              size?: 'large' | 'medium' | 'small';
+              type?: 'standard' | 'icon';
+              text?: 'signin_with' | 'signup_with' | 'continue_with' | 'signin';
+              shape?: 'rectangular' | 'pill' | 'circle' | 'square';
+              width?: number;
+            }
+          ) => void;
+        };
+      };
+    };
+  }
+}
 
 export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => void }) => {
   const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot-password'>('login');
@@ -11,7 +39,6 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState<'candidate' | 'employer' | 'admin'>('candidate');
-  const [acceptedAccessTerms, setAcceptedAccessTerms] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -23,6 +50,8 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
   const [otpMessage, setOtpMessage] = useState<string | null>(null);
   const [isTestingEmail, setIsTestingEmail] = useState(false);
   const [forgotPasswordStep, setForgotPasswordStep] = useState<'email' | 'otp' | 'new-password'>('email');
+  const googleButtonRef = useRef<HTMLDivElement | null>(null);
+  const googleClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim();
   const DEMO_EMAILS = ['candidate@example.com', 'employer@example.com', 'admin@example.com'] as const;
   const getFriendlyLoginError = (attemptedEmail: string) => {
     const normalized = attemptedEmail.trim().toLowerCase();
@@ -33,7 +62,17 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
   };
 
   const getFriendlyRegisterError = (message: string) => {
-    const lower = message.toLowerCase();
+    const raw = message || '';
+    const lower = raw.toLowerCase();
+    if (
+      lower.includes('request failed') ||
+      lower.includes('failed to fetch') ||
+      lower.includes('networkerror') ||
+      lower.includes('network error') ||
+      lower.includes('cannot reach backend')
+    ) {
+      return 'Cannot reach signup service right now. Please check server connection and try again.';
+    }
     if (lower.includes('email already registered')) {
       return 'An account with this email already exists. Try signing in instead.';
     }
@@ -45,11 +84,18 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
     ) {
       return 'Backend signup is unavailable right now, so your account will be created in local mode on this browser.';
     }
-    return message;
+    return raw || 'Unable to create account right now. Please try again.';
   };
 
   const getSafeAuthError = (message: string) => {
     const lower = message.toLowerCase();
+    if (
+      lower.includes("unable to complete request") ||
+      lower.includes("check your input") ||
+      lower.includes("bad request")
+    ) {
+      return "Sign-in could not be completed. Refresh the page and try again.";
+    }
     if (
       lower.includes("prisma.") ||
       lower.includes("findunique") ||
@@ -65,6 +111,60 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       return "Cannot reach backend right now. Please check server connection and try again.";
     }
     return message || "Unable to sign in right now. Please try again.";
+  };
+
+  const getGoogleAuthError = (message: string) => {
+    const lower = message.toLowerCase();
+    if (lower.includes("google login is not configured")) {
+      return "Google login is not configured yet. Please contact support or use email sign-in.";
+    }
+    if (lower.includes("oauth client mismatch")) {
+      return "Google sign-in is misconfigured on the server. Please contact support or use email sign-in.";
+    }
+    if (
+      lower.includes("could not be verified") ||
+      lower.includes("wrong number of segments") ||
+      lower.includes("malformed") ||
+      lower.includes("unreadable")
+    ) {
+      return message || "Google sign-in could not be verified. Refresh this page and try again.";
+    }
+    if (
+      lower.includes("unable to complete request") ||
+      lower.includes("check your input")
+    ) {
+      return "Google sign-in could not be completed. Refresh this page and try again.";
+    }
+    return getSafeAuthError(message || "Google sign-in failed.");
+  };
+
+  const getFriendlyOtpError = (message: string, fallback: string) => {
+    const raw = message || "";
+    const lower = raw.toLowerCase();
+    if (
+      lower.includes("request failed") ||
+      lower.includes("failed to fetch") ||
+      lower.includes("networkerror") ||
+      lower.includes("network error") ||
+      lower.includes("cannot reach backend")
+    ) {
+      return "Cannot reach OTP service right now. Please check server connection and try again.";
+    }
+    if (lower.includes("invalid otp")) {
+      return "Invalid OTP. Please check and try again.";
+    }
+    if (lower.includes("expired")) {
+      return "OTP expired. Please request a new OTP.";
+    }
+    if (
+      lower.includes("unable to complete request") ||
+      lower.includes("bad request") ||
+      lower.includes("validation failed") ||
+      lower.includes("check your input")
+    ) {
+      return fallback;
+    }
+    return raw || fallback;
   };
 
   const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(value.trim());
@@ -90,6 +190,69 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
     window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
   };
 
+  const handleGoogleCredential = async (credential?: string) => {
+    setError(null);
+    setSuccessMessage(null);
+
+    if (!credential) {
+      setError('Google did not return a login credential. Please try again.');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const response = await backendApi.googleLogin({ credential });
+      persistSignedInUser(response.user, response.accessToken);
+      onLoginSuccess(response.user);
+    } catch (googleError) {
+      setError(getGoogleAuthError(googleError instanceof Error ? googleError.message : 'Google sign-in failed.'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!googleClientId || !googleButtonRef.current) return;
+
+    const renderGoogleButton = () => {
+      const container = googleButtonRef.current;
+      const googleId = window.google?.accounts?.id;
+      if (!container || !googleId) return;
+
+      container.innerHTML = '';
+      googleId.initialize({
+        client_id: googleClientId,
+        callback: (response) => {
+          void handleGoogleCredential(response.credential);
+        },
+        auto_select: false,
+        cancel_on_tap_outside: true,
+      });
+      googleId.renderButton(container, {
+        theme: 'outline',
+        size: 'large',
+        type: 'standard',
+        text: authMode === 'signup' ? 'signup_with' : 'signin_with',
+        shape: 'pill',
+        width: Math.min(container.clientWidth || 360, 400),
+      });
+    };
+
+    if (window.google?.accounts?.id) {
+      renderGoogleButton();
+      return;
+    }
+
+    const existingScript = document.querySelector<HTMLScriptElement>('script[src="https://accounts.google.com/gsi/client"]');
+    const script = existingScript ?? document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = renderGoogleButton;
+    if (!existingScript) {
+      document.head.appendChild(script);
+    }
+  }, [authMode, googleClientId]);
+
   const signIn = async () => {
     setError(null);
     setSuccessMessage(null);
@@ -102,11 +265,6 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       setError('Please enter your password.');
       return;
     }
-    if (!acceptedAccessTerms) {
-      setError('Please confirm the customer access terms before signing in.');
-      return;
-    }
-
     setIsSubmitting(true);
     try {
       const response = await backendApi.login({ email: email.trim(), password });
@@ -132,7 +290,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       persistSignedInUser(response.user, response.accessToken);
       onLoginSuccess(response.user);
     } catch (verifyError) {
-      setError(verifyError instanceof Error ? verifyError.message : 'Invalid OTP. Please try again.');
+      setError(getFriendlyOtpError(verifyError instanceof Error ? verifyError.message : "", "Invalid OTP. Please try again."));
       return;
     }
   };
@@ -149,10 +307,10 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       const response = await backendApi.startForgotPasswordOtp({ email: email.trim() });
       setBackendOtpSessionId(response.sessionId);
       setEnteredOtp('');
-      setOtpMessage(response.message || `OTP sent to ${email.trim()}.`);
+      setOtpMessage(response.devOtp ? response.message : response.message || `OTP sent to ${email.trim()}.`);
       setForgotPasswordStep('otp');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to request password reset.');
+      setError(getFriendlyOtpError(err instanceof Error ? err.message : "", "Unable to send a reset OTP for this email. Check the address and try again."));
     } finally {
       setIsSubmitting(false);
     }
@@ -176,7 +334,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       setPassword('');
       setConfirmPassword('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Invalid OTP. Please try again.');
+      setError(getFriendlyOtpError(err instanceof Error ? err.message : "", "Invalid OTP. Please try again."));
     } finally {
       setIsSubmitting(false);
     }
@@ -206,11 +364,37 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       setPassword('');
       setConfirmPassword('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to reset password.');
+      setError(getFriendlyOtpError(err instanceof Error ? err.message : "", "Unable to reset password."));
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  const authTitle =
+    authMode === 'forgot-password'
+      ? forgotPasswordStep === 'email'
+        ? 'Reset your password'
+        : forgotPasswordStep === 'otp'
+          ? 'Verify reset OTP'
+          : 'Create new password'
+      : authMode === 'signup' && signupStep === 'otp'
+        ? 'Verify OTP'
+        : authMode === 'login'
+          ? 'Welcome back'
+          : 'Create your account';
+
+  const authDescription =
+    authMode === 'forgot-password'
+      ? forgotPasswordStep === 'email'
+        ? 'Enter your account email and we will send a one-time password to reset your login.'
+        : forgotPasswordStep === 'otp'
+          ? 'Enter the 6-digit OTP sent to your email to continue resetting your password.'
+          : 'Choose a new password for your RedResumes account.'
+      : authMode === 'signup' && signupStep === 'otp'
+        ? 'Enter the 6-digit OTP sent to your email to verify your account.'
+        : authMode === 'login'
+          ? 'Sign in to access your resumes, cover letters, saved jobs, and application tracker.'
+          : 'Sign up to save resume versions, manage applications, and build your full profile in one place.';
 
   const signUp = async () => {
     setError(null);
@@ -222,11 +406,6 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
     }
     if (!isValidEmail(email)) {
       setError('Please enter a valid email address.');
-      return;
-    }
-
-    if (!acceptedAccessTerms) {
-      setError('Please confirm the customer access terms before creating an account.');
       return;
     }
 
@@ -242,16 +421,14 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
 
     setIsSubmitting(true);
     try {
-      const response = await backendApi.startRegisterOtp({
+      const response = await backendApi.register({
         name: fullName.trim(),
         email: email.trim(),
         password,
         role,
       });
-      setBackendOtpSessionId(response.sessionId);
-      setEnteredOtp('');
-      setOtpMessage(`OTP sent to ${email.trim()}. Please verify to complete account creation.`);
-      setSignupStep('otp');
+      persistSignedInUser(response.user, response.accessToken);
+      onLoginSuccess(response.user);
     } catch (signUpError) {
       const accounts = readLocalAccounts();
       const alreadyExists = accounts.some((account) => account.email.toLowerCase() === email.trim().toLowerCase());
@@ -268,11 +445,11 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
   };
 
   return (
-    <section className="py-16">
-      <div className="max-w-6xl mx-auto px-6 grid md:grid-cols-[1.05fr_0.95fr] gap-10 items-stretch">
-        <div className="rounded-[32px] border border-zinc-200 bg-[linear-gradient(145deg,#ffffff_0%,#fff9f9_50%,#f8fafc_100%)] p-8 shadow-[0_20px_60px_rgba(15,23,42,0.08)] md:p-10">
-          <p className="text-xs font-bold uppercase tracking-[0.24em] text-primary">Account Access</p>
-          <div className="mt-4 flex flex-wrap gap-2">
+    <section className="py-10 md:py-16">
+      <div className="mx-auto grid max-w-6xl gap-6 px-4 sm:px-6 md:grid-cols-[1.05fr_0.95fr] md:gap-10 md:items-stretch">
+        <div className="rounded-2xl border border-zinc-200 bg-[linear-gradient(145deg,#ffffff_0%,#fff9f9_50%,#f8fafc_100%)] p-4 shadow-[0_12px_34px_rgba(15,23,42,0.06)] md:rounded-[32px] md:p-10 md:shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+          <p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-primary md:text-xs md:tracking-[0.24em]">Account Access</p>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap md:mt-4">
             {[
               { id: 'login', label: 'Sign in' },
               { id: 'signup', label: 'Create account' },
@@ -299,29 +476,39 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
               </button>
             ))}
           </div>
-          <h2 className="mt-5 text-4xl font-extrabold tracking-tight text-zinc-900">
-            {authMode === 'signup' && signupStep === 'otp' ? 'Verify OTP' : authMode === 'login' ? 'Welcome back' : 'Create your account'}
+          <h2 className="mt-4 text-3xl font-extrabold leading-tight tracking-tight text-zinc-900 md:mt-5 md:text-4xl">
+            {authTitle}
           </h2>
-          <p className="mt-3 max-w-md text-base leading-7 text-zinc-500">
-            {authMode === 'signup' && signupStep === 'otp'
-              ? 'Enter the 6-digit OTP sent to your email to verify your account.'
-              : authMode === 'login'
-                ? 'Sign in to access your resumes, cover letters, saved jobs, and application tracker.'
-                : 'Sign up to save resume versions, manage applications, and build your full profile in one place.'}
+          <p className="mt-3 max-w-md text-sm leading-6 text-zinc-500 md:text-base md:leading-7">
+            {authDescription}
           </p>
 
           {authMode === 'login' && (
-            <div className="mt-5 rounded-2xl border border-zinc-200 bg-white px-4 py-4">
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">Test Credentials</p>
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-3 py-3 md:mt-5 md:px-4 md:py-4">
+              <p className="text-[0.68rem] font-bold uppercase tracking-[0.14em] text-zinc-500 md:text-xs">Test Credentials</p>
               <p className="mt-1 text-xs text-zinc-400">Password for all: Password@123</p>
               <p className="mt-2 text-xs text-zinc-500">Emails: candidate@example.com, employer@example.com, admin@example.com</p>
               <p className="mt-1 text-xs text-zinc-400">For your own email, use Create account first, then Sign in.</p>
             </div>
           )}
 
-          <div className="mt-8 space-y-4">
+          <div className="mt-6 space-y-4 md:mt-8">
+            {authMode !== 'forgot-password' && !(authMode === 'signup' && signupStep === 'otp') && (
+              <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                {googleClientId ? (
+                  <div ref={googleButtonRef} className="flex min-h-11 justify-center" />
+                ) : (
+                  <p className="text-sm text-zinc-500">Google login is not configured yet.</p>
+                )}
+                <div className="my-4 flex items-center gap-3">
+                  <span className="h-px flex-1 bg-zinc-200" />
+                  <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">or</span>
+                  <span className="h-px flex-1 bg-zinc-200" />
+                </div>
+              </div>
+            )}
             {authMode === 'signup' && signupStep === 'otp' && (
-              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 md:rounded-3xl md:p-6">
                 <label className="mb-2 block text-sm font-semibold text-zinc-700">Enter OTP</label>
                 <input
                   className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
@@ -350,9 +537,9 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                             role,
                           });
                           setBackendOtpSessionId(response.sessionId);
-                          setOtpMessage(`OTP re-sent to ${email.trim()}. Please check your email inbox.`);
+                          setOtpMessage(response.devOtp ? response.message : `OTP re-sent to ${email.trim()}. Please check your email inbox.`);
                         } catch (resendError) {
-                          setError(resendError instanceof Error ? resendError.message : 'Unable to resend OTP.');
+                          setError(getFriendlyOtpError(resendError instanceof Error ? resendError.message : "", "Unable to resend OTP."));
                         }
                         return;
                       }
@@ -399,7 +586,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                 onChange={(event) => setEmail(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && !isSubmitting) {
-                    void signIn();
+                    void (authMode === 'login' ? signIn() : signUp());
                   }
                 }}
               />
@@ -431,7 +618,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                   onChange={(event) => setPassword(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' && !isSubmitting) {
-                      void signIn();
+                      void (authMode === 'login' ? signIn() : signUp());
                     }
                   }}
                 />
@@ -469,11 +656,10 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-zinc-700">Account type</label>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
                     {[
                       { id: 'candidate', label: 'Candidate' },
                       { id: 'employer', label: 'Employer' },
-                      { id: 'admin', label: 'Admin' },
                     ].map((item) => (
                       <button
                         key={item.id}
@@ -494,19 +680,8 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
             )}
             {!(authMode === 'signup' && signupStep === 'otp') && authMode !== 'forgot-password' && (
               <>
-                <label className="flex items-start gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600">
-                  <input
-                    type="checkbox"
-                    checked={acceptedAccessTerms}
-                    onChange={(event) => setAcceptedAccessTerms(event.target.checked)}
-                    className="mt-1 h-4 w-4 rounded border-zinc-300 text-primary focus:ring-primary"
-                  />
-                  <span>
-                    I confirm that I am a genuine customer or authorized user, and I agree to use this account truthfully and in line with platform terms and acceptable use requirements.
-                  </span>
-                </label>
                 <p className="text-xs leading-6 text-zinc-400">
-                  Only genuine customers and authorized users may access RedResumes accounts. Misuse, impersonation, or unauthorized access is not allowed.
+                  By continuing, you agree to use RedResumes truthfully and follow platform terms and acceptable use requirements.
                 </p>
               </>
             )}
@@ -523,7 +698,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
             )}
 
             {authMode === 'forgot-password' && (
-              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-6">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 md:rounded-3xl md:p-6">
                 {forgotPasswordStep === 'email' && (
                   <>
                     <label className="mb-2 block text-sm font-semibold text-zinc-700">Account Email</label>
@@ -533,7 +708,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                       value={email}
                       onChange={(event) => setEmail(event.target.value)}
                     />
-                    <div className="mt-4 flex gap-3">
+                    <div className="mt-4 grid gap-3 sm:flex">
                       <button
                         type="button"
                         onClick={startForgotPassword}
@@ -544,7 +719,12 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                       </button>
                       <button
                         type="button"
-                        onClick={() => setAuthMode('login')}
+                        onClick={() => {
+                          setAuthMode('login');
+                          setError(null);
+                          setSuccessMessage(null);
+                          setOtpMessage(null);
+                        }}
                         className="rounded-full border border-zinc-300 bg-white px-6 py-3 text-sm font-semibold text-zinc-700 transition hover:border-zinc-500"
                       >
                         Cancel
@@ -562,7 +742,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                       onChange={(event) => setEnteredOtp(event.target.value.replace(/\D/g, '').slice(0, 6))}
                     />
                     {otpMessage && <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{otpMessage}</p>}
-                    <div className="mt-4 flex gap-3">
+                    <div className="mt-4 grid gap-3 sm:flex">
                       <button
                         type="button"
                         onClick={verifyForgotPassword}
@@ -633,10 +813,10 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
             )}
           </div>
         </div>
-        <div className="rounded-[32px] border border-zinc-200 bg-zinc-50 p-8 shadow-[0_16px_44px_rgba(15,23,42,0.05)] md:p-10">
-          <h3 className="text-2xl font-bold tracking-tight text-zinc-900">Why professionals choose RedResumes</h3>
+        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 shadow-[0_10px_28px_rgba(15,23,42,0.04)] md:rounded-[32px] md:p-10 md:shadow-[0_16px_44px_rgba(15,23,42,0.05)]">
+          <h3 className="text-xl font-bold tracking-tight text-zinc-900 md:text-2xl">Why professionals choose RedResumes</h3>
           <p className="mt-3 text-sm leading-6 text-zinc-500">Everything stays focused on clarity, speed, and recruiter-friendly presentation.</p>
-          <div className="mt-6 space-y-4">
+          <div className="mt-4 space-y-3 md:mt-6 md:space-y-4">
             {[
               { title: 'ATS-friendly templates', desc: 'Clean layouts that stay readable and parser-safe.' },
               { title: 'AI writing suggestions', desc: 'Sharper summaries and bullets for stronger applications.' },
@@ -655,7 +835,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
               </div>
             ))}
           </div>
-          <div className="mt-6 rounded-2xl border border-zinc-200 bg-[linear-gradient(145deg,#ffffff_0%,#fff4f4_100%)] p-5">
+          <div className="mt-5 rounded-2xl border border-zinc-200 bg-[linear-gradient(145deg,#ffffff_0%,#fff4f4_100%)] p-4 md:mt-6 md:p-5">
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">Quick Access</p>
             <div className="mt-4 grid grid-cols-3 gap-3">
               {[

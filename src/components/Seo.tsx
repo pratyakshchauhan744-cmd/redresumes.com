@@ -23,10 +23,6 @@ const pageSeo: Record<string, { title: string; description: string; type?: 'webs
     description:
       'Build and customize your resume section by section with live preview and downloadable output.',
   },
-  '/pricing': {
-    title: 'Pricing | Red Resumes',
-    description: 'Simple pricing for resume building, exports, and premium template access.',
-  },
   '/examples': {
     title: 'Resume Examples | Red Resumes',
     description: 'Explore real resume examples by role and quickly adapt them to your profile.',

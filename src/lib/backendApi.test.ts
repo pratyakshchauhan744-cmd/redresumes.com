@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { __internal, mapBackendJobToUiJob } from './backendApi';
+import { __internal, mapBackendJobToUiJob, resolveApiBaseUrl } from './backendApi';
 
 describe('backendApi runtime parsers', () => {
   it('parses valid auth response', () => {
@@ -42,5 +42,15 @@ describe('mapBackendJobToUiJob', () => {
     });
     expect(mapped.salary).toContain('Rs');
     expect(mapped.companyUrl).toBe('https://acme.com');
+  });
+});
+
+describe('resolveApiBaseUrl', () => {
+  it('uses same-origin API on hosted sites when env accidentally points to localhost', () => {
+    expect(resolveApiBaseUrl('http://localhost:4001', 'redresumescom.vercel.app')).toBe('');
+  });
+
+  it('keeps localhost API during local development', () => {
+    expect(resolveApiBaseUrl('http://localhost:4001', 'localhost')).toBe('http://localhost:4001');
   });
 });

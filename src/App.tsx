@@ -10,7 +10,6 @@ import { HomePage } from './pages/HomePage';
 import { ResumeBuilderPage } from './pages/BuilderPage';
 import { TemplatesPage } from './pages/TemplatesPage';
 import { CoverLetterPage } from './pages/CoverLetterPage';
-import { PricingPage } from './pages/PricingPage';
 import { ExamplesPage } from './pages/ExamplesPage';
 import { JobFinderPage } from './pages/JobFinderPage';
 import { BlogPage } from './pages/BlogPage';
@@ -20,6 +19,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { ContactPage } from './pages/ContactPage';
 import { LegalPage } from './pages/LegalPage';
 import { AdminPage } from './pages/AdminPage';
+import { PublicResumePage } from './pages/PublicResumePage';
 
 import { templates } from './data/templates';
 import { blogArticles } from './data/blogArticles';
@@ -156,7 +156,7 @@ const App = () => {
             } />
             
             <Route path="/cover-letter" element={<CoverLetterPage />} />
-            <Route path="/pricing" element={<PricingPage />} />
+            <Route path="/pricing" element={<Navigate to="/" replace />} />
             <Route path="/examples" element={
               <ExamplesPage onViewExample={(r) => setSelectedExample(r)} />
             } />
@@ -168,6 +168,7 @@ const App = () => {
               <BlogPostPage article={selectedBlogArticle} onBack={() => window.location.assign('/blog')} />
             } />
             <Route path="/contact" element={<ContactPage />} />
+            <Route path="/r/:resumeId" element={<PublicResumePage />} />
             <Route path="/privacy" element={<LegalPage title="Privacy Policy" />} />
             <Route path="/terms" element={<LegalPage title="Terms of Service" />} />
             

@@ -5,7 +5,7 @@ type ErrorBoundaryState = {
   errorMessage: string | null;
 };
 
-export class ErrorBoundary extends React.Component<React.PropsWithChildren, ErrorBoundaryState> {
+export class ErrorBoundary extends React.Component<{ children?: React.ReactNode }, ErrorBoundaryState> {
   public state: ErrorBoundaryState = {
     hasError: false,
     errorMessage: null
@@ -47,6 +47,6 @@ export class ErrorBoundary extends React.Component<React.PropsWithChildren, Erro
       );
     }
 
-    return this.props.children;
+    return (this as unknown as { props: { children?: React.ReactNode } }).props.children;
   }
 }

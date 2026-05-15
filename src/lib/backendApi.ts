@@ -1,4 +1,30 @@
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:4000";
+const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
+const isBrowser = typeof window !== "undefined";
+const API_BASE_URL = resolveApiBaseUrl(configuredApiBaseUrl, isBrowser ? window.location.hostname : undefined);
+
+export function resolveApiBaseUrl(configuredUrl: string | undefined, hostname: string | undefined): string {
+  const value = configuredUrl?.trim();
+  if (!value) return "";
+
+  // Ignore misconfigured Vercel env var pointing to Railway frontend
+  if (value.includes("redresumescom-frontendorigin.up.railway.app")) {
+    return "";
+  }
+
+  // Auto-prepend https:// if the value looks like a bare domain (no protocol)
+  const normalized = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+
+  const localHostnames = ["localhost", "127.0.0.1", "::1"];
+  const isLocalHostname = hostname ? localHostnames.includes(hostname) : false;
+  const isLocalUrl = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(normalized);
+
+  // On production (non-local hostname), only use the API URL if it's NOT a localhost URL.
+  // On local development, always use it.
+  if (isLocalHostname || !isLocalUrl) {
+    return normalized.replace(/\/+$/, "");
+  }
+  return "";
+}
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -6,6 +32,7 @@ type RequestOptions = {
   method?: HttpMethod;
   token?: string;
   body?: unknown;
+  baseUrl?: string;
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -34,6 +61,18 @@ function ensureStringArray(value: unknown, field: string): string[] {
   return value;
 }
 
+function optionalStringOrNull(value: unknown): string | null | undefined {
+  if (typeof value === "string") return value;
+  if (value === null) return null;
+  return undefined;
+}
+
+function optionalNumberOrNull(value: unknown): number | null | undefined {
+  if (typeof value === "number") return value;
+  if (value === null) return null;
+  return undefined;
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json"
@@ -44,25 +83,61 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
 
   let response: Response;
+  const baseUrl = options.baseUrl ?? API_BASE_URL;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    response = await fetch(`${baseUrl}${path}`, {
       method: options.method ?? "GET",
       credentials: "include",
       headers,
       body: options.body ? JSON.stringify(options.body) : undefined
     });
   } catch {
-    throw new Error(`Cannot reach backend at ${API_BASE_URL}. Start backend server and verify VITE_API_BASE_URL.`);
+    throw new Error(`Cannot reach backend at ${baseUrl || "same-origin"}. Start backend server and verify VITE_API_BASE_URL.`);
   }
 
   if (!response.ok) {
-    let errorMessage = "Request failed";
+    const fallbackByStatus: Record<number, string> = {
+      400: "Bad request. Please check the form and try again.",
+      401: "Unauthorized. Please sign in again.",
+      403: "Forbidden. You do not have permission for this action.",
+      404: "Requested endpoint was not found.",
+      409: "This request conflicts with existing data.",
+      422: "Validation failed. Please check your input.",
+      429: "Too many requests. Please wait and try again."
+    };
+
+    let errorMessage = fallbackByStatus[response.status]
+      ?? (response.status >= 500
+        ? "Service temporarily unavailable. Please try again shortly."
+        : "Unable to complete request. Please check your input and try again.");
+
     try {
-      const errorBody = await response.json();
-      errorMessage = errorBody.message ?? errorMessage;
+      const raw = await response.text();
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as unknown;
+          if (typeof parsed === "string") {
+            errorMessage = parsed;
+          } else if (isObject(parsed)) {
+            const message = parsed.message;
+            const error = parsed.error;
+            const detail = parsed.detail;
+            if (typeof message === "string" && message.trim()) {
+              errorMessage = message;
+            } else if (typeof error === "string" && error.trim()) {
+              errorMessage = error;
+            } else if (typeof detail === "string" && detail.trim()) {
+              errorMessage = detail;
+            }
+          }
+        } catch {
+          if (raw.trim()) errorMessage = raw.trim();
+        }
+      }
     } catch {
-      // ignore JSON parse errors
+      // keep fallback status message
     }
+
     throw new Error(errorMessage);
   }
 
@@ -130,6 +205,18 @@ export type ImproveResumeResponse = {
   keywordSuggestions: string[];
   atsTips: string[];
 };
+
+export type PublicResumeResponse = {
+  id: string;
+  slug: string;
+  templateId: string;
+  resumeData: unknown;
+  updatedAt?: string;
+};
+
+function sameOriginRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return request<T>(path, { ...options, baseUrl: "" });
+}
 
 export type AuthUser = {
   id: string;
@@ -207,16 +294,16 @@ function parseBackendJob(value: unknown): BackendJob {
     id: ensureString(obj.id, "job.id"),
     title: ensureString(obj.title, "job.title"),
     description: ensureString(obj.description, "job.description"),
-    city: typeof obj.city === "string" || obj.city === null ? obj.city : undefined,
-    state: typeof obj.state === "string" || obj.state === null ? obj.state : undefined,
-    country: typeof obj.country === "string" || obj.country === null ? obj.country : undefined,
+    city: optionalStringOrNull(obj.city),
+    state: optionalStringOrNull(obj.state),
+    country: optionalStringOrNull(obj.country),
     remoteType: ensureString(obj.remoteType, "job.remoteType") as BackendJob["remoteType"],
     employmentType: ensureString(obj.employmentType, "job.employmentType") as BackendJob["employmentType"],
     experienceLevel: ensureString(obj.experienceLevel, "job.experienceLevel") as BackendJob["experienceLevel"],
-    salaryMin: typeof obj.salaryMin === "number" || obj.salaryMin === null ? obj.salaryMin : undefined,
-    salaryMax: typeof obj.salaryMax === "number" || obj.salaryMax === null ? obj.salaryMax : undefined,
-    currency: typeof obj.currency === "string" || obj.currency === null ? obj.currency : undefined,
-    applyUrl: typeof obj.applyUrl === "string" || obj.applyUrl === null ? obj.applyUrl : undefined,
+    salaryMin: optionalNumberOrNull(obj.salaryMin),
+    salaryMax: optionalNumberOrNull(obj.salaryMax),
+    currency: optionalStringOrNull(obj.currency),
+    applyUrl: optionalStringOrNull(obj.applyUrl),
     postedAt: typeof obj.postedAt === "string" ? obj.postedAt : undefined,
     company: typeof obj.company === "string" || isObject(obj.company) ? (obj.company as BackendJob["company"]) : undefined
   };
@@ -265,8 +352,11 @@ export const backendApi = {
       { method: "POST", body }
     ).then(parseAuthResponse),
 
+  googleLogin: (body: { credential: string }) =>
+    request<unknown>("/api/auth/google", { method: "POST", body }).then(parseAuthResponse),
+
   startRegisterOtp: (body: { name: string; email: string; password: string; role?: "candidate" | "employer" | "admin" }) =>
-    request<{ message: string; sessionId: string; expiresInSeconds: number }>(
+    request<{ message: string; sessionId: string; expiresInSeconds: number; devOtp?: string }>(
       "/api/auth/register/start",
       { method: "POST", body }
     ),
@@ -276,7 +366,7 @@ export const backendApi = {
       "/api/auth/register/verify",
       { method: "POST", body }
     ),  startForgotPasswordOtp: (body: { email: string }) =>
-    request<{ message: string; sessionId: string; expiresInSeconds: number }>(
+    request<{ message: string; sessionId: string; expiresInSeconds: number; devOtp?: string }>(
       "/api/auth/forgot-password/start",
       { method: "POST", body }
     ),
@@ -342,6 +432,12 @@ export const backendApi = {
       hobbies: string[];
     };
   }, token: string) => request<TranslateResumeResponse>("/api/ai/translate-resume", { method: "POST", body, token }),
+
+  publishPublicResume: (body: { slug: string; templateId: string; resumeData: unknown }) =>
+    sameOriginRequest<PublicResumeResponse>("/api/public-resumes", { method: "POST", body }),
+
+  getPublicResume: (id: string) =>
+    sameOriginRequest<PublicResumeResponse>(`/api/public-resumes/${encodeURIComponent(id)}`),
 
   parseResume: async (file: File, token: string) => {
     const formData = new FormData();

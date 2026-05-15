@@ -14,7 +14,6 @@ export const Footer = ({ currentUser }: { currentUser: AuthUser | null }) => (
         <Link to="/job-finder" className="block text-zinc-500 hover:text-zinc-900">Job Finder</Link>
         <Link to="/cover-letter" className="block text-zinc-500 hover:text-zinc-900">Cover Letter Builder</Link>
         <Link to="/templates" className="block text-zinc-500 hover:text-zinc-900">Templates</Link>
-        <Link to="/pricing" className="block text-zinc-500 hover:text-zinc-900">Pricing</Link>
       </div>
       <div className="space-y-2 flex flex-col items-start">
         <p className="text-zinc-900 font-semibold mb-1">Company</p>

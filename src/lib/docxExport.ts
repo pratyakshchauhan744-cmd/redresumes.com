@@ -96,10 +96,18 @@ export const generateResumeDocx = async (data: TemplateResumeData) => {
   }
 
   // Education
-  if (data.educationDegree || data.educationSchool || data.educationYear) {
+  const educationItems = (data.educationItems?.length ? data.educationItems : [{
+    degree: data.educationDegree,
+    school: data.educationSchool,
+    year: data.educationYear,
+  }]).filter((item) => item.degree || item.school || item.year);
+
+  if (educationItems.length > 0) {
     addHeading('Education');
-    const eduText = [data.educationDegree, data.educationSchool, data.educationYear].filter(Boolean).join(', ');
-    children.push(new Paragraph({ text: eduText }));
+    educationItems.forEach((item) => {
+      const eduText = [item.degree, item.school, item.year].filter(Boolean).join(', ');
+      children.push(new Paragraph({ text: eduText }));
+    });
   }
 
   // Skills

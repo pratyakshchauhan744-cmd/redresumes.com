@@ -37,6 +37,9 @@ const envSchema = z.object({
   ADZUNA_APP_KEY: z.string().optional(),
   JOOBLE_API_KEY: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_IDS: z.string().optional(),
+  VITE_GOOGLE_CLIENT_ID: z.string().optional(),
   FRONTEND_ORIGIN: z.string().optional(),
   COOKIE_SECURE: z
     .string()

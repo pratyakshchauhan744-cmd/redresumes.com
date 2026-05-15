@@ -8,83 +8,80 @@ import { useNavigate } from 'react-router-dom';
 
 export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null }) => {
   const navigate = useNavigate();
+  const buildJobSearchUrl = (title: string, company: string) =>
+    `https://www.google.com/search?q=${encodeURIComponent(`${title} ${company} careers apply`)}`;
+
   const fallbackJobs: JobItem[] = [
     {
       id: 'local-0',
       title: 'Business Development Executive',
       company: 'GrowthBridge Consulting',
-      companyUrl: 'https://www.growthbridgeconsulting.com',
       location: 'Noida, India',
       type: 'Onsite',
       salary: 'Rs 8 L - Rs 12 L',
       match: 90,
       skills: ['Lead Generation', 'Client Outreach', 'Negotiation'],
-      url: 'https://www.growthbridgeconsulting.com/careers',
+      url: buildJobSearchUrl('Business Development Executive', 'GrowthBridge Consulting'),
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
     },
     {
       id: 'local-0b',
       title: 'Business Development Associate',
       company: 'ScaleAxis Technologies',
-      companyUrl: 'https://www.scaleaxis.com',
       location: 'Gurugram, India',
       type: 'Hybrid',
       salary: 'Rs 7 L - Rs 10 L',
       match: 86,
       skills: ['Sales Pipeline', 'B2B', 'Communication'],
-      url: 'https://www.scaleaxis.com/careers',
+      url: buildJobSearchUrl('Business Development Associate', 'ScaleAxis Technologies'),
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 15).toISOString(),
     },
     {
       id: 'local-1',
       title: 'Senior Frontend Engineer',
       company: 'ArcScale Labs',
-      companyUrl: 'https://www.arcscale.com',
       location: 'Bengaluru, India',
       type: 'Remote',
       salary: 'Rs 18 L - Rs 26 L',
       match: 92,
       skills: ['React', 'TypeScript', 'Design Systems'],
-      url: 'https://www.arcscale.com/careers',
+      url: buildJobSearchUrl('Senior Frontend Engineer', 'ArcScale Labs'),
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 6).toISOString(),
     },
     {
       id: 'local-2',
       title: 'Product Designer',
       company: 'VelocityOS',
-      companyUrl: 'https://www.velocityos.com',
       location: 'Mumbai, India',
       type: 'Hybrid',
       salary: 'Rs 12 L - Rs 18 L',
       match: 88,
       skills: ['Figma', 'UX Research', 'Prototyping'],
-      url: 'https://www.velocityos.com/careers',
+      url: buildJobSearchUrl('Product Designer', 'VelocityOS'),
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 20).toISOString(),
     },
     {
       id: 'local-3',
       title: 'Growth Marketing Manager',
       company: 'Northline Commerce',
-      companyUrl: 'https://www.northlinecommerce.com',
       location: 'Delhi, India',
       type: 'Onsite',
       salary: 'Rs 14 L - Rs 20 L',
       match: 81,
       skills: ['SEO', 'Lifecycle', 'Performance Ads'],
-      url: 'https://www.northlinecommerce.com/careers',
+      url: buildJobSearchUrl('Growth Marketing Manager', 'Northline Commerce'),
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 38).toISOString(),
     },
     {
       id: 'local-4',
       title: 'Data Analyst',
       company: 'Quorix Health',
-      companyUrl: 'https://www.quorixhealth.com',
       location: 'Hyderabad, India',
       type: 'Remote',
       salary: 'Rs 9 L - Rs 14 L',
       match: 79,
       skills: ['SQL', 'Power BI', 'Python'],
-      url: 'https://www.quorixhealth.com/careers',
+      url: buildJobSearchUrl('Data Analyst', 'Quorix Health'),
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 52).toISOString(),
     },
   ];
@@ -322,15 +319,26 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
     setApplySuccessMessage(null);
   };
 
-  const submitApplication = async () => {
+  const isCuratedJob = (job: JobItem) => job.id.startsWith('local-');
+
+  const openExternalJob = (job: JobItem) => {
+    if (!job.url) {
+      setApplySuccessMessage('No external job posting is available for this role.');
+      return;
+    }
+
+    window.open(job.url, '_blank', 'noopener,noreferrer');
+  };
+
+  const markApplicationApplied = async () => {
     if (!activeJob) return;
     setIsApplying(true);
     setApiError(null);
     setApplySuccessMessage(null);
 
-    if (activeJob.id.startsWith('local-')) {
+    if (isCuratedJob(activeJob)) {
       setAppliedJobs((prev) => ({ ...prev, [activeJob.id]: 'applied' }));
-      setApplySuccessMessage(`Application submitted for ${activeJob.title} at ${activeJob.company}.`);
+      setApplySuccessMessage(`Marked as applied in your tracker for ${activeJob.title} at ${activeJob.company}.`);
       setIsApplying(false);
       return;
     }
@@ -345,7 +353,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
     try {
       await backendApi.applyToJob(activeJob.id, token);
       setAppliedJobs((prev) => ({ ...prev, [activeJob.id]: 'applied' }));
-      setApplySuccessMessage(`Application submitted for ${activeJob.title} at ${activeJob.company}.`);
+      setApplySuccessMessage(`Marked as applied in your tracker for ${activeJob.title} at ${activeJob.company}.`);
     } catch (applyError) {
       setApiError(applyError instanceof Error ? applyError.message : 'Failed to apply');
       setIsApplying(false);
@@ -354,13 +362,19 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
     setIsApplying(false);
   };
 
+  const markApplicationInterview = () => {
+    if (!activeJob) return;
+    setAppliedJobs((prev) => ({ ...prev, [activeJob.id]: 'interview' }));
+    setApplySuccessMessage(`Moved ${activeJob.title} at ${activeJob.company} to Interview in your tracker.`);
+  };
+
   const interviewCount = Object.values(appliedJobs).filter((status) => status === 'interview').length;
   const appliedCount = Object.keys(appliedJobs).length;
 
   return (
     <Section title="Job finder" kicker="Find and apply faster">
-      <div className="rounded-[30px] border border-zinc-200 bg-[linear-gradient(145deg,#ffffff_0%,#fff8f8_45%,#f7fafc_100%)] p-6 shadow-[0_20px_54px_rgba(15,23,42,0.08)] md:p-8">
-        <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr_1fr_auto]">
+      <div className="rounded-2xl border border-zinc-200 bg-[linear-gradient(145deg,#ffffff_0%,#fff8f8_45%,#f7fafc_100%)] p-4 shadow-[0_12px_34px_rgba(15,23,42,0.06)] md:rounded-[30px] md:p-8 md:shadow-[0_20px_54px_rgba(15,23,42,0.08)]">
+        <div className="grid gap-3 md:gap-4 lg:grid-cols-[1.4fr_1fr_1fr_auto]">
           <input
             className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
             placeholder="Role or keyword (e.g., Product Manager)"
@@ -397,7 +411,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
             <button
               key={filterItem.label}
               onClick={filterItem.toggle}
-              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                 filterItem.active
                   ? 'border-primary bg-primary/10 text-primary'
                   : 'border-zinc-200 bg-white text-zinc-600 hover:text-zinc-900'
@@ -410,18 +424,19 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
         {apiError && <p className="mt-4 text-sm font-medium text-amber-700">{apiError}</p>}
       </div>
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-[1.65fr_1fr]">
-        <div className="space-y-4">
+      <div className="mt-6 grid gap-5 md:mt-8 lg:grid-cols-[1.65fr_1fr] lg:gap-6">
+        <div className="space-y-3 md:space-y-4">
           {jobs.map((job) => (
-            <div key={job.id} className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-[0_12px_30px_rgba(15,23,42,0.05)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_44px_rgba(15,23,42,0.1)]">
+            <div key={job.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_44px_rgba(15,23,42,0.1)] md:p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-xl font-extrabold tracking-tight text-zinc-900">{job.title}</h3>
+                  <h3 className="text-lg font-extrabold tracking-tight text-zinc-900 md:text-xl">{job.title}</h3>
                   <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-500">
                     {job.companyUrl ? (
                       <a
                         href={job.companyUrl}
-                        target="_self"
+                        target="_blank"
+                        rel="noreferrer"
                         className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
                       >
                         <Building2 className="h-4 w-4" /> {job.company} <ExternalLink className="h-3.5 w-3.5" />
@@ -445,20 +460,21 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
                   {job.salary}
                 </span>
               </div>
-              <div className="mt-5 flex flex-wrap gap-3">
+              <div className="mt-5 grid gap-2 sm:flex sm:flex-wrap sm:gap-3">
                 <button onClick={() => openApplyModal(job)} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90">Apply</button>
                 {job.url && (
                   <a
                     href={job.url}
-                    target="_self"
-                    className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700 hover:border-emerald-300"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-center text-sm font-semibold text-emerald-700 hover:border-emerald-300"
                   >
-                    Apply on Company Site
+                    {isCuratedJob(job) ? 'Search Opening Online' : 'Apply on Company Site'}
                   </a>
                 )}
                 <button
                   onClick={() => toggleSaveJob(job.id)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:border-zinc-400"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:border-zinc-400"
                 >
                   <Bookmark className="h-4 w-4" />
                   {savedJobs.includes(job.id) ? 'Saved' : 'Save'}
@@ -474,8 +490,8 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
           ))}
         </div>
 
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-[0_12px_30px_rgba(15,23,42,0.05)]">
+        <div className="space-y-3 md:space-y-4">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] md:p-5">
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">Pipeline</p>
             <h3 className="mt-2 text-xl font-extrabold text-zinc-900">Application Tracker</h3>
             <div className="mt-4 grid grid-cols-3 gap-3">
@@ -492,7 +508,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
             </div>
           </div>
 
-          <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-[0_12px_30px_rgba(15,23,42,0.05)]">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] md:p-5">
             <h3 className="text-base font-bold text-zinc-900">AI Suggestions</h3>
             <ul className="mt-3 space-y-2 text-sm text-zinc-600">
               <li className="flex items-start gap-2"><Check className="mt-0.5 h-4 w-4 text-primary" /> Add React Native to increase matches by 9%.</li>
@@ -507,50 +523,64 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
       </div>
 
       {showApplyModal && activeJob && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/45 px-4">
-          <div className="w-full max-w-xl rounded-3xl border border-zinc-200 bg-white p-6 shadow-[0_30px_90px_rgba(15,23,42,0.24)]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/45 px-4 py-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="job-apply-dialog-title"
+            className="max-h-full w-full max-w-xl overflow-auto rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_30px_90px_rgba(15,23,42,0.24)] md:rounded-3xl md:p-6"
+          >
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">One-click apply</p>
-                <h3 className="mt-2 text-2xl font-black tracking-tight text-zinc-900">{activeJob.title}</h3>
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">Application tracker</p>
+                <h3 id="job-apply-dialog-title" className="mt-2 text-2xl font-black tracking-tight text-zinc-900">{activeJob.title}</h3>
                 <p className="mt-1 text-sm text-zinc-500">{activeJob.company} - {activeJob.location}</p>
               </div>
-              <button onClick={closeApplyModal} className="rounded-full border border-zinc-200 p-2 text-zinc-500 hover:text-zinc-900">
+              <button
+                onClick={closeApplyModal}
+                autoFocus
+                className="rounded-full border border-zinc-200 p-2 text-zinc-500 hover:text-zinc-900"
+                aria-label="Close application dialog"
+              >
                 <X className="h-4 w-4" />
               </button>
             </div>
             <div className="mt-5 rounded-2xl border border-zinc-100 bg-zinc-50 p-4 text-sm text-zinc-600">
               {applySuccessMessage
-                ? 'Your application has been recorded in the tracker for this role.'
-                : 'Apply directly from here and update your tracker without downloading any text files.'}
+                ? 'Your tracker has been updated for this role.'
+                : isCuratedJob(activeJob)
+                  ? 'This curated listing is not connected to a company ATS. Open the posting/search, apply on the employer site, then mark it in your tracker.'
+                  : 'Open the employer posting and apply there. Use this panel to record the role in your RedResumes tracker.'}
             </div>
             {applySuccessMessage && (
               <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-700">
                 {applySuccessMessage}
               </div>
             )}
-            <div className="mt-6 flex flex-wrap gap-3">
+            <div className="mt-6 grid gap-3 sm:flex sm:flex-wrap">
+              {activeJob.url && (
+                <button
+                  type="button"
+                  onClick={() => openExternalJob(activeJob)}
+                  className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700 hover:border-emerald-300"
+                >
+                  {isCuratedJob(activeJob) ? 'Search Opening Online' : 'Open Job Posting'}
+                </button>
+              )}
               <button
-                onClick={submitApplication}
-                disabled={isApplying || !!applySuccessMessage}
+                onClick={markApplicationApplied}
+                disabled={isApplying || appliedJobs[activeJob.id] === 'applied' || appliedJobs[activeJob.id] === 'interview'}
                 className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isApplying ? 'Applying...' : applySuccessMessage ? 'Applied' : 'Apply now'}
+                {isApplying ? 'Saving...' : appliedJobs[activeJob.id] ? 'Applied' : 'Mark as Applied'}
               </button>
               <button
-                onClick={() => {
-                  setAppliedJobs((prev) => ({ ...prev, [activeJob.id]: 'interview' }));
-                  closeApplyModal();
-                }}
+                onClick={markApplicationInterview}
+                disabled={!appliedJobs[activeJob.id] || appliedJobs[activeJob.id] === 'interview'}
                 className="rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:border-zinc-400"
               >
-                Mark as Interview
+                {appliedJobs[activeJob.id] === 'interview' ? 'Interview marked' : 'Mark as Interview'}
               </button>
-              {activeJob.url && (
-                <a href={activeJob.url} target="_self" className="rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:border-zinc-400">
-                  Open Job Posting
-                </a>
-              )}
             </div>
           </div>
         </div>

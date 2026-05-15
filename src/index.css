@@ -19,6 +19,20 @@
   body {
     @apply font-sans bg-surface text-on-surface;
   }
+
+  :where(a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
+    outline: 3px solid rgba(177, 18, 23, 0.95) !important;
+    outline-offset: 3px !important;
+    box-shadow: 0 0 0 6px rgba(177, 18, 23, 0.16) !important;
+  }
+
+  :where(button, summary, [role="button"]) {
+    cursor: pointer;
+  }
+
+  :where(button, input, select, textarea):disabled {
+    cursor: not-allowed;
+  }
 }
 
 @layer base {
@@ -50,6 +64,11 @@
   html.dark .border-zinc-300 {
     border-color: #27272a !important;
   }
+
+  html.dark :where(a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
+    outline-color: #fb7185 !important;
+    box-shadow: 0 0 0 6px rgba(251, 113, 133, 0.22) !important;
+  }
 }
 
 .crimson-gradient {
@@ -59,4 +78,15 @@
 .glass-panel {
   background: rgba(255, 255, 255, 0.8);
   backdrop-filter: blur(24px);
+}
+
+.template-preview-embedded {
+  overflow-wrap: break-word;
+}
+
+.template-preview-embedded aside,
+.template-preview-embedded main,
+.template-preview-embedded > div,
+.template-preview-embedded > section {
+  min-width: 0;
 }

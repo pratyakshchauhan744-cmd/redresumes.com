@@ -4,6 +4,7 @@ export const ACCESS_TOKEN_STORAGE_KEY = 'redresumes_access_token';
 export const USER_STORAGE_KEY = 'redresumes_user';
 export const LOCAL_ACCOUNTS_STORAGE_KEY = 'redresumes_local_accounts';
 export const RESUME_HISTORY_STORAGE_KEY = 'redresumes_resume_history_v1';
+export const RESUME_DRAFT_STORAGE_KEY = 'redresumes_resume_draft_v1';
 export const SAVED_JOBS_STORAGE_KEY = 'redresumes_saved_jobs';
 export const APPLIED_JOBS_STORAGE_KEY = 'redresumes_applied_jobs';
 export const MAX_RESUME_HISTORY_ITEMS = 30;

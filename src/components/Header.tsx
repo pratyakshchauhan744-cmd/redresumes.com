@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Layout, Menu, Moon, Sun, X } from 'lucide-react';
+import { Menu, Moon, Sun, X } from 'lucide-react';
 import type { AuthUser } from '../lib/backendApi';
 import { PrimaryButton, SecondaryButton } from './Buttons';
 
@@ -27,15 +27,14 @@ export const Header = ({
     { path: '/templates', label: 'Templates' },
     { path: '/job-finder', label: 'Job Finder' },
     { path: '/examples', label: 'Examples' },
-    { path: '/pricing', label: 'Pricing' },
     { path: '/blog', label: 'Blog' },
     { path: currentUser ? '/dashboard' : '/login', label: currentUser ? 'Profile' : 'Login' },
   ];
 
   return (
     <header className="sticky top-0 z-50 border-b border-zinc-100 bg-white/90 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
-      <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-        <Link to="/" className="text-xl font-extrabold tracking-tight text-zinc-900 dark:text-zinc-100">
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 md:py-4">
+        <Link to="/" className="text-lg font-extrabold tracking-tight text-zinc-900 dark:text-zinc-100 md:text-xl">
           RedResumes
         </Link>
 
@@ -98,15 +97,16 @@ export const Header = ({
         {/* Mobile Toggle */}
         <button 
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="md:hidden rounded-full border border-zinc-200 p-2 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+          className="rounded-full border border-zinc-200 p-2 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900 md:hidden"
+          aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
         >
-          {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          {mobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
         </button>
       </div>
 
       {/* Mobile Menu */}
       {mobileMenuOpen && (
-        <div className="absolute left-0 right-0 top-full flex max-h-[80vh] flex-col gap-4 overflow-y-auto border-b border-zinc-100 bg-white px-6 py-4 shadow-lg dark:border-zinc-800 dark:bg-zinc-950 md:hidden">
+        <div className="absolute left-0 right-0 top-full flex max-h-[80vh] flex-col gap-3 overflow-y-auto border-b border-zinc-100 bg-white px-4 py-4 shadow-lg dark:border-zinc-800 dark:bg-zinc-950 md:hidden">
           <button
             type="button"
             onClick={onToggleDarkMode}
@@ -119,7 +119,7 @@ export const Header = ({
               key={item.path}
               to={item.path}
               onClick={() => setMobileMenuOpen(false)}
-              className={`text-lg font-semibold ${location.pathname === item.path ? 'text-zinc-900 dark:text-zinc-100' : 'text-zinc-600 dark:text-zinc-300'}`}
+              className={`rounded-xl px-2 py-1.5 text-base font-semibold ${location.pathname === item.path ? 'bg-zinc-50 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100' : 'text-zinc-600 dark:text-zinc-300'}`}
             >
               {item.label}
             </Link>

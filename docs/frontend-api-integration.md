@@ -27,6 +27,7 @@ VITE_API_BASE_URL=http://localhost
 | Company profile | GET | `/api/companies/:id` | Returns company + latest jobs |
 | Register | POST | `/api/auth/register` | Body: `name,email,password,role` |
 | Login | POST | `/api/auth/login` | Save `accessToken` + `refreshToken` |
+| Google login | POST | `/api/auth/google` | Body: `credential` from Google Identity Services; server verifies it against `GOOGLE_CLIENT_ID` |
 | Refresh token | POST | `/api/auth/refresh` | Body: `refreshToken` |
 | Logout | POST | `/api/auth/logout` | Body: `refreshToken` |
 | Save job | POST | `/api/jobs/:id/save` | Candidate only, auth required |
@@ -47,6 +48,23 @@ For protected routes:
 Authorization: Bearer <accessToken>
 ```
 
+## Google Login Setup
+
+Create a Google OAuth Web Client in Google Cloud / Google Auth Platform and add your local and production origins:
+
+- `http://localhost:3000`
+- `https://redresumescom.vercel.app`
+- your custom production domain, if different
+
+Set both variables to the same Web Client ID:
+
+```bash
+VITE_GOOGLE_CLIENT_ID=your_google_web_client_id.apps.googleusercontent.com
+GOOGLE_CLIENT_ID=your_google_web_client_id.apps.googleusercontent.com
+```
+
+`VITE_GOOGLE_CLIENT_ID` renders the browser button. `GOOGLE_CLIENT_ID` is used by the backend to verify the Google ID token audience before issuing a RedResumes session.
+
 ## Quick Migration Steps (Job Finder)
 
 1. Replace external fetch calls in `searchJobs()` with `backendApi.listJobs(...)` from [backendApi.ts](/Users/mac/Desktop/redresumes.com/src/lib/backendApi.ts).
@@ -61,4 +79,3 @@ Frontend filters -> API query params:
 - `location` -> `location`
 - `remoteOnly` -> `remoteType=remote`
 - `level` -> `experienceLevel` (map your UI level values)
-

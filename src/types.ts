@@ -5,7 +5,6 @@ export type Page =
   | 'builder'
   | 'templates'
   | 'cover-letter'
-  | 'pricing'
   | 'examples'
   | 'job-finder'
   | 'blog'
@@ -89,6 +88,7 @@ export type TemplateResumeData = {
   profileLink: string;
   summary: string;
   skills: string[];
+  educationItems?: EducationItem[];
   educationDegree: string;
   educationSchool: string;
   educationYear: string;
@@ -107,6 +107,12 @@ export interface ExperienceItem {
   title: string;
   dates: string;
   bullets: string;
+}
+
+export interface EducationItem {
+  degree: string;
+  school: string;
+  year: string;
 }
 
 export interface CustomColumnItem {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, type ChangeEvent } from 'react';
-import { Download, Layout, Sparkles, User, FileText, CheckCircle, Save, HelpCircle, Briefcase, ChevronRight, PenTool, Type, Move, Plus, X, ArrowUp, ArrowDown, GripVertical, Check, MessageSquare, AlertCircle, Copy, Code, ArrowLeft, LoaderCircle, ClipboardCheck } from 'lucide-react';
+import { Download, Layout, Sparkles, User, FileText, CheckCircle, Save, HelpCircle, Briefcase, ChevronRight, PenTool, Type, Move, Plus, X, ArrowUp, ArrowDown, GripVertical, Check, MessageSquare, AlertCircle, Copy, Code, ArrowLeft, LoaderCircle, ClipboardCheck, List, ListOrdered, Lock } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
@@ -13,10 +13,12 @@ import { templates } from '../data/templates';
 import { resumeExamplePresets } from '../data/resumeExamples';
 import { premiumFeatures } from '../data/premiumFeatures';
 import { generateResumeDocx } from '../lib/docxExport';
-import type { PremiumFeatureItem, TemplateItem, TemplateResumeData, ExperienceItem, CustomColumnItem, EducationItem } from '../types';
-import { useLocation } from 'react-router-dom';
+import type { PremiumFeatureItem, TemplateItem, TemplateResumeData, ExperienceItem, CustomColumnItem, EducationItem, ResumeListStyle } from '../types';
+import { useLocation, Link } from 'react-router-dom';
 
 const MAX_RESUME_HISTORY_ITEMS = 50;
+const LOCAL_PUBLIC_RESUMES_STORAGE_KEY = 'redresumes_local_public_resumes';
+const cleanListLine = (line: string) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim();
 
 export const ResumeBuilderPage = ({
   selectedTemplate,
@@ -67,6 +69,7 @@ export const ResumeBuilderPage = ({
     customColumns: CustomColumnItem[];
     selectedTemplateId: string;
     selectedTemplateName: string;
+    listStyle?: ResumeListStyle;
   }
 
   interface ResumeHistoryEntry {
@@ -118,6 +121,7 @@ export const ResumeBuilderPage = ({
   const [photoDataUrl, setPhotoDataUrl] = useState('');
   const [importantDate, setImportantDate] = useState('');
   const [importantPlace, setImportantPlace] = useState('');
+  const [listStyle, setListStyle] = useState<ResumeListStyle>('bullet');
   const [summary, setSummary] = useState('Product leader with 8+ years of experience building growth-focused digital products, leading cross-functional teams, and improving user conversion through data-driven decisions.');
   const [experiences, setExperiences] = useState<ExperienceItem[]>([
     {
@@ -285,6 +289,7 @@ export const ResumeBuilderPage = ({
     customColumns,
     selectedTemplateId: selectedTemplate.id,
     selectedTemplateName: selectedTemplate.name,
+    listStyle,
   });
 
   const persistResumeHistory = (items: ResumeHistoryEntry[]) => {
@@ -355,6 +360,7 @@ export const ResumeBuilderPage = ({
     setAchievementsInput(data.achievementsInput);
     setVolunteerInput(data.volunteerInput);
     setCustomColumns(Array.isArray(data.customColumns) ? data.customColumns : []);
+    setListStyle(data.listStyle === 'number' ? 'number' : 'bullet');
   };
 
   const restoreResumeFromHistory = (entry: ResumeHistoryEntry) => {
@@ -436,12 +442,25 @@ export const ResumeBuilderPage = ({
 
   const parsedSkills = skillsInput.split(',').map((item) => item.trim()).filter(Boolean);
   const parsedProjects = projectsInput.split('\n').map((item) => item.trim()).filter(Boolean);
+  const projectsDisplay = parsedProjects.length <= 1 ? 'paragraph' : 'list';
   const parsedCertifications = certificationsInput.split(',').map((item) => item.trim()).filter(Boolean);
   const parsedLanguages = languagesInput.split(',').map((item) => item.trim()).filter(Boolean);
   const parsedHobbies = hobbiesInput.split(',').map((item) => item.trim()).filter(Boolean);
   const parsedAchievements = achievementsInput.split('\n').map((item) => item.trim()).filter(Boolean);
   const parsedVolunteer = volunteerInput.split('\n').map((item) => item.trim()).filter(Boolean);
-  const parsedCustomColumns = customColumns
+  const pendingCustomColumnTitle = newCustomColumnTitle.trim();
+  const pendingCustomColumnContent = newCustomColumnContent.trim();
+  const effectiveCustomColumns = [
+    ...customColumns,
+    ...(pendingCustomColumnTitle || pendingCustomColumnContent
+      ? [{
+          id: 'custom-draft-preview',
+          title: pendingCustomColumnTitle || `Custom section ${customColumns.length + 1}`,
+          content: pendingCustomColumnContent,
+        }]
+      : []),
+  ];
+  const parsedCustomColumns = effectiveCustomColumns
     .map((item) => ({
       ...item,
       title: item.title.trim(),
@@ -467,17 +486,19 @@ export const ResumeBuilderPage = ({
     bullets: experiences.flatMap((exp) =>
       exp.bullets
         .split('\n')
-        .map((line) => line.replace(/^\s*-\s*/, '').trim())
+        .map(cleanListLine)
         .filter(Boolean),
     ),
     experiences,
     projects: parsedProjects,
+    projectsDisplay,
     certifications: parsedCertifications,
     languages: parsedLanguages,
     hobbies: parsedHobbies,
     achievements: parsedAchievements,
     volunteer: parsedVolunteer,
-    customColumns,
+    customColumns: effectiveCustomColumns,
+    listStyle,
   }), [
     fullName,
     jobTitle,
@@ -499,6 +520,9 @@ export const ResumeBuilderPage = ({
     achievementsInput,
     volunteerInput,
     customColumns,
+    newCustomColumnTitle,
+    newCustomColumnContent,
+    listStyle,
   ]);
   const datePlaceText = [
     importantDate.trim() ? `Date: ${importantDate.trim()}` : '',
@@ -513,6 +537,8 @@ export const ResumeBuilderPage = ({
     .replace(/^-+|-+$/g, '') || 'candidate';
   const resumePdfFileName = `${resumeSlug}-${selectedTemplate.id}-resume.pdf`;
   const appOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://redresumescom.vercel.app';
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const isLoggedIn = Boolean(currentUser);
 
   const templateThemeById: Record<string, { accent: string; headingBg: string; font: string; layout: 'single' | 'two-column' }> = {
     professional: { accent: '#991b1b', headingBg: '#f8fafc', font: 'Inter, Arial, sans-serif', layout: 'single' },
@@ -601,6 +627,7 @@ export const ResumeBuilderPage = ({
       achievementsInput,
       volunteerInput,
       customColumns,
+      listStyle,
       selectedTemplate.id,
       selectedTemplate.name,
     ],
@@ -1341,6 +1368,10 @@ export const ResumeBuilderPage = ({
   };
 
   const downloadPortfolioWebsiteHtml = () => {
+    if (!isLoggedIn) {
+      setShowLoginModal(true);
+      return;
+    }
     const html = generatePortfolioHtml();
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -1363,11 +1394,41 @@ export const ResumeBuilderPage = ({
     }
 
     const publishCurrentResume = async () => {
-      const published = await backendApi.publishPublicResume({
+      const payload = {
         slug: resumeSlug,
         templateId: selectedTemplate.id,
         resumeData: liveTemplateResumeData,
-      });
+      };
+      const publishLocalResume = () => {
+        const id = `local-${resumeSlug}-${Date.now().toString(36)}`;
+        const item = {
+          id,
+          slug: payload.slug,
+          templateId: payload.templateId,
+          resumeData: payload.resumeData,
+          updatedAt: new Date().toISOString(),
+        };
+        try {
+          const raw = window.localStorage.getItem(LOCAL_PUBLIC_RESUMES_STORAGE_KEY);
+          const existing = raw ? (JSON.parse(raw) as unknown) : {};
+          const records = existing && typeof existing === 'object' && !Array.isArray(existing) ? existing as Record<string, unknown> : {};
+          window.localStorage.setItem(LOCAL_PUBLIC_RESUMES_STORAGE_KEY, JSON.stringify({ ...records, [id]: item }));
+        } catch {
+          throw new Error('Unable to save local resume link. Please enable browser storage or start the backend server.');
+        }
+        return item;
+      };
+
+      let published;
+      try {
+        published = await backendApi.publishPublicResume(payload);
+      } catch (error) {
+        const isLocalHost = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+        if (!isLocalHost) {
+          throw error;
+        }
+        published = publishLocalResume();
+      }
       const url = `${appOrigin}/r/${published.id}`;
       setPublishedResumeUrl(url);
       return url;
@@ -1486,19 +1547,20 @@ export const ResumeBuilderPage = ({
       })
       .join('');
     const projectMarkup = parsedProjects.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+    const projectParagraphMarkup = escapeHtml(parsedProjects.join('\n\n')).replace(/\n/g, '<br />');
     const certificationMarkup = parsedCertifications.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
     const languageMarkup = parsedLanguages.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
     const hobbiesMarkup = parsedHobbies.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
     const achievementMarkup = parsedAchievements.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
     const volunteerMarkup = parsedVolunteer.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
     const customColumnMarkup = parsedCustomColumns
-      .map((column) => {
+      .map((column, index) => {
         const lines = column.lines.map((line) => `<li>${escapeHtml(line)}</li>`).join('');
         return `
-          <article class="exp-item">
-            <h3>${escapeHtml(column.title || 'Custom section')}</h3>
+          <section class="section">
+            <h2>${escapeHtml(column.title || `Custom section ${index + 1}`)}</h2>
             <ul>${lines}</ul>
-          </article>
+          </section>
         `;
       })
       .join('');
@@ -1567,7 +1629,7 @@ export const ResumeBuilderPage = ({
       projects: hasProjects ? `
         <section class="section">
           <h2>Projects</h2>
-          <ul>${projectMarkup}</ul>
+          ${projectsDisplay === 'paragraph' ? `<p>${projectParagraphMarkup}</p>` : `<ul>${projectMarkup}</ul>`}
         </section>
       ` : '',
       certifications: hasCertifications ? `
@@ -1600,12 +1662,7 @@ export const ResumeBuilderPage = ({
           <ul>${volunteerMarkup}</ul>
         </section>
       ` : '',
-      'custom-columns': hasCustomColumns ? `
-        <section class="section">
-          <h2>Custom Columns</h2>
-          ${customColumnMarkup}
-        </section>
-      ` : '',
+      'custom-columns': hasCustomColumns ? customColumnMarkup : '',
     };
 
     const singleColumnMarkup = orderedPrintableSections.map((id) => sectionBlockById[id]).filter(Boolean).join('');
@@ -1717,6 +1774,10 @@ export const ResumeBuilderPage = ({
   };
 
   const downloadResumePdf = () => {
+    if (!isLoggedIn) {
+      setShowLoginModal(true);
+      return;
+    }
     saveCurrentResumeToHistory('Saved from PDF download');
     const popup = window.open('', '_blank', 'width=1000,height=900');
     if (!popup) return;
@@ -1738,6 +1799,10 @@ export const ResumeBuilderPage = ({
   };
 
   const handleDownloadDocx = () => {
+    if (!isLoggedIn) {
+      setShowLoginModal(true);
+      return;
+    }
     saveCurrentResumeToHistory('Saved from DOCX download');
     generateResumeDocx({
       fullName,
@@ -1755,6 +1820,7 @@ export const ResumeBuilderPage = ({
       bullets: experiences.flatMap(exp => exp.bullets.split('\n').map(b => b.replace(/^-/, '').trim()).filter(Boolean)),
       experiences: experiences,
       projects: parsedProjects,
+      projectsDisplay,
       certifications: parsedCertifications,
       languages: parsedLanguages,
       hobbies: parsedHobbies,
@@ -1829,7 +1895,6 @@ export const ResumeBuilderPage = ({
       'Volunteer',
       parsedVolunteer.join('\n'),
       '',
-      'Custom Columns',
       customColumnsText,
     ]
       .filter(Boolean)
@@ -2555,7 +2620,29 @@ export const ResumeBuilderPage = ({
             </div>
 
             <div id="builder-section-experience" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-              <h2 className="font-semibold text-zinc-900">Work Experience</h2>
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <h2 className="font-semibold text-zinc-900">Work Experience</h2>
+                <div className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setListStyle('bullet')}
+                    className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${listStyle === 'bullet' ? 'bg-white text-zinc-950 shadow-sm' : 'text-zinc-500 hover:text-zinc-900'}`}
+                    aria-pressed={listStyle === 'bullet'}
+                  >
+                    <List className="h-3.5 w-3.5" />
+                    Points
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setListStyle('number')}
+                    className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${listStyle === 'number' ? 'bg-white text-zinc-950 shadow-sm' : 'text-zinc-500 hover:text-zinc-900'}`}
+                    aria-pressed={listStyle === 'number'}
+                  >
+                    <ListOrdered className="h-3.5 w-3.5" />
+                    Numbers
+                  </button>
+                </div>
+              </div>
               <div className="mt-4 space-y-4 text-sm">
                 {experiences.map((exp, index) => (
                   <div key={`${index}-${exp.title}`} className="rounded-xl border border-zinc-200 p-4 bg-zinc-50/40">
@@ -2567,7 +2654,7 @@ export const ResumeBuilderPage = ({
                         value={exp.bullets}
                         onChange={(e) => updateExperience(index, 'bullets', e.target.value)}
                         className="border border-zinc-200 rounded-lg px-3 py-2 w-full h-24 bg-white"
-                        placeholder="Describe impact in bullet points"
+                        placeholder={listStyle === 'number' ? 'Write each numbered point on a new line' : 'Write each point on a new line'}
                       />
                     </div>
                   </div>
@@ -2687,7 +2774,7 @@ export const ResumeBuilderPage = ({
                   placeholder="One line per point"
                 />
                 <button onClick={addCustomColumn} className="text-xs font-semibold text-primary">
-                  + Add custom column
+                  + Save custom column
                 </button>
               </div>
 
@@ -3042,6 +3129,37 @@ export const ResumeBuilderPage = ({
         </div>
       </div>
     </div>
+
+  {/* Login Required Modal */}
+  {showLoginModal && (
+    <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowLoginModal(false)}>
+      <div
+        className="mx-4 w-full max-w-sm animate-[fadeInScale_0.25s_ease] rounded-3xl border border-zinc-200 bg-white p-6 shadow-2xl sm:p-8"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
+          <Lock className="h-7 w-7 text-primary" />
+        </div>
+        <h3 className="mt-5 text-center text-xl font-extrabold tracking-tight text-zinc-900">Sign in to download</h3>
+        <p className="mt-2 text-center text-sm leading-6 text-zinc-500">
+          Create a free account or sign in to download your resume as PDF or DOCX.
+        </p>
+        <Link
+          to="/login"
+          className="mt-6 flex w-full items-center justify-center rounded-2xl bg-primary px-5 py-3.5 text-sm font-bold text-white shadow-[0_12px_28px_rgba(177,18,23,0.22)] transition hover:opacity-90"
+        >
+          Sign in / Create account
+        </Link>
+        <button
+          type="button"
+          onClick={() => setShowLoginModal(false)}
+          className="mt-3 w-full rounded-2xl border border-zinc-200 px-5 py-3 text-sm font-semibold text-zinc-600 transition hover:border-zinc-400 hover:text-zinc-900"
+        >
+          Continue editing
+        </button>
+      </div>
+    </div>
+  )}
   </div>
   );
 };

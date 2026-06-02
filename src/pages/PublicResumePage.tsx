@@ -1,17 +1,40 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Download, LoaderCircle } from 'lucide-react';
+import { Download, LoaderCircle, Lock } from 'lucide-react';
 import { TemplatePreviewScaler } from '../components/TemplatePreviewScaler';
 import { TemplateVisualPreview } from '../components/TemplateVisualPreview';
 import { backendApi, type PublicResumeResponse } from '../lib/backendApi';
+import { readStoredUser } from '../lib/auth';
 import { templates } from '../data/templates';
 import type { TemplateResumeData } from '../types';
+
+const LOCAL_PUBLIC_RESUMES_STORAGE_KEY = 'redresumes_local_public_resumes';
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
 
 const toStringArray = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+
+const getLocalPublicResume = (id: string): PublicResumeResponse | null => {
+  try {
+    const raw = window.localStorage.getItem(LOCAL_PUBLIC_RESUMES_STORAGE_KEY);
+    if (!raw) return null;
+    const records = JSON.parse(raw) as unknown;
+    if (!isObject(records)) return null;
+    const record = records[id];
+    if (!isObject(record)) return null;
+    return {
+      id: typeof record.id === 'string' ? record.id : id,
+      slug: typeof record.slug === 'string' ? record.slug : id,
+      templateId: typeof record.templateId === 'string' ? record.templateId : 'modern',
+      resumeData: record.resumeData,
+      updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : undefined,
+    };
+  } catch {
+    return null;
+  }
+};
 
 const toResumeData = (value: unknown): TemplateResumeData | null => {
   if (!isObject(value)) return null;
@@ -48,11 +71,13 @@ const toResumeData = (value: unknown): TemplateResumeData | null => {
           }))
       : [],
     projects: toStringArray(value.projects),
+    projectsDisplay: value.projectsDisplay === 'paragraph' || (!value.projectsDisplay && toStringArray(value.projects).length <= 1) ? 'paragraph' : 'list',
     certifications: toStringArray(value.certifications),
     languages: toStringArray(value.languages),
     hobbies: toStringArray(value.hobbies),
     achievements: toStringArray(value.achievements),
     volunteer: toStringArray(value.volunteer),
+    listStyle: value.listStyle === 'number' ? 'number' : 'bullet',
     customColumns: Array.isArray(value.customColumns)
       ? value.customColumns
           .filter(isObject)
@@ -70,6 +95,8 @@ export const PublicResumePage = () => {
   const [resume, setResume] = useState<PublicResumeResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const isLoggedIn = Boolean(readStoredUser());
 
   useEffect(() => {
     if (!resumeId) {
@@ -80,14 +107,36 @@ export const PublicResumePage = () => {
 
     setLoading(true);
     setError(null);
+    const localResume = getLocalPublicResume(resumeId);
+    if (localResume) {
+      setResume(localResume);
+      setLoading(false);
+      return;
+    }
+
     backendApi.getPublicResume(resumeId)
       .then(setResume)
-      .catch((err) => setError(err instanceof Error ? err.message : 'Unable to load shared resume.'))
+      .catch((err) => {
+        const fallbackLocalResume = getLocalPublicResume(resumeId);
+        if (fallbackLocalResume) {
+          setResume(fallbackLocalResume);
+          return;
+        }
+        setError(err instanceof Error ? err.message : 'Unable to load shared resume.');
+      })
       .finally(() => setLoading(false));
   }, [resumeId]);
 
   const resumeData = useMemo(() => toResumeData(resume?.resumeData), [resume?.resumeData]);
   const template = templates.find((item) => item.id === resume?.templateId) ?? templates[0];
+
+  const handlePrintClick = () => {
+    if (!isLoggedIn) {
+      setShowLoginModal(true);
+      return;
+    }
+    window.print();
+  };
 
   if (loading) {
     return (
@@ -113,9 +162,9 @@ export const PublicResumePage = () => {
   }
 
   return (
-    <div className="bg-zinc-50">
+    <div className="public-resume-page bg-zinc-50">
       <section className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="no-print mb-5 flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">Shared resume</p>
             <h1 className="mt-1 text-2xl font-black tracking-tight text-zinc-950">{resumeData.fullName || 'Candidate Resume'}</h1>
@@ -123,7 +172,7 @@ export const PublicResumePage = () => {
           </div>
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={handlePrintClick}
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-200 px-4 py-2 text-sm font-bold text-zinc-700 hover:border-primary hover:text-primary"
           >
             <Download className="h-4 w-4" />
@@ -131,12 +180,45 @@ export const PublicResumePage = () => {
           </button>
         </div>
 
-        <div className="overflow-auto rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
+        <div className="public-resume-print-shell overflow-auto rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
+          <div className="public-resume-print-area">
           <TemplatePreviewScaler pageWidth={760}>
             <TemplateVisualPreview template={template} data={resumeData} />
           </TemplatePreviewScaler>
+          </div>
         </div>
       </section>
+
+      {/* Login Required Modal */}
+      {showLoginModal && (
+        <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowLoginModal(false)}>
+          <div
+            className="mx-4 w-full max-w-sm animate-[fadeInScale_0.25s_ease] rounded-3xl border border-zinc-200 bg-white p-6 shadow-2xl sm:p-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
+              <Lock className="h-7 w-7 text-primary" />
+            </div>
+            <h3 className="mt-5 text-center text-xl font-extrabold tracking-tight text-zinc-900">Sign in to download</h3>
+            <p className="mt-2 text-center text-sm leading-6 text-zinc-500">
+              Create a free account or sign in to download this resume as PDF.
+            </p>
+            <Link
+              to="/login"
+              className="mt-6 flex w-full items-center justify-center rounded-2xl bg-primary px-5 py-3.5 text-sm font-bold text-white shadow-[0_12px_28px_rgba(177,18,23,0.22)] transition hover:opacity-90"
+            >
+              Sign in / Create account
+            </Link>
+            <button
+              type="button"
+              onClick={() => setShowLoginModal(false)}
+              className="mt-3 w-full rounded-2xl border border-zinc-200 px-5 py-3 text-sm font-semibold text-zinc-600 transition hover:border-zinc-400 hover:text-zinc-900"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

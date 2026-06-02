@@ -79,6 +79,9 @@ export interface ResumeExamplePreset {
   achievementsInput: string;
 }
 
+export type ResumeListStyle = 'bullet' | 'number';
+export type ResumeProjectsDisplay = 'paragraph' | 'list';
+
 export type TemplateResumeData = {
   fullName: string;
   jobTitle: string;
@@ -95,12 +98,14 @@ export type TemplateResumeData = {
   bullets: string[];
   experiences?: ExperienceItem[];
   projects: string[];
+  projectsDisplay?: ResumeProjectsDisplay;
   certifications: string[];
   languages: string[];
   hobbies: string[];
   achievements: string[];
   volunteer: string[];
   customColumns?: CustomColumnItem[];
+  listStyle?: ResumeListStyle;
 };
 
 export interface ExperienceItem {

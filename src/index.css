@@ -71,6 +71,11 @@
   }
 }
 
+@keyframes fadeInScale {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
 .crimson-gradient {
   background: linear-gradient(135deg, #af101a 0%, #d32f2f 100%);
 }
@@ -89,4 +94,55 @@
 .template-preview-embedded > div,
 .template-preview-embedded > section {
   min-width: 0;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  .public-resume-page .no-print {
+    display: none !important;
+  }
+
+  .public-resume-page {
+    background: #ffffff !important;
+  }
+
+  .public-resume-page > section {
+    margin: 0 !important;
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  .public-resume-print-shell {
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  .public-resume-print-area .template-preview-scale-shell,
+  .public-resume-print-area .template-preview-scale-stage,
+  .public-resume-print-area .template-preview-scale-page {
+    height: auto !important;
+    margin: 0 !important;
+    max-width: none !important;
+    transform: none !important;
+    width: 100% !important;
+  }
+
+  .public-resume-print-area .template-visual-preview {
+    border: 0 !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+    width: 100% !important;
+  }
+
+  .public-resume-print-area .template-visual-preview section {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
 }

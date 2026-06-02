@@ -483,14 +483,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
             {authDescription}
           </p>
 
-          {authMode === 'login' && (
-            <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-3 py-3 md:mt-5 md:px-4 md:py-4">
-              <p className="text-[0.68rem] font-bold uppercase tracking-[0.14em] text-zinc-500 md:text-xs">Test Credentials</p>
-              <p className="mt-1 text-xs text-zinc-400">Password for all: Password@123</p>
-              <p className="mt-2 text-xs text-zinc-500">Emails: candidate@example.com, employer@example.com, admin@example.com</p>
-              <p className="mt-1 text-xs text-zinc-400">For your own email, use Create account first, then Sign in.</p>
-            </div>
-          )}
+
 
           <div className="mt-6 space-y-4 md:mt-8">
             {authMode !== 'forgot-password' && !(authMode === 'signup' && signupStep === 'otp') && (
@@ -678,13 +671,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
             )}
               </>
             )}
-            {!(authMode === 'signup' && signupStep === 'otp') && authMode !== 'forgot-password' && (
-              <>
-                <p className="text-xs leading-6 text-zinc-400">
-                  By continuing, you agree to use RedResumes truthfully and follow platform terms and acceptable use requirements.
-                </p>
-              </>
-            )}
+
             {error && <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{error}</p>}
             {successMessage && <p className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{successMessage}</p>}
             {!(authMode === 'signup' && signupStep === 'otp') && authMode !== 'forgot-password' && (

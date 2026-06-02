@@ -28,11 +28,13 @@ const resumeDataSchema = z.object({
     bullets: z.string()
   })).optional(),
   projects: z.array(z.string()).optional(),
+  projectsDisplay: z.enum(["paragraph", "list"]).optional(),
   certifications: z.array(z.string()).optional(),
   languages: z.array(z.string()).optional(),
   hobbies: z.array(z.string()).optional(),
   achievements: z.array(z.string()).optional(),
   volunteer: z.array(z.string()).optional(),
+  listStyle: z.enum(["bullet", "number"]).optional(),
   customColumns: z.array(z.object({
     id: z.string(),
     title: z.string(),

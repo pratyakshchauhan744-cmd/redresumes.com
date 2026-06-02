@@ -28,12 +28,15 @@ export const TemplateVisualPreview = ({
     'Reduced onboarding friction, cutting support tickets by 34%.',
   ]);
   const projects = data?.projects?.length ? data.projects : (isLiveData ? [] : ['Built a resume scoring tool using React and Node.js.', 'Created an analytics dashboard to track job applications.']);
+  const projectsDisplay = data?.projectsDisplay ?? (projects.length <= 1 ? 'paragraph' : 'list');
   const certifications = data?.certifications?.length ? data.certifications : (isLiveData ? [] : ['Google Data Analytics', 'AWS Cloud Practitioner']);
   const languages = data?.languages?.length ? data.languages : (isLiveData ? [] : ['English', 'Hindi']);
   const hobbies = data?.hobbies?.length ? data.hobbies : (isLiveData ? [] : ['Reading', 'Running', 'Chess']);
   const achievements = data?.achievements?.length ? data.achievements : (isLiveData ? [] : ['Won hackathon among 120+ teams.', 'Improved product conversion by 21% in previous role.']);
   const volunteer = data?.volunteer?.length ? data.volunteer : (isLiveData ? [] : ['Mentored students in resume writing and interview prep.']);
-  const contactItems = [emailText, phoneText, locationText].filter(Boolean);
+  const listStyle = data?.listStyle === 'number' ? 'number' : 'bullet';
+  const ListTag: 'ol' | 'ul' = listStyle === 'number' ? 'ol' : 'ul';
+  const listClassName = listStyle === 'number' ? 'list-decimal' : 'list-disc';
   const isTwoColumn = template.id === 'two-column' || template.id === 'finance';
   const orderedSectionIds = [
     ...(sectionOrder ?? []),
@@ -60,6 +63,50 @@ export const TemplateVisualPreview = ({
     year: data?.educationYear ?? '',
   }]).filter((item) => item.degree || item.school || item.year);
   const customColumns = data?.customColumns?.filter((item) => item.title.trim() || item.content.trim()) ?? [];
+  const cleanListLine = (line: string) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim();
+  const gmailComposeUrl = (email: string) =>
+    `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}`;
+  const websiteUrl = (url: string) => {
+    if (/^https?:\/\//i.test(url)) return url;
+    return `https://${url}`;
+  };
+  type ContactLinkItem = { text: string; href?: string; ariaLabel?: string };
+  const linkClassName = 'break-words underline-offset-4 hover:underline';
+  const rawContactLinkItems: Array<ContactLinkItem | null> = [
+    emailText
+      ? {
+          text: emailText,
+          href: gmailComposeUrl(emailText),
+          ariaLabel: `Email ${emailText} in Gmail`,
+        }
+      : null,
+    phoneText ? { text: phoneText } : null,
+    locationText ? { text: locationText } : null,
+  ];
+  const contactLinkItems = rawContactLinkItems.filter((item): item is ContactLinkItem => Boolean(item));
+  const profileLinkItem = profileText
+    ? {
+        text: profileText,
+        href: websiteUrl(profileText),
+        ariaLabel: `Open ${profileText}`,
+      }
+    : null;
+  const renderContactItem = (item: ContactLinkItem) => {
+    if (!item.href) return <span>{item.text}</span>;
+
+    return (
+      <a className={linkClassName} href={item.href} target="_blank" rel="noreferrer" aria-label={item.ariaLabel}>
+        {item.text}
+      </a>
+    );
+  };
+  const renderInlineContactItems = (items: ContactLinkItem[]) =>
+    items.map((item, index) => (
+      <span key={item.text}>
+        {index > 0 && <span> • </span>}
+        {renderContactItem(item)}
+      </span>
+    ));
 
   const sectionTitle = (label: string) => (
     <p className="text-[0.78rem] font-extrabold uppercase tracking-[0.24em]" style={{ color: theme.accent }}>
@@ -76,7 +123,7 @@ export const TemplateVisualPreview = ({
           {experienceItems.map((experience, index) => {
             const bulletLines = experience.bullets
               .split('\n')
-              .map((item) => item.replace(/^\s*-\s*/, '').trim())
+              .map(cleanListLine)
               .filter(Boolean);
 
             return (
@@ -84,9 +131,9 @@ export const TemplateVisualPreview = ({
                 {experience.title && <p className="text-2xl font-black leading-tight text-zinc-900">{experience.title}</p>}
                 {experience.dates && <p className="text-xl leading-8 text-zinc-500">{experience.dates}</p>}
                 {bulletLines.length > 0 && (
-                  <ul className="mt-3 list-disc space-y-2 pl-6 text-[1.05rem] leading-7 text-zinc-700">
+                  <ListTag className={`mt-3 ${listClassName} space-y-2 pl-6 text-[1.05rem] leading-7 text-zinc-700`}>
                     {bulletLines.map((item) => <li key={item}>{item}</li>)}
-                  </ul>
+                  </ListTag>
                 )}
               </div>
             );
@@ -101,11 +148,26 @@ export const TemplateVisualPreview = ({
     return (
       <section key={id}>
         {sectionTitle(label)}
-        <ul className="mt-4 list-disc space-y-2 pl-6 text-xl leading-8 text-zinc-700">
+        <ListTag className={`mt-4 ${listClassName} space-y-2 pl-6 text-xl leading-8 text-zinc-700`}>
           {items.map((item) => <li key={item}>{item}</li>)}
-        </ul>
+        </ListTag>
       </section>
     );
+  };
+
+  const renderProjectsSection = () => {
+    if (!projects.length) return null;
+
+    if (projectsDisplay === 'paragraph') {
+      return (
+        <section key="projects">
+          {sectionTitle('Projects')}
+          <p className="mt-4 whitespace-pre-line text-xl leading-8 text-zinc-700">{projects.join('\n\n')}</p>
+        </section>
+      );
+    }
+
+    return renderListSection('projects', 'Projects', projects);
   };
 
   const sectionById: Record<string, ReactNode> = {
@@ -142,27 +204,24 @@ export const TemplateVisualPreview = ({
         </div>
       </section>
     ) : null,
-    projects: renderListSection('projects', 'Projects', projects),
+    projects: renderProjectsSection(),
     certifications: renderListSection('certifications', 'Certifications', certifications),
     languages: renderListSection('languages', 'Languages', languages),
     hobbies: renderListSection('hobbies', 'Hobbies', hobbies),
     achievements: renderListSection('achievements', 'Achievements', achievements),
     volunteer: renderListSection('volunteer', 'Volunteer', volunteer),
     'custom-columns': customColumns.length > 0 ? (
-      <section key="custom-columns">
-        {sectionTitle('Custom Columns')}
-        <div className="mt-4 space-y-4 text-xl leading-8 text-zinc-700">
-          {customColumns.map((column) => (
-            <div key={column.id}>
-              {column.title && <p className="font-bold text-zinc-800">{column.title}</p>}
-              {column.content && (
-                <ul className="mt-2 list-disc space-y-1 pl-6">
-                  {column.content.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => <li key={line}>{line}</li>)}
-                </ul>
-              )}
-            </div>
-          ))}
-        </div>
+      <section key="custom-columns" className="space-y-8">
+        {customColumns.map((column, index) => (
+          <div key={column.id}>
+            {sectionTitle(column.title.trim() || `Custom section ${index + 1}`)}
+            {column.content && (
+              <ListTag className={`mt-4 ${listClassName} space-y-2 pl-6 text-xl leading-8 text-zinc-700`}>
+                {column.content.split('\n').map(cleanListLine).filter(Boolean).map((line) => <li key={line}>{line}</li>)}
+              </ListTag>
+            )}
+          </div>
+        ))}
       </section>
     ) : null,
   };
@@ -180,8 +239,8 @@ export const TemplateVisualPreview = ({
             <h2 className="text-4xl font-black leading-none tracking-tight text-slate-950">{fullName}</h2>
             <p className="mt-2 text-xl font-bold text-slate-700">{roleTitle}</p>
             <div className="mt-5 space-y-1 text-sm leading-6 text-slate-700">
-              {contactItems.map((item) => <p key={item}>{item}</p>)}
-              {profileText && <p>{profileText}</p>}
+              {contactLinkItems.map((item) => <p key={item.text}>{renderContactItem(item)}</p>)}
+              {profileLinkItem && <p>{renderContactItem(profileLinkItem)}</p>}
             </div>
             {sideSections.length > 0 && <div className="mt-6 space-y-6">{sideSections}</div>}
           </aside>
@@ -205,8 +264,8 @@ export const TemplateVisualPreview = ({
           <div className="min-w-0">
             <h2 className="text-5xl font-black leading-tight tracking-tight">{fullName}</h2>
             <p className="mt-1 text-3xl font-extrabold leading-tight text-zinc-600">{roleTitle}</p>
-            {contactItems.length > 0 && <p className="mt-6 text-2xl leading-9 text-zinc-500">{contactItems.join(' • ')}</p>}
-            {profileText && <p className="text-2xl leading-9 text-zinc-500">{profileText}</p>}
+            {contactLinkItems.length > 0 && <p className="mt-6 text-2xl leading-9 text-zinc-500">{renderInlineContactItems(contactLinkItems)}</p>}
+            {profileLinkItem && <p className="text-2xl leading-9 text-zinc-500">{renderContactItem(profileLinkItem)}</p>}
           </div>
         </div>
       </div>

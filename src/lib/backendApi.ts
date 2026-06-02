@@ -434,10 +434,10 @@ export const backendApi = {
   }, token: string) => request<TranslateResumeResponse>("/api/ai/translate-resume", { method: "POST", body, token }),
 
   publishPublicResume: (body: { slug: string; templateId: string; resumeData: unknown }) =>
-    sameOriginRequest<PublicResumeResponse>("/api/public-resumes", { method: "POST", body }),
+    request<PublicResumeResponse>("/api/public-resumes", { method: "POST", body }),
 
   getPublicResume: (id: string) =>
-    sameOriginRequest<PublicResumeResponse>(`/api/public-resumes/${encodeURIComponent(id)}`),
+    request<PublicResumeResponse>(`/api/public-resumes/${encodeURIComponent(id)}`),
 
   parseResume: async (file: File, token: string) => {
     const formData = new FormData();

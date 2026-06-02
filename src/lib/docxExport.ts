@@ -4,6 +4,8 @@ import type { TemplateResumeData } from '../types';
 
 export const generateResumeDocx = async (data: TemplateResumeData) => {
   const children: Paragraph[] = [];
+  const listStyle = data.listStyle === 'number' ? 'number' : 'bullet';
+  const cleanListLine = (line: string) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim();
 
   const addHeading = (text: string, level: typeof HeadingLevel[keyof typeof HeadingLevel] = HeadingLevel.HEADING_3) => {
     children.push(
@@ -24,6 +26,18 @@ export const generateResumeDocx = async (data: TemplateResumeData) => {
         })
       );
     });
+  };
+
+  const addList = (items: string[]) => {
+    const cleanedItems = items.map(cleanListLine).filter(Boolean);
+    if (listStyle === 'number') {
+      cleanedItems.forEach((item, index) => {
+        children.push(new Paragraph({ text: `${index + 1}. ${item}` }));
+      });
+      return;
+    }
+
+    addBulletList(cleanedItems);
   };
 
   // Header (Name and Contact Info)
@@ -86,13 +100,13 @@ export const generateResumeDocx = async (data: TemplateResumeData) => {
         );
       }
       
-      const bullets = exp.bullets.split('\n').map(b => b.replace(/^-/, '').trim()).filter(Boolean);
-      addBulletList(bullets);
+      const bullets = exp.bullets.split('\n').map(cleanListLine).filter(Boolean);
+      addList(bullets);
     });
   } else if (data.bullets && data.bullets.length > 0) {
     // Fallback for simple bullets
     addHeading('Experience');
-    addBulletList(data.bullets);
+    addList(data.bullets);
   }
 
   // Education
@@ -119,7 +133,11 @@ export const generateResumeDocx = async (data: TemplateResumeData) => {
   // Projects
   if (data.projects && data.projects.length > 0) {
     addHeading('Projects');
-    addBulletList(data.projects);
+    if (data.projectsDisplay === 'paragraph') {
+      children.push(new Paragraph({ text: data.projects.join('\n\n') }));
+    } else {
+      addList(data.projects);
+    }
   }
   
   // Certifications
@@ -143,13 +161,13 @@ export const generateResumeDocx = async (data: TemplateResumeData) => {
   // Achievements
   if (data.achievements && data.achievements.length > 0) {
     addHeading('Achievements');
-    addBulletList(data.achievements);
+    addList(data.achievements);
   }
 
   // Volunteer
   if (data.volunteer && data.volunteer.length > 0) {
     addHeading('Volunteer');
-    addBulletList(data.volunteer);
+    addList(data.volunteer);
   }
 
   // Custom Columns
@@ -158,8 +176,8 @@ export const generateResumeDocx = async (data: TemplateResumeData) => {
       if (!col.title && !col.content) return;
       if (col.title) addHeading(col.title);
       if (col.content) {
-        const points = col.content.split('\n').map(b => b.replace(/^-/, '').trim()).filter(Boolean);
-        addBulletList(points);
+        const points = col.content.split('\n').map(cleanListLine).filter(Boolean);
+        addList(points);
       }
     });
   }

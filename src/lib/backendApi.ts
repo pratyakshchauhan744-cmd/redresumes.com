@@ -244,6 +244,15 @@ export type TranslateResumeResponse = {
   hobbies: string[];
 };
 
+export type AdminSignInActivityItem = {
+  signedInAt: string;
+  name: string;
+  email: string;
+  role: string;
+  method: "email_password" | "google" | "existing_session";
+  userId: string;
+};
+
 function parseAuthUser(value: unknown): AuthUser {
   const obj = ensureObject(value, "user");
   return {
@@ -405,6 +414,9 @@ export const backendApi = {
   getMySavedJobs: (token: string) => request(`/api/users/me/saved-jobs`, { token }),
 
   getMe: (token: string) => request<unknown>(`/api/users/me`, { token }).then(parseAuthUser),
+
+  getAdminSignIns: (token: string) =>
+    request<{ items: AdminSignInActivityItem[] }>(`/api/admin/signins`, { token }),
 
   getAtsScore: (body: { resumeText: string; jobDescription: string }, token: string) =>
     request<unknown>("/api/ai/ats-score", { method: "POST", body, token }).then(parseAtsScore),

@@ -178,7 +178,7 @@ export const HomePage = ({
     <Section title="Trusted by job seekers" kicker="Results">
       <div className="grid gap-4 md:grid-cols-3 md:gap-6">
         {[
-          { stat: '1.2M+', label: 'Resumes created' },
+          { stat: '500+', label: 'Resumes created' },
           { stat: '87%', label: 'Interview rate lift' },
           { stat: '4.9/5', label: 'Average rating' },
         ].map((item) => (

@@ -48,6 +48,11 @@ enum ApplicationStatus {
   hired
 }
 
+enum SignInMethod {
+  email_password
+  google
+}
+
 model User {
   id            String         @id @default(cuid())
   name          String
@@ -61,6 +66,7 @@ model User {
   postedJobs    Job[]          @relation("EmployerJobs")
   companies     Company[]      @relation("EmployerCompany")
   refreshTokens RefreshToken[]
+  signInEvents  SignInEvent[]
 }
 
 model Company {
@@ -150,6 +156,18 @@ model RefreshToken {
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+model SignInEvent {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  method    SignInMethod
+  createdAt DateTime     @default(now())
+
+  @@index([userId])
+  @@index([method])
+  @@index([createdAt])
 }
 
 model IngestionLog {

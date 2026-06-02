@@ -14,6 +14,7 @@ import ingestionRoutes from "./modules/ingestion/routes.js";
 import adminRoutes from "./modules/admin/routes.js";
 import aiRoutes from "./modules/ai/routes.js";
 import publicResumeRoutes from "./modules/public-resumes/routes.js";
+import devRoutes from "./modules/dev/routes.js";
 import { notFoundHandler } from "./middleware/not-found.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { env } from "./config/env.js";
@@ -28,6 +29,10 @@ const explicitOrigins = (env.FRONTEND_ORIGIN ?? "")
 
 function isAllowedCorsOrigin(origin: string): boolean {
   if (explicitOrigins.includes(origin) || /^https?:\/\/localhost(:\d+)?$/.test(origin)) {
+    return true;
+  }
+
+  if (env.NODE_ENV !== "production" && origin === "https://accounts.google.com") {
     return true;
   }
 
@@ -63,11 +68,19 @@ app.use(
 app.use(helmet());
 app.use(morgan("dev"));
 app.use(express.json({ limit: "2mb" }));
+app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "redresumes-backend" });
 });
+
+if (env.NODE_ENV !== "production") {
+  app.get("/", (_req, res) => {
+    res.redirect("/api/dev");
+  });
+  app.use("/api/dev", devRoutes);
+}
 
 app.use("/api/auth", authRoutes);
 app.use("/api/jobs", jobsRoutes);

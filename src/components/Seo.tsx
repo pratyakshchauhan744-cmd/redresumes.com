@@ -5,7 +5,8 @@ const SITE_NAME = 'Red Resumes';
 const DEFAULT_TITLE = 'Red Resumes | Professional Resume Builder';
 const DEFAULT_DESCRIPTION =
   'Build ATS-friendly resumes with beautiful templates, AI-powered writing help, and fast PDF export.';
-const DEFAULT_IMAGE = '/og-cover.svg';
+const DEFAULT_IMAGE = '/og-cover.png';
+const LOGO_IMAGE = '/favicon-192x192.png';
 
 const pageSeo: Record<string, { title: string; description: string; type?: 'website' | 'article' }> = {
   '/': {
@@ -57,7 +58,8 @@ const jsonLdForPath = (path: string, url: string) => {
       '@type': 'Organization',
       name: SITE_NAME,
       url,
-      logo: `${url}/favicon.ico`,
+      logo: `${url}${LOGO_IMAGE}`,
+      image: `${url}${DEFAULT_IMAGE}`,
       sameAs: [],
     };
   }
@@ -95,6 +97,9 @@ export const Seo = () => {
       <meta property="og:description" content={seo.description || DEFAULT_DESCRIPTION} />
       <meta property="og:url" content={currentUrl} />
       <meta property="og:image" content={`${siteUrl}${DEFAULT_IMAGE}`} />
+      <meta property="og:image:type" content="image/png" />
+      <meta property="og:image:width" content="1200" />
+      <meta property="og:image:height" content="630" />
       <meta name="twitter:card" content="summary_large_image" />
       <meta name="twitter:title" content={seo.title || DEFAULT_TITLE} />
       <meta name="twitter:description" content={seo.description || DEFAULT_DESCRIPTION} />

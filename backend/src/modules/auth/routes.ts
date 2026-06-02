@@ -5,6 +5,7 @@ import rateLimit from "express-rate-limit";
 import { createHash, randomBytes, randomInt } from "crypto";
 import nodemailer from "nodemailer";
 import { OAuth2Client } from "google-auth-library";
+import type { SignInMethod } from "@prisma/client";
 import { prisma } from "../../db/prisma.js";
 import { env } from "../../config/env.js";
 import { signAccessToken, signRefreshToken, verifyToken } from "../../utils/jwt.js";
@@ -401,14 +402,29 @@ async function persistRefreshToken(userId: string, refreshToken: string): Promis
   });
 }
 
+async function recordSignIn(userId: string, method: SignInMethod): Promise<void> {
+  try {
+    await prisma.signInEvent.create({
+      data: {
+        userId,
+        method
+      }
+    });
+  } catch (error) {
+    console.warn("Sign-in activity logging skipped:", error instanceof Error ? error.message : "unknown error");
+  }
+}
+
 async function issueAuthResponse(
   res: Response,
-  user: { id: string; name: string; email: string; role: "candidate" | "employer" | "admin" }
+  user: { id: string; name: string; email: string; role: "candidate" | "employer" | "admin" },
+  method: SignInMethod
 ): Promise<void> {
   const payload = { sub: user.id, role: user.role, email: user.email };
   const accessToken = signAccessToken(payload);
   const refreshToken = signRefreshToken(payload);
   await persistRefreshToken(user.id, refreshToken);
+  await recordSignIn(user.id, method);
   setRefreshCookie(res, refreshToken);
   res.json({
     user: {
@@ -587,7 +603,7 @@ router.post("/register/verify", otpVerifyLimiter, async (req, res, next) => {
     });
 
     pendingOtpSignups.delete(body.sessionId);
-    await issueAuthResponse(res, user);
+    await issueAuthResponse(res, user, "email_password");
   } catch (error) {
     next(error);
   }
@@ -615,7 +631,7 @@ router.post("/register", async (req, res, next) => {
     });
 
     res.status(201);
-    await issueAuthResponse(res, user);
+    await issueAuthResponse(res, user, "email_password");
   } catch (error) {
     next(error);
   }
@@ -638,7 +654,7 @@ router.post("/login", async (req, res, next) => {
       return;
     }
 
-    await issueAuthResponse(res, user);
+    await issueAuthResponse(res, user, "email_password");
   } catch (error) {
     next(error);
   }
@@ -682,7 +698,7 @@ router.post("/google", async (req, res, next) => {
       }
     });
 
-    await issueAuthResponse(res, user);
+    await issueAuthResponse(res, user, "google");
   } catch (error) {
     next(error);
   }
@@ -767,7 +783,7 @@ router.post("/login/verify", otpVerifyLimiter, async (req, res, next) => {
       return;
     }
 
-    await issueAuthResponse(res, user);
+    await issueAuthResponse(res, user, "email_password");
   } catch (error) {
     next(error);
   }

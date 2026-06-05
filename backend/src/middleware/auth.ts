@@ -17,6 +17,7 @@ declare global {
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
+    console.log("requireAuth: missing or invalid authorization header:", authHeader);
     res.status(401).json({ message: "Missing or invalid authorization header" });
     return;
   }
@@ -31,7 +32,8 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
       email: payload.email
     };
     next();
-  } catch {
+  } catch (err: any) {
+    console.log("requireAuth: token verification failed:", err.message, "Token value:", token.slice(0, 15) + "...");
     res.status(401).json({ message: "Invalid or expired token" });
   }
 }

@@ -13,7 +13,12 @@ router.get("/me", requireAuth, async (req, res, next) => {
         name: true,
         email: true,
         role: true,
-        createdAt: true
+        createdAt: true,
+        credits: {
+          select: {
+            balance: true
+          }
+        }
       }
     });
 
@@ -22,9 +27,16 @@ router.get("/me", requireAuth, async (req, res, next) => {
       return;
     }
 
-    res.json(user);
-  } catch (error) {
-    next(error);
+    res.json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      createdAt: user.createdAt,
+      credits: user.credits?.balance ?? 0
+    });
+  } catch (err) {
+    next(err);
   }
 });
 

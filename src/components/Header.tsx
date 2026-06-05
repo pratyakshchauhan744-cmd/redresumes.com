@@ -24,8 +24,8 @@ export const Header = ({
 
   const navLinks = [
     { path: '/', label: 'Home' },
-    { path: '/templates', label: 'Templates' },
     { path: '/job-finder', label: 'Job Finder' },
+    { path: '/interview/setup', label: 'Interview Practice' },
     { path: '/examples', label: 'Examples' },
     { path: '/blog', label: 'Blog' },
     { path: currentUser ? '/dashboard' : '/login', label: currentUser ? 'Profile' : 'Login' },

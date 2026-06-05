@@ -20,6 +20,10 @@ import { ContactPage } from './pages/ContactPage';
 import { LegalPage } from './pages/LegalPage';
 import { AdminPage } from './pages/AdminPage';
 import { PublicResumePage } from './pages/PublicResumePage';
+import { InterviewSetupPage } from './pages/InterviewSetupPage';
+import { InterviewSessionPage } from './pages/InterviewSessionPage';
+import { InterviewReportPage } from './pages/InterviewReportPage';
+import { PricingPage } from './pages/PricingPage';
 
 import { templates } from './data/templates';
 import { blogArticles } from './data/blogArticles';
@@ -186,6 +190,22 @@ const App = () => {
                   onLogout={handleLogout} 
                   onUserUpdated={setCurrentUser} 
                 /> : 
+                <Navigate to="/login" replace />
+            } />
+            
+            <Route path="/interview/setup" element={
+              isAuthenticated ? 
+                <InterviewSetupPage currentUser={currentUser} onUserUpdated={setCurrentUser} /> : 
+                <Navigate to="/login" replace />
+            } />
+            <Route path="/interview/session/:id" element={
+              isAuthenticated ? 
+                <InterviewSessionPage currentUser={currentUser} /> : 
+                <Navigate to="/login" replace />
+            } />
+            <Route path="/interview/report/:id" element={
+              isAuthenticated ? 
+                <InterviewReportPage /> : 
                 <Navigate to="/login" replace />
             } />
             

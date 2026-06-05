@@ -42,6 +42,13 @@ test('filled resume draft survives page refresh', async ({ page }) => {
 });
 
 test('section order updates live preview and downloaded resume', async ({ page }) => {
+  // Log in first to satisfy the isLoggedIn check for resume downloads
+  await page.goto('/login');
+  await page.getByPlaceholder('Enter your email').fill('candidate@example.com');
+  await page.getByPlaceholder('Enter your password').fill('Password@123');
+  await page.locator('button.w-full', { hasText: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/dashboard/);
+
   await page.goto('/builder');
 
   await page.getByTestId('section-order-summary-down').click();

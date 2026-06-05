@@ -797,7 +797,13 @@ router.post("/refresh", async (req, res, next) => {
       return;
     }
 
-    const payload = verifyToken(refreshToken);
+    let payload;
+    try {
+      payload = verifyToken(refreshToken);
+    } catch (err) {
+      res.status(401).json({ message: "Invalid or expired refresh token" });
+      return;
+    }
     const stored = await prisma.refreshToken.findFirst({
       where: {
         userId: payload.sub,
@@ -811,7 +817,7 @@ router.post("/refresh", async (req, res, next) => {
       return;
     }
 
-    const accessToken = signAccessToken(payload);
+    const accessToken = signAccessToken({ sub: payload.sub, role: payload.role, email: payload.email });
     res.json({ accessToken });
   } catch (error) {
     next(error);

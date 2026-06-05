@@ -67,6 +67,11 @@ model User {
   companies     Company[]      @relation("EmployerCompany")
   refreshTokens RefreshToken[]
   signInEvents  SignInEvent[]
+  resumes       Resume[]
+  interviewSessions InterviewSession[]
+  subscription  UserSubscription?
+  credits       UserCredit?
+  transactions  CreditTransaction[]
 }
 
 model Company {
@@ -179,3 +184,133 @@ model IngestionLog {
   status       String
   createdAt    DateTime @default(now())
 }
+
+model Resume {
+  id             String             @id @default(cuid())
+  userId         String?
+  user           User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileName       String
+  fileUrl        String?            
+  parsedData     Json?              
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  sessions       InterviewSession[]
+}
+
+model InterviewSession {
+  id             String               @id @default(cuid())
+  userId         String?
+  user           User?                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resumeId       String
+  resume         Resume               @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  targetRole     String
+  companyType    String
+  difficulty     String
+  interviewStyle String
+  durationMins   Int
+  jobDescription String?
+  interviewerPersona String? @default("HR Recruiter")
+  stressMode     Boolean? @default(false)
+  status         String               @default("in_progress")
+  creditUsed     Boolean              @default(false)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  questions      InterviewQuestion[]
+  report         InterviewReport?
+  analytics      AnalyticsEvent[]
+}
+
+model InterviewQuestion {
+  id             String               @id @default(cuid())
+  sessionId      String
+  session        InterviewSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  questionText   String
+  questionType   String               
+  contextRef     String?              
+  orderIndex     Int
+  createdAt      DateTime             @default(now())
+  answer         InterviewAnswer?
+}
+
+model InterviewAnswer {
+  id             String               @id @default(cuid())
+  questionId     String               @unique
+  question       InterviewQuestion    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answerText     String
+  durationSecs   Int?
+  score          Float?
+  feedback       Json?                
+  createdAt      DateTime             @default(now())
+}
+
+model InterviewReport {
+  id             String               @id @default(cuid())
+  sessionId      String               @unique
+  session        InterviewSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  overallScore   Float
+  categoryScores Json
+  strengths      String[]
+  weaknesses     String[]
+  recommendations String[]
+  
+  // Voice Analytics
+  speakingPace   Int?     @default(135)
+  fillerWords    Int?     @default(0)
+  voiceConfidence Int?    @default(80)
+
+  createdAt      DateTime @default(now())
+}
+
+model SubscriptionPlan {
+  id             String               @id @default(cuid())
+  name           String               
+  priceId        String               
+  priceAmount    Int                  
+  currency       String               @default("INR")
+  features       Json
+  subscriptions  UserSubscription[]
+}
+
+model UserSubscription {
+  id             String               @id @default(cuid())
+  userId         String               @unique
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId         String
+  plan           SubscriptionPlan     @relation(fields: [planId], references: [id])
+  razorpaySubId  String?              
+  status         String               
+  currentPeriodEnd DateTime
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+}
+
+model AnalyticsEvent {
+  id             String               @id @default(cuid())
+  userId         String?
+  sessionId      String?
+  session        InterviewSession?    @relation(fields: [sessionId], references: [id])
+  eventType      String               
+  metadata       Json?
+  createdAt      DateTime             @default(now())
+}
+
+model UserCredit {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance   Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model CreditTransaction {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  packageName     String
+  creditsAdded    Int
+  paymentAmount   Float
+  razorpayPaymentId String   @unique
+  status          String
+  createdAt       DateTime @default(now())
+}
+

@@ -8,6 +8,20 @@ import type { LocalAccount } from '../types';
 import type { Page } from '../types';
 import { useNavigate } from 'react-router-dom';
 
+const loadRazorpayScript = () => {
+  return new Promise((resolve) => {
+    if ((window as any).Razorpay) {
+      resolve(true);
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+};
+
 export const DashboardPage = ({
   currentUser,
   onLogout,
@@ -26,9 +40,124 @@ export const DashboardPage = ({
   const [profilePhone, setProfilePhone] = useState(currentUser?.phone ?? '');
   const [profileLocation, setProfileLocation] = useState(currentUser?.location ?? '');
   const [profileBio, setProfileBio] = useState(currentUser?.bio ?? '');
+  const [interviewHistory, setInterviewHistory] = useState<any[]>([]);
+  const [creditsBalance, setCreditsBalance] = useState<number>(currentUser?.credits ?? 0);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [purchaseLoading, setPurchaseLoading] = useState<string | null>(null);
+  const [purchaseError, setPurchaseError] = useState<string | null>(null);
+  const [devAmount, setDevAmount] = useState<number>(5);
+
   const savedJobsStorageKey = buildUserScopedStorageKey(SAVED_JOBS_STORAGE_KEY, user?.id ?? currentUser?.id);
   const appliedJobsStorageKey = buildUserScopedStorageKey(APPLIED_JOBS_STORAGE_KEY, user?.id ?? currentUser?.id);
   const resumeHistoryStorageKey = buildUserScopedStorageKey(RESUME_HISTORY_STORAGE_KEY, user?.id ?? currentUser?.id);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('payment_success') === 'true' || params.get('mock_success') === 'true') {
+      setProfileMessage('Payment successful! Your account has been credited.');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (params.get('payment_cancelled') === 'true') {
+      setProfileError('Payment was cancelled.');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
+  const handleBuyCredits = async (packageKey: string) => {
+    const accessToken = getStoredAccessToken();
+    if (!accessToken) {
+      setPurchaseError("Please log in to purchase credits.");
+      return;
+    }
+
+    setPurchaseLoading(packageKey);
+    setPurchaseError(null);
+
+    try {
+      const res = await backendApi.createCreditCheckoutSession(packageKey, accessToken);
+      
+      // Handle mock dev bypass or redirect URL if provided
+      if (res.url) {
+        window.location.href = res.url;
+        return;
+      }
+
+      // Load Razorpay script
+      const loaded = await loadRazorpayScript();
+      if (!loaded) {
+        throw new Error("Failed to load Razorpay SDK. Please check your internet connection.");
+      }
+
+      const options = {
+        key: res.keyId,
+        amount: res.amount,
+        currency: res.currency,
+        name: res.productName,
+        description: res.productDescription,
+        order_id: res.orderId,
+        handler: async function (response: any) {
+          setPurchaseLoading(null);
+          setProfileMessage("Payment successful! Your credits will update shortly.");
+          
+          // Poll transactions to update the UI balance after a short delay
+          setTimeout(async () => {
+            try {
+              const data = await backendApi.getCreditTransactions(accessToken);
+              setCreditsBalance(data.balance);
+              setTransactions(data.transactions || []);
+
+              if (user) {
+                const updatedUser = { ...user, credits: data.balance };
+                saveUserLocally(updatedUser);
+              }
+            } catch (err) {
+              console.error("Failed to refresh transactions:", err);
+            }
+          }, 3000);
+        },
+        prefill: {
+          name: user?.name || '',
+          email: user?.email || '',
+        },
+        theme: {
+          color: "#e11d48", // matches the theme rose-600
+        },
+        modal: {
+          ondismiss: function () {
+            setPurchaseLoading(null);
+          }
+        }
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (err: any) {
+      alert(err.message || "An error occurred initiating checkout.");
+      setPurchaseError(err.message || "An error occurred initiating checkout.");
+      setPurchaseLoading(null);
+    }
+  };
+
+  const handleDevAddCredits = async () => {
+    const accessToken = getStoredAccessToken();
+    if (!accessToken) return;
+
+    try {
+      const res = await backendApi.devAddCredits(devAmount, accessToken);
+      setCreditsBalance(res.balance);
+      
+      if (user) {
+        const updatedUser = { ...user, credits: res.balance };
+        saveUserLocally(updatedUser);
+      }
+
+      // Refresh transactions
+      const data = await backendApi.getCreditTransactions(accessToken);
+      setTransactions(data.transactions || []);
+      setProfileMessage(`Successfully added ${devAmount} dev credits.`);
+    } catch (err: any) {
+      console.error(err);
+    }
+  };
 
   useEffect(() => {
     const storedUser = readStoredUser();
@@ -54,12 +183,32 @@ export const DashboardPage = ({
         setProfilePhone(me.phone ?? '');
         setProfileLocation(me.location ?? '');
         setProfileBio(me.bio ?? '');
+        if (typeof me.credits === 'number') {
+          setCreditsBalance(me.credits);
+        }
         window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(me));
         onUserUpdated(me);
       })
       .catch(() => {
         setProfileError('Showing saved profile details because the live account service is unavailable.');
       });
+      
+    // Fetch interview history
+    backendApi.getInterviewHistory(accessToken)
+      .then(data => {
+        if (Array.isArray(data)) {
+          setInterviewHistory(data);
+        }
+      })
+      .catch(console.error);
+
+    // Fetch credit balance & transactions
+    backendApi.getCreditTransactions(accessToken)
+      .then(data => {
+        setCreditsBalance(data.balance);
+        setTransactions(data.transactions || []);
+      })
+      .catch(console.error);
   }, [onUserUpdated]);
 
   const saveUserLocally = (updatedUser: AuthUser) => {
@@ -186,17 +335,96 @@ export const DashboardPage = ({
             {profileMessage && <p className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{profileMessage}</p>}
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-4">
             {[
               { label: 'Saved jobs', value: savedJobs.length },
               { label: 'Applied', value: appliedCount },
               { label: 'Interviews', value: interviewCount },
+              { label: 'Credits Remaining', value: creditsBalance },
             ].map((item) => (
               <div key={item.label} className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-400">{item.label}</p>
                 <p className="mt-3 text-3xl font-black tracking-tight text-zinc-900">{item.value}</p>
               </div>
             ))}
+          </div>
+
+          {/* Billing & Credits Manager Card */}
+          <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-150 pb-4 mb-4">
+              <div>
+                <h3 className="font-bold text-zinc-900 text-lg">Interview Credits</h3>
+                <p className="text-sm text-zinc-500 mt-0.5">Use credits to run interactive AI mock interviews. 1 Interview = 1 Credit.</p>
+              </div>
+              <div className="bg-primary/5 border border-primary/20 rounded-xl px-4 py-2 text-right">
+                <span className="text-xs text-zinc-450 font-bold uppercase tracking-wider block">Remaining Balance</span>
+                <span className="text-2xl font-black text-primary">{creditsBalance} Credits</span>
+              </div>
+            </div>
+
+            {purchaseError && (
+              <p className="mb-4 rounded-xl border border-red-250 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{purchaseError}</p>
+            )}
+
+            <div className="grid gap-4 sm:grid-cols-2 mb-6">
+              {/* Starter Pack */}
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-5 flex flex-col justify-between hover:border-primary/20 transition-colors relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-bl-[50px] -z-10" />
+                <div>
+                  <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Starter Pack</span>
+                  <h4 className="text-2xl font-black text-zinc-950 mt-1">5 Credits</h4>
+                  <p className="text-xs text-zinc-500 mt-2">Practice up to 5 complete rounds with AI feedback.</p>
+                </div>
+                <button
+                  disabled={purchaseLoading !== null}
+                  onClick={() => handleBuyCredits('starter')}
+                  className="mt-6 w-full rounded-xl bg-zinc-905 hover:bg-zinc-800 text-white font-bold py-2.5 text-sm transition-all disabled:opacity-50"
+                >
+                  {purchaseLoading === 'starter' ? 'Loading...' : 'Buy for $4.99'}
+                </button>
+              </div>
+
+              {/* Pro Pack */}
+              <div className="rounded-xl border-2 border-primary bg-white p-5 flex flex-col justify-between hover:shadow-md transition-all relative overflow-hidden">
+                <div className="absolute top-0 right-0 bg-primary text-white text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-bl-lg">
+                  Popular
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-primary uppercase tracking-widest">Pro Pack</span>
+                  <h4 className="text-2xl font-black text-zinc-950 mt-1">15 Credits</h4>
+                  <p className="text-xs text-zinc-500 mt-2">Practice 15 complete rounds. Best value for active job hunters.</p>
+                </div>
+                <button
+                  disabled={purchaseLoading !== null}
+                  onClick={() => handleBuyCredits('pro')}
+                  className="mt-6 w-full rounded-xl bg-primary hover:bg-primary-container text-white font-bold py-2.5 text-sm transition-all disabled:opacity-50"
+                >
+                  {purchaseLoading === 'pro' ? 'Loading...' : 'Buy for $9.99'}
+                </button>
+              </div>
+            </div>
+
+
+            {/* Transaction Log */}
+            {transactions.length > 0 && (
+              <div className="border-t border-zinc-100 pt-6 mt-6">
+                <h4 className="font-bold text-zinc-900 text-sm mb-3">Billing History</h4>
+                <div className="space-y-2.5 max-h-40 overflow-y-auto pr-1">
+                  {transactions.map((tx: any) => (
+                    <div key={tx.id} className="flex justify-between items-center bg-zinc-50 p-3 rounded-lg text-xs border border-zinc-100">
+                      <div>
+                        <p className="font-bold text-zinc-800">{tx.packageName}</p>
+                        <p className="text-[10px] text-zinc-400 mt-0.5">{new Date(tx.createdAt).toLocaleDateString()} • Ref: {tx.razorpayPaymentId ? tx.razorpayPaymentId.slice(0, 15) : ''}...</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-black text-emerald-600">+{tx.creditsAdded} Credits</p>
+                        <p className="text-[10px] text-zinc-400 mt-0.5">${tx.paymentAmount.toFixed(2)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="rounded-2xl border border-zinc-200 bg-white p-6">
@@ -255,17 +483,35 @@ export const DashboardPage = ({
           </div>
 
           <div className="rounded-2xl border border-zinc-200 bg-white p-6">
-            <h3 className="font-semibold text-zinc-900">Quick actions</h3>
-            <div className="mt-4 grid gap-3">
-              <button onClick={() => navigate('/builder')} className="rounded-xl border border-zinc-200 px-4 py-3 text-left text-sm font-semibold text-zinc-700 hover:border-zinc-400">
-                Create or edit resume
-              </button>
-              <button onClick={() => navigate('/job-finder')} className="rounded-xl border border-zinc-200 px-4 py-3 text-left text-sm font-semibold text-zinc-700 hover:border-zinc-400">
-                Browse jobs and apply
-              </button>
-              <button onClick={() => navigate('/cover-letter')} className="rounded-xl border border-zinc-200 px-4 py-3 text-left text-sm font-semibold text-zinc-700 hover:border-zinc-400">
-                Generate cover letter
-              </button>
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-zinc-900">AI Mock Interviews</h3>
+              <button onClick={() => navigate('/interview/setup')} className="text-sm font-semibold text-primary hover:underline">Practice New</button>
+            </div>
+            <div className="mt-4 space-y-3">
+              {interviewHistory.length === 0 ? (
+                <div className="text-center py-6 border border-dashed border-zinc-200 rounded-xl bg-zinc-50">
+                  <p className="text-sm text-zinc-500 mb-3">No completed interviews yet.</p>
+                  <button onClick={() => navigate('/interview/setup')} className="bg-primary hover:bg-primary/90 text-white font-medium py-2 px-4 rounded-lg text-sm shadow-sm transition-all hover:scale-105">
+                    Start Your First Interview
+                  </button>
+                </div>
+              ) : (
+                interviewHistory.slice(0, 5).map((session: any) => (
+                  <div key={session.id} onClick={() => navigate(`/interview/report/${session.id}`)} className="flex items-center justify-between rounded-xl border border-zinc-100 hover:border-primary/30 hover:bg-primary/5 cursor-pointer px-4 py-3 transition-colors">
+                    <div>
+                      <p className="text-sm font-semibold text-zinc-900">{session.targetRole}</p>
+                      <p className="text-xs text-zinc-500">{new Date(session.createdAt).toLocaleDateString()} • {session.companyType}</p>
+                    </div>
+                    {session.report && (
+                      <div className="text-right">
+                        <span className={`text-sm font-bold ${session.report.overallScore >= 8 ? 'text-green-600' : session.report.overallScore >= 6 ? 'text-amber-600' : 'text-red-600'}`}>
+                          {session.report.overallScore.toFixed(1)}/10
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

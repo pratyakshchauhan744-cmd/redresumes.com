@@ -15,6 +15,8 @@ import adminRoutes from "./modules/admin/routes.js";
 import aiRoutes from "./modules/ai/routes.js";
 import publicResumeRoutes from "./modules/public-resumes/routes.js";
 import devRoutes from "./modules/dev/routes.js";
+import interviewRoutes from "./modules/interview/routes.js";
+import creditsRoutes from "./modules/credits/routes.js";
 import { notFoundHandler } from "./middleware/not-found.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { env } from "./config/env.js";
@@ -28,7 +30,7 @@ const explicitOrigins = (env.FRONTEND_ORIGIN ?? "")
   .filter(Boolean);
 
 function isAllowedCorsOrigin(origin: string): boolean {
-  if (explicitOrigins.includes(origin) || /^https?:\/\/localhost(:\d+)?$/.test(origin)) {
+  if (explicitOrigins.includes(origin) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
     return true;
   }
 
@@ -67,6 +69,7 @@ app.use(
 );
 app.use(helmet());
 app.use(morgan("dev"));
+app.use("/api/credits/webhook", express.raw({ type: "application/json" }));
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
@@ -93,6 +96,8 @@ app.use("/api/ingestion", ingestionRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/public-resumes", publicResumeRoutes);
+app.use("/api/interview", interviewRoutes);
+app.use("/api/credits", creditsRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

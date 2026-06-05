@@ -8,7 +8,14 @@ export const RESUME_DRAFT_STORAGE_KEY = 'redresumes_resume_draft_v1';
 export const SAVED_JOBS_STORAGE_KEY = 'redresumes_saved_jobs';
 export const APPLIED_JOBS_STORAGE_KEY = 'redresumes_applied_jobs';
 export const MAX_RESUME_HISTORY_ITEMS = 30;
-export const AUTH_TOKEN_STORAGE = window.sessionStorage;
+export const AUTH_TOKEN_STORAGE = typeof window !== 'undefined' ? window.sessionStorage : {
+  getItem: () => null,
+  setItem: () => {},
+  removeItem: () => {},
+  clear: () => {},
+  key: () => null,
+  length: 0
+} as unknown as Storage;
 
 export const readStoredUser = (): AuthUser | null => {
   try {
@@ -25,8 +32,7 @@ export const getStoredAccessToken = (): string | null => {
 
 export const setStoredAuthTokens = (accessToken: string) => {
   AUTH_TOKEN_STORAGE.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
-  // Cleanup any legacy token persistence from localStorage/sessionStorage.
-  window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+  window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
 };
 
 export const clearStoredAuthTokens = () => {

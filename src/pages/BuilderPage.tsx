@@ -2645,7 +2645,7 @@ export const ResumeBuilderPage = ({
               </div>
               <div className="mt-4 space-y-4 text-sm">
                 {experiences.map((exp, index) => (
-                  <div key={`${index}-${exp.title}`} className="rounded-xl border border-zinc-200 p-4 bg-zinc-50/40">
+                  <div key={index} className="rounded-xl border border-zinc-200 p-4 bg-zinc-50/40">
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">Experience {index + 1}</p>
                     <div className="mt-3 space-y-3">
                       <input value={exp.title} onChange={(e) => updateExperience(index, 'title', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 w-full bg-white" placeholder="Company and role" />

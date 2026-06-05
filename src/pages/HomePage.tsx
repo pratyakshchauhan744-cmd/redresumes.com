@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react';
-import { Check, ClipboardCheck, Layers, Search, SlidersHorizontal, Sparkles, Star, Wand2, X } from 'lucide-react';
+import { Check, ClipboardCheck, Layers, Search, SlidersHorizontal, Sparkles, Star, Wand2, X, Video, Mic, Volume2, Bot, Cpu, Zap, BarChart3 } from 'lucide-react';
 import { Section } from '../components/Section';
 import { PrimaryButton, SecondaryButton } from '../components/Buttons';
 import { TemplateCard } from '../components/TemplateCard';
@@ -137,6 +137,258 @@ export const HomePage = ({
         ))}
       </div>
     </Section>
+
+    <section className="relative overflow-hidden py-16 bg-gradient-to-b from-white via-zinc-50/50 to-white dark:from-zinc-950 dark:via-zinc-900/30 dark:to-zinc-950">
+      {/* Background Glow Orbs */}
+      <div className="absolute top-1/4 left-0 w-72 h-72 bg-rose-500/5 dark:bg-rose-500/10 rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute bottom-1/4 right-0 w-80 h-80 bg-primary/5 dark:bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
+
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 relative z-10">
+        <div className="grid gap-12 lg:grid-cols-12 lg:gap-16 items-center">
+          
+          {/* Left: Text Details & Info */}
+          <div className="lg:col-span-5 space-y-6">
+            <div>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-3 py-1.5 text-[0.68rem] font-bold tracking-wider uppercase text-primary border border-rose-100 shadow-sm dark:bg-rose-950/30 dark:border-rose-900/30 dark:text-rose-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-ping" />
+                AI Interview Simulator
+              </span>
+              <h2 className="mt-4 text-3xl font-extrabold tracking-tight text-zinc-900 dark:text-white sm:text-4xl">
+                Practice Speaking to Top Hiring Managers
+              </h2>
+              <p className="mt-4 text-sm leading-relaxed text-zinc-500 dark:text-zinc-400">
+                Don't just write a resume—practice presenting it. Our Google Meet-style simulation replicates live interviews, analyzing your speech patterns, pacing, and answers dynamically based on your target role and resume details.
+              </p>
+            </div>
+
+            {/* Features Card Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {[
+                {
+                  icon: Cpu,
+                  title: "Resume-Tailored",
+                  desc: "AI extracts achievements from your resume to generate relevant question paths."
+                },
+                {
+                  icon: Bot,
+                  title: "Company Simulation",
+                  desc: "Practice with custom interview styles for Google, Meta, Stripe, or YC startups."
+                },
+                {
+                  icon: Zap,
+                  title: "Stress Interview Mode",
+                  desc: "Toggle stress settings to practice staying calm under challenging follow-ups."
+                },
+                {
+                  icon: BarChart3,
+                  title: "Detailed Report",
+                  desc: "Get scorecards, transcript analysis, clarity checks, and actionable coaching tips."
+                },
+              ].map((item) => (
+                <div 
+                  key={item.title} 
+                  className="group relative rounded-2xl border border-zinc-150/70 bg-white/70 dark:border-zinc-800/80 dark:bg-zinc-900/50 p-4 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-300"
+                >
+                  <div className="absolute inset-0 rounded-2xl bg-gradient-to-tr from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500/10 to-red-500/10 dark:from-rose-500/20 dark:to-red-500/20 text-primary mb-3">
+                    <item.icon className="h-4.5 w-4.5" />
+                  </div>
+                  <h4 className="font-bold text-zinc-900 dark:text-white text-xs sm:text-sm">{item.title}</h4>
+                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">{item.desc}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-2">
+              <button
+                onClick={() => navigate('/interview/setup')}
+                className="group relative inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-primary to-rose-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-red-500/20 hover:shadow-red-500/30 hover:scale-[1.02] transition-all duration-200"
+              >
+                Try Practice Interview
+                <Sparkles className="w-4 h-4 text-rose-200 animate-pulse" />
+              </button>
+            </div>
+          </div>
+
+          {/* Right: Premium Mock Video Interface */}
+          <div className="lg:col-span-7 relative">
+            {/* Background Glow */}
+            <div className="absolute -inset-4 bg-gradient-to-tr from-primary/10 to-rose-500/10 rounded-3xl blur-2xl opacity-50 pointer-events-none" />
+
+            <div className="relative overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-950 shadow-2xl flex flex-col">
+              
+              {/* Header/Controls Bar */}
+              <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-900/90 px-4 py-3 text-xs text-zinc-400">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                  <span className="font-medium text-zinc-200">Google Meet - Mock Interview Room</span>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span className="bg-zinc-800 text-zinc-300 px-2 py-0.5 rounded text-[10px] font-mono">08:14</span>
+                  <span className="bg-red-500/20 text-red-400 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider animate-pulse">
+                    REC
+                  </span>
+                </div>
+              </div>
+
+              {/* Flex Row Container containing Feeds & Copilot Sidebar */}
+              <div className="flex flex-col sm:flex-row bg-zinc-950 flex-1 min-h-[280px]">
+                
+                {/* Video Feeds Grid (left-side) */}
+                <div className="flex-1 p-3 grid gap-3 grid-cols-2">
+                  
+                  {/* Interviewer feed */}
+                  <div className="relative aspect-video rounded-xl overflow-hidden border border-zinc-800/80 bg-zinc-900/50 flex flex-col items-center justify-center p-4">
+                    {/* Status Indicator */}
+                    <div className="absolute top-2 left-2 z-10 bg-zinc-950/80 backdrop-blur px-2 py-0.5 rounded border border-zinc-800 text-[9px] text-zinc-300 flex items-center gap-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      Hiring Manager (Google)
+                    </div>
+                    
+                    {/* Speaker waveform indicator */}
+                    <div className="absolute top-2 right-2 z-10 bg-zinc-950/80 backdrop-blur p-1 rounded-full border border-zinc-800">
+                      <Volume2 className="h-3 w-3 text-primary" />
+                    </div>
+
+                    {/* AI Recruiter Visual representation */}
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="relative flex items-center justify-center h-12 w-12 rounded-full bg-primary/10 border border-primary/20">
+                        <Bot className="h-6 w-6 text-primary" />
+                        {/* Animated waves */}
+                        <div className="absolute -inset-1.5 rounded-full border border-primary/20 animate-ping opacity-40" />
+                        <div className="absolute -inset-3 rounded-full border border-primary/10 animate-[ping_2s_infinite] opacity-20" />
+                      </div>
+                      <span className="text-[10px] font-medium text-zinc-400 flex items-center gap-1">
+                        Speaking
+                        <span className="flex items-end gap-0.5 h-2">
+                          <span className="w-0.5 bg-primary rounded-full animate-[bounce_0.8s_infinite_100ms] h-full" />
+                          <span className="w-0.5 bg-primary rounded-full animate-[bounce_0.8s_infinite_300ms] h-1/2" />
+                          <span className="w-0.5 bg-primary rounded-full animate-[bounce_0.8s_infinite_200ms] h-3/4" />
+                        </span>
+                      </span>
+                    </div>
+
+                    {/* Live speech bubble */}
+                    <div className="absolute bottom-2 left-2 right-2 bg-zinc-950/90 border border-zinc-800/80 rounded-lg p-2 shadow-lg text-[10px] leading-relaxed text-zinc-200">
+                      <p className="font-bold text-primary mb-0.5">Interviewer:</p>
+                      "Could you explain how you optimized the database connection pool in your scaling project?"
+                    </div>
+                  </div>
+
+                  {/* Candidate Feed */}
+                  <div className="relative aspect-video rounded-xl overflow-hidden border border-zinc-800/80 bg-zinc-900/50 flex flex-col items-center justify-center p-4">
+                    {/* Status Indicator */}
+                    <div className="absolute top-2 left-2 z-10 bg-zinc-950/80 backdrop-blur px-2 py-0.5 rounded border border-zinc-800 text-[9px] text-zinc-300 flex items-center gap-1.5">
+                      <Video className="h-2.5 w-2.5 text-zinc-400" />
+                      You (Candidate)
+                    </div>
+
+                    {/* Mic Indicator */}
+                    <div className="absolute top-2 right-2 z-10 bg-zinc-950/80 backdrop-blur p-1 rounded-full border border-zinc-800">
+                      <Mic className="h-3 w-3 text-emerald-400" />
+                    </div>
+
+                    {/* Candidate visual representation: Face landmarks scanning grid */}
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="h-12 w-12 rounded-full border border-emerald-500/20 bg-emerald-500/5 flex items-center justify-center relative overflow-hidden">
+                        <svg className="w-8 h-8 text-emerald-500/40 animate-pulse" viewBox="0 0 100 100" fill="none" stroke="currentColor">
+                          <circle cx="50" cy="40" r="14" strokeWidth="1"/>
+                          <circle cx="43" cy="35" r="1.2" fill="currentColor"/>
+                          <circle cx="57" cy="35" r="1.2" fill="currentColor"/>
+                          <path d="M43 45 Q50 50 57 45" strokeWidth="1"/>
+                          <line x1="50" y1="26" x2="50" y2="15" strokeWidth="0.5"/>
+                          <circle cx="50" cy="15" r="1.5" fill="currentColor"/>
+                          <circle cx="25" cy="40" r="1.5" fill="currentColor"/>
+                          <circle cx="75" cy="40" r="1.5" fill="currentColor"/>
+                          <circle cx="50" cy="65" r="1.5" fill="currentColor"/>
+                          <line x1="50" y1="40" x2="50" y2="65" strokeWidth="0.5"/>
+                        </svg>
+                      </div>
+                      <span className="text-[10px] font-medium text-zinc-500 flex items-center gap-1.5">
+                        <span className="h-1 w-1 rounded-full bg-emerald-500" />
+                        Scanning Presentation Clarity
+                      </span>
+                    </div>
+
+                    {/* Live response bubble */}
+                    <div className="absolute bottom-2 left-2 right-2 bg-zinc-950/90 border border-zinc-800/80 rounded-lg p-2 shadow-lg text-[10px] leading-relaxed text-zinc-200">
+                      <p className="font-bold text-emerald-400 mb-0.5">You:</p>
+                      "Sure, we implemented Redis caching for the hot path and fine-tuned our pool size to prevent spikes..."
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* AI Copilot Side Dashboard panel */}
+                <div className="w-full sm:w-48 border-t sm:border-t-0 sm:border-l border-zinc-800 bg-zinc-900/40 p-4 flex flex-col gap-3.5">
+                  <div className="flex items-center justify-between text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                    <span>AI Analysis</span>
+                    <span className="text-emerald-400 flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
+                      Live
+                    </span>
+                  </div>
+
+                  <div className="space-y-3 flex-1">
+                    
+                    {/* Clarity Score Card */}
+                    <div className="bg-zinc-950/50 border border-zinc-800/80 rounded-xl p-2.5">
+                      <div className="flex justify-between text-[10px] text-zinc-400 mb-1">
+                        <span>Clarity Score</span>
+                        <span className="font-bold text-emerald-400">94%</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden">
+                        <div className="h-full bg-emerald-500 rounded-full" style={{ width: '94%' }} />
+                      </div>
+                    </div>
+
+                    {/* Speech Pace */}
+                    <div className="bg-zinc-950/50 border border-zinc-800/80 rounded-xl p-2.5">
+                      <div className="text-[10px] text-zinc-400 mb-0.5">Speech Pace</div>
+                      <div className="text-sm font-bold text-zinc-200">125 WPM</div>
+                      <div className="mt-1 inline-flex text-[8px] text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                        Optimal Range
+                      </div>
+                    </div>
+
+                    {/* Confidence Check */}
+                    <div className="bg-zinc-950/50 border border-zinc-800/80 rounded-xl p-2.5">
+                      <div className="text-[10px] text-zinc-400 mb-0.5">Clarity Rating</div>
+                      <div className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                        Excellent
+                      </div>
+                    </div>
+
+                  </div>
+                  
+                  {/* Small recommendation */}
+                  <div className="text-[9px] text-zinc-500 leading-relaxed border-t border-zinc-800 pt-2.5">
+                    💡 **AI Suggestion:** Keep detailed metrics in your explanation. Good job so far!
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Bottom Meeting Controls Bar */}
+              <div className="bg-zinc-900/90 border-t border-zinc-800 px-4 py-3 flex items-center justify-center gap-4">
+                <button aria-label="Mute mic" className="h-8 w-8 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-300 border border-zinc-700/50 transition">
+                  <Mic className="h-4 w-4" />
+                </button>
+                <button aria-label="Stop video" className="h-8 w-8 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-300 border border-zinc-700/50 transition">
+                  <Video className="h-4 w-4" />
+                </button>
+                <button className="h-8 rounded-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-4 transition shadow-md shadow-red-600/10">
+                  End Practice
+                </button>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
 
     <Section title="Features that make the difference" kicker="Built for outcomes">
       <div className="grid gap-4 md:grid-cols-3 md:gap-6">

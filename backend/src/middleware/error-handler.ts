@@ -11,6 +11,7 @@ export function errorHandler(error: unknown, _req: Request, res: Response, _next
   }
 
   if (error instanceof Error) {
+    console.error("Unhandled error encountered:", error);
     const lower = error.message.toLowerCase();
     if (
       lower.includes("can't reach database server") ||
@@ -28,5 +29,6 @@ export function errorHandler(error: unknown, _req: Request, res: Response, _next
     return;
   }
 
+  console.error("Unhandled non-Error object encountered:", error);
   res.status(500).json({ message: "Internal server error" });
 }

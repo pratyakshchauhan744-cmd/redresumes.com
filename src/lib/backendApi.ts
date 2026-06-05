@@ -1,3 +1,5 @@
+import { setStoredAuthTokens, clearStoredAuthTokens, getStoredAccessToken } from "./auth";
+
 const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
 const isBrowser = typeof window !== "undefined";
 const API_BASE_URL = resolveApiBaseUrl(configuredApiBaseUrl, isBrowser ? window.location.hostname : undefined);
@@ -74,25 +76,74 @@ function optionalNumberOrNull(value: unknown): number | null | undefined {
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json"
-  };
+  const headers: Record<string, string> = {};
+  const baseUrl = options.baseUrl ?? API_BASE_URL;
 
-  if (options.token) {
-    headers.Authorization = `Bearer ${options.token}`;
+  if (options.body instanceof FormData) {
+    // Let browser set the boundary and content-type automatically
+  } else {
+    headers["Content-Type"] = "application/json";
   }
 
+  let token = (options.token && options.token !== "") ? options.token : getStoredAccessToken();
+
+  if (!token && path !== "/api/auth/refresh" && path !== "/api/auth/login" && path !== "/api/auth/register") {
+    if (typeof window !== "undefined" && window.localStorage.getItem("redresumes_user")) {
+      try {
+        const refreshResponse = await fetch(`${baseUrl}/api/auth/refresh`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" }
+        });
+        if (refreshResponse.ok) {
+          const refreshData = await refreshResponse.json() as { accessToken: string };
+          setStoredAuthTokens(refreshData.accessToken);
+          token = refreshData.accessToken;
+        }
+      } catch (e) {
+        console.error("Auto-token-refresh failed:", e);
+      }
+    }
+  }
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
   let response: Response;
-  const baseUrl = options.baseUrl ?? API_BASE_URL;
   try {
     response = await fetch(`${baseUrl}${path}`, {
       method: options.method ?? "GET",
       credentials: "include",
       headers,
-      body: options.body ? JSON.stringify(options.body) : undefined
+      body: options.body instanceof FormData ? options.body : (options.body ? JSON.stringify(options.body) : undefined)
     });
   } catch {
     throw new Error(`Cannot reach backend at ${baseUrl || "same-origin"}. Start backend server and verify VITE_API_BASE_URL.`);
+  }
+
+  // Silent automatic token refresh on 401
+  if (response.status === 401 && path !== "/api/auth/refresh" && path !== "/api/auth/login" && path !== "/api/auth/register") {
+    try {
+      const refreshResponse = await fetch(`${baseUrl}/api/auth/refresh`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" }
+      });
+      if (refreshResponse.ok) {
+        const refreshData = await refreshResponse.json() as { accessToken: string };
+        setStoredAuthTokens(refreshData.accessToken);
+        // Retry the original request with the new token
+        return request<T>(path, { ...options, token: refreshData.accessToken });
+      } else {
+        clearStoredAuthTokens();
+        if (typeof window !== "undefined") {
+          window.localStorage.removeItem("redresumes_user");
+          window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+        }
+      }
+    } catch (refreshErr) {
+      console.error("Token refresh failed:", refreshErr);
+    }
   }
 
   if (!response.ok) {
@@ -228,6 +279,7 @@ export type AuthUser = {
   phone?: string;
   location?: string;
   bio?: string;
+  credits?: number;
 };
 
 export type TranslateResumeResponse = {
@@ -264,7 +316,8 @@ function parseAuthUser(value: unknown): AuthUser {
     photoDataUrl: typeof obj.photoDataUrl === "string" ? obj.photoDataUrl : undefined,
     phone: typeof obj.phone === "string" ? obj.phone : undefined,
     location: typeof obj.location === "string" ? obj.location : undefined,
-    bio: typeof obj.bio === "string" ? obj.bio : undefined
+    bio: typeof obj.bio === "string" ? obj.bio : undefined,
+    credits: typeof obj.credits === "number" ? obj.credits : undefined
   };
 }
 
@@ -476,7 +529,86 @@ export const backendApi = {
     }
     
     return response.json();
-  }
+  },
+
+  analyzeInterviewResume: (file: File, token: string) => {
+    const formData = new FormData();
+    formData.append("resume", file);
+    return request<{ resumeId: string; parsedData: any }>("/api/interview/resume/analyze", {
+      method: "POST",
+      token,
+      body: formData
+    });
+  },
+
+  startInterviewSession: (body: {
+    resumeId: string;
+    targetRole: string;
+    companyType: string;
+    difficulty: string;
+    style: string;
+    durationMins: number;
+    jobDescription?: string;
+    interviewerPersona?: string;
+    stressMode?: boolean;
+  }, token: string) =>
+    request<{ sessionId: string; firstQuestion: { id: string; text: string } }>("/api/interview/start", {
+      method: "POST",
+      token,
+      body
+    }),
+
+  submitInterviewAnswer: (body: {
+    sessionId: string;
+    questionId: string;
+    answerText: string;
+    wpm?: number;
+    fillerCount?: number;
+    confidence?: number;
+    durationSecs?: number;
+  }, token: string) =>
+    request<{ isComplete: boolean; reportId?: string; nextQuestion?: { id: string; questionText: string } }>("/api/interview/answer", {
+      method: "POST",
+      token,
+      body
+    }),
+
+  completeInterviewSession: (sessionId: string, body: {
+    wpm?: number;
+    fillerCount?: number;
+    confidence?: number;
+  }, token: string) =>
+    request<any>(`/api/interview/session/${sessionId}/complete`, {
+      method: "POST",
+      token,
+      body
+    }),
+
+  getInterviewSession: (sessionId: string, token: string) =>
+    request<any>(`/api/interview/session/${sessionId}`, { token }),
+
+  getInterviewReport: (reportId: string, token: string) =>
+    request<any>(`/api/interview/report/${reportId}`, { token }),
+
+  getInterviewHistory: (token: string) =>
+    request<any[]>("/api/interview/history", { token }),
+
+  createCreditCheckoutSession: (packageKey: string, token: string) =>
+    request<any>("/api/credits/checkout", {
+      method: "POST",
+      token,
+      body: { packageKey }
+    }),
+
+  getCreditTransactions: (token: string) =>
+    request<{ balance: number; transactions: any[] }>("/api/credits/transactions", { token }),
+
+  devAddCredits: (amount: number, token: string) =>
+    request<any>("/api/credits/dev-add", {
+      method: "POST",
+      token,
+      body: { amount }
+    })
 };
 
 export function mapBackendJobToUiJob(job: BackendJob): {

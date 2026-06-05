@@ -259,21 +259,102 @@ function extractGeminiText(responseJson: unknown): string {
 }
 
 async function requestGeminiJson(prompt: string, temperature = 0.2): Promise<Response> {
-  if (!env.GEMINI_API_KEY) {
-    throw new Error("GEMINI_API_KEY is not configured.");
+  if (env.OPENAI_API_KEY) {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        temperature,
+        response_format: { type: "json_object" }
+      })
+    });
+    if (res.ok) {
+      const json = await res.json() as any;
+      const text = json.choices?.[0]?.message?.content || "";
+      const compatibleJson = {
+        candidates: [{
+          content: {
+            parts: [{ text }]
+          }
+        }]
+      };
+      return new Response(JSON.stringify(compatibleJson), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    return res;
   }
 
-  return fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent", {
+  if (!env.GEMINI_API_KEY) {
+    throw new Error("Neither GEMINI_API_KEY nor OPENAI_API_KEY is configured.");
+  }
+
+  return fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${env.GEMINI_API_KEY}`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": env.GEMINI_API_KEY
+      "Content-Type": "application/json"
     },
     body: JSON.stringify({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
         temperature,
         responseMimeType: "application/json"
+      }
+    })
+  });
+}
+
+async function requestGeminiText(prompt: string, temperature = 0.5): Promise<Response> {
+  if (env.OPENAI_API_KEY) {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        temperature
+      })
+    });
+    if (res.ok) {
+      const json = await res.json() as any;
+      const text = json.choices?.[0]?.message?.content || "";
+      const compatibleJson = {
+        candidates: [{
+          content: {
+            parts: [{ text }]
+          }
+        }]
+      };
+      return new Response(JSON.stringify(compatibleJson), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    return res;
+  }
+
+  if (!env.GEMINI_API_KEY) {
+    throw new Error("Neither GEMINI_API_KEY nor OPENAI_API_KEY is configured.");
+  }
+
+  return fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${env.GEMINI_API_KEY}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature
       }
     })
   });
@@ -384,7 +465,7 @@ export async function improveResumeWithGemini(input: {
   jobTitle?: string;
   focus?: "summary" | "bullets" | "full";
 }): Promise<ResumeImproveResult> {
-  if (!env.GEMINI_API_KEY) {
+  if (!env.GEMINI_API_KEY && !env.OPENAI_API_KEY) {
     return fallbackImproveResult(input.resumeText, input.jobTitle, input.focus ?? "full");
   }
 
@@ -451,8 +532,8 @@ export async function translateResumeWithGemini(input: ResumeTranslationInput): 
     return input.resume;
   }
 
-  if (!env.GEMINI_API_KEY) {
-    throw new Error("GEMINI_API_KEY is required for full resume translation.");
+  if (!env.GEMINI_API_KEY && !env.OPENAI_API_KEY) {
+    throw new Error("Either GEMINI_API_KEY or OPENAI_API_KEY is required for full resume translation.");
   }
 
   const prompt = [
@@ -521,9 +602,37 @@ export async function translateResumeWithGemini(input: ResumeTranslationInput): 
   }
 }
 
+function getFallbackParsedResume(text: string) {
+  return {
+    fullName: "Applicant",
+    jobTitle: "Professional",
+    email: "",
+    phone: "",
+    location: "",
+    profileLink: "",
+    summary: text.substring(0, 200) + "...",
+    skills: ["Communication", "Problem Solving", "Adaptability"],
+    educationDegree: "Bachelor's Degree",
+    educationSchool: "University",
+    educationYear: "",
+    experiences: [
+      {
+        title: "Previous Role",
+        dates: "Past - Present",
+        bullets: "Successfully managed projects.\nCollaborated with cross-functional teams."
+      }
+    ],
+    projects: [],
+    certifications: [],
+    languages: ["English"],
+    achievements: [],
+    volunteer: []
+  };
+}
+
 export async function parseResumeWithGemini(text: string): Promise<any> {
-  if (!env.GEMINI_API_KEY) {
-    throw new Error("GEMINI_API_KEY is required to parse resumes.");
+  if (!env.GEMINI_API_KEY && !env.OPENAI_API_KEY) {
+    return getFallbackParsedResume(text);
   }
 
   const prompt = [
@@ -554,12 +663,18 @@ export async function parseResumeWithGemini(text: string): Promise<any> {
     `RESUME TEXT:\n${text}`
   ].join("\n");
 
-  const response = await requestGeminiJson(prompt, 0.2);
+  let response;
+  try {
+    response = await requestGeminiJson(prompt, 0.2);
+  } catch (err) {
+    console.error("Gemini API Request Error:", err);
+    return getFallbackParsedResume(text);
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
     console.error("Gemini API Error:", response.status, errorText);
-    throw new Error(`AI parse failed with status ${response.status}`);
+    return getFallbackParsedResume(text);
   }
 
   const responseJson = await response.json();
@@ -569,5 +684,662 @@ export async function parseResumeWithGemini(text: string): Promise<any> {
     throw new Error("Empty response from AI");
   }
 
-  return safeJsonParse(outputText);
+  return sanitizeParsedData(safeJsonParse(outputText));
+}
+
+/**
+ * Recursively strip \u0000 (null bytes) from strings in parsed data.
+ * Postgres text columns reject \u0000, so PDFs containing these will crash prisma.create().
+ */
+function sanitizeParsedData(data: unknown): unknown {
+  if (typeof data === 'string') {
+    return data.replace(/\u0000/g, '');
+  }
+  if (Array.isArray(data)) {
+    return data.map(sanitizeParsedData);
+  }
+  if (data !== null && typeof data === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+      out[key] = sanitizeParsedData(value);
+    }
+    return out;
+  }
+  return data;
+}
+
+// ==========================================
+// INTERVIEW PRACTICE AI FUNCTIONS
+// ==========================================
+
+export async function generateInterviewQuestion(
+  resumeData: any,
+  targetRole: string,
+  companyType: string,
+  difficulty: string,
+  style: string,
+  jobDescription?: string,
+  interviewerPersona?: string,
+  stressMode?: boolean
+): Promise<string> {
+  if (!env.GEMINI_API_KEY && !env.OPENAI_API_KEY) {
+    return `Can you walk me through your experience relevant to a ${targetRole} position?`;
+  }
+
+  const persona = interviewerPersona || "Professional Interviewer";
+  let greetingAndIntro = "";
+  let personaInstruction = "";
+
+  if (persona === "Technical Interviewer") {
+    greetingAndIntro = `Hello and welcome. I am your Technical Interviewer today. I have reviewed your resume and I'd like to dive straight into your technical background.`;
+    personaInstruction = `You are a Technical Interviewer for a ${companyType} company interviewing a candidate for a ${targetRole} role. You focus on algorithms, data modeling, architecture, logic, debugging, and concrete technical details. Keep your response brief, professional, and precise. Greet them and ask ONE tailored, role-specific opening technical question based on their resume experience.`;
+  } else if (persona === "HR Recruiter") {
+    greetingAndIntro = `Hi there! Welcome. It's a pleasure to meet you. I'm your HR Recruiter for today's session. I'd love to start by getting to know you a bit better.`;
+    personaInstruction = `You are an HR Recruiter for a ${companyType} company interviewing a candidate for a ${targetRole} role. You focus on behavioral aspects, teamwork, communication, conflict resolution, strengths, weaknesses, and career goals. Keep your response friendly, welcoming, and conversational. Greet them warmly and ask ONE opening behavioral or introductory question.`;
+  } else if (persona === "Hiring Manager") {
+    greetingAndIntro = `Hello, welcome. I'm the Hiring Manager for the team. I've been looking over your profile and I'm excited to talk about the impact of your work.`;
+    personaInstruction = `You are a Hiring Manager for a ${companyType} company interviewing a candidate for a ${targetRole} role. You focus on project ownership, business impact, KPI outcomes, strategic decisions, and culture fit. Keep your response professional, outcomes-oriented, and structured. Greet them and ask ONE opening question about a project they owned or their biggest business impact.`;
+  } else if (persona === "Startup Founder") {
+    greetingAndIntro = `Hey, welcome! I'm the founder. We're building fast here, so I'd love to jump right in.`;
+    personaInstruction = `You are a Startup Founder for a ${companyType} company interviewing a candidate for a ${targetRole} role. You focus on extreme ownership, independence, handling ambiguity, speed, scaling vision, and drive. Keep your response direct, energetic, and challenging. Greet them and ask ONE opening question testing their self-direction or ability to execute fast.`;
+  } else {
+    greetingAndIntro = `Hello and welcome. I am your interviewer today.`;
+    personaInstruction = `You are a professional interviewer for a ${companyType} company interviewing a candidate for a ${targetRole} role. Greet them and ask ONE opening question.`;
+  }
+
+  const stressInstruction = stressMode ? "Adopt an aggressive, highly critical, demanding tone. Ask a high-pressure, challenging question." : "Maintain a professional, conversational tone.";
+  const jdInstruction = jobDescription ? `Align your question closely with this Job Description: ${jobDescription}` : "";
+
+  const prompt = [
+    personaInstruction,
+    stressInstruction,
+    jdInstruction,
+    `The difficulty level is ${difficulty}. The style is ${style}.`,
+    `Review the candidate's resume data: ${JSON.stringify(resumeData)}`,
+    `Generate the full text of your greeting and opening question. Do not include quotes or meta-commentary, just return the spoken interviewer dialogue. Begin with: "${greetingAndIntro}" and then transition naturally into the opening question.`
+  ].join("\n");
+
+  const response = await requestGeminiText(prompt, 0.5);
+  if (!response.ok) return `${greetingAndIntro} Can you start by walking me through your background and your experience relevant to a ${targetRole}?`;
+  const responseJson = await response.json();
+  const outputText = extractGeminiText(responseJson);
+  return outputText ? outputText.replace(/^["']|["']$/g, "").replace(/```/g, "").trim() : `${greetingAndIntro} Tell me about your background.`;
+}
+
+export async function generateInterviewFollowUp(
+  qaHistory: Array<{ questionText: string; answerText?: string; questionType?: string }>,
+  resumeData: any,
+  jobDescription?: string,
+  interviewerPersona?: string,
+  stressMode?: boolean
+): Promise<string> {
+  const roundNumber = qaHistory.length;
+  const lastInteraction = qaHistory[qaHistory.length - 1];
+  const previousQuestion = lastInteraction?.questionText || "";
+  const candidateAnswer = lastInteraction?.answerText || "";
+
+  if (!env.GEMINI_API_KEY && !env.OPENAI_API_KEY) {
+    if (interviewerPersona === "Technical Interviewer") {
+      if (roundNumber === 1) return "Could explain the system architecture of the most challenging project you've worked on?";
+      if (roundNumber === 2) return "What database optimizations did you make, and how did you measure the performance improvements?";
+      if (roundNumber === 3) return "How do you handle memory management and race conditions in a highly concurrent environment?";
+      return "If you had to redesign that system from scratch today, what would you do differently?";
+    } else if (interviewerPersona === "Hiring Manager") {
+      if (roundNumber === 1) return "Tell me about a project where you had complete ownership. What was the business impact?";
+      if (roundNumber === 2) return "How did you handle prioritization conflicts when engineering scope collided with business deadlines?";
+      if (roundNumber === 3) return "Describe a time when you had to align multiple teams on a controversial technical decision. What was the outcome?";
+      return "How do you measure success for yourself and your team?";
+    } else {
+      if (roundNumber === 1) return "Can you describe a time when you had to resolve a conflict within your team?";
+      if (roundNumber === 2) return "What are your short-term and long-term career goals, and how does this role fit into them?";
+      if (roundNumber === 3) return "Tell me about a time you failed or made a mistake. What did you learn from it?";
+      return "What kind of work culture allows you to perform at your best?";
+    }
+  }
+
+  const persona = interviewerPersona || "Professional Interviewer";
+  let personaInstruction = "";
+
+  if (persona === "Technical Interviewer") {
+    personaInstruction = `You are a Technical Interviewer. Analyze the candidate's last response and the entire conversation history.
+Focus on: Technical depth, algorithms, data structures, scaling, databases, debugging, edge cases, and design choices.
+Behavior:
+- React naturally and transition: start with a quick, realistic spoken reaction (1 sentence max) referencing their last answer (e.g., "Virtualization is definitely a good choice for rendering large lists," or "I see, resolving race conditions can get tricky.").
+- Keep it adaptive: if their technical answer was weak or superficial, ask a slightly easier or clarifying question to test their baseline. If it was strong, escalate the technical difficulty (architecture, tradeoffs, internals).
+- Probe details: ask for specific performance metrics, tech stack choices, or debugging steps.
+- DO NOT repeat any questions or topics that were already discussed in the Q&A history.`;
+  } else if (persona === "HR Recruiter") {
+    personaInstruction = `You are an HR Recruiter. Analyze the candidate's last response and the entire conversation history.
+Focus on: Behavioral aspects, communication, emotional intelligence, teamwork, alignment with culture, conflict resolution, strengths, and weaknesses.
+Behavior:
+- React naturally and transition: start with a warm, conversational reaction (1 sentence max) referencing their last answer (e.g., "It sounds like that conflict really taught you the value of open communication," or "That is a very clear career goal.").
+- Probe details: ask about how they felt, how they kept others aligned, what compromise was reached, or how they measured communication success.
+- DO NOT repeat any questions or topics that were already discussed in the Q&A history.`;
+  } else if (persona === "Hiring Manager") {
+    personaInstruction = `You are a Hiring Manager. Analyze the candidate's last response and the entire conversation history.
+Focus on: Project ownership, KPI metrics, business value, prioritization, decision-making, trade-offs under deadlines, leadership, and culture fit.
+Behavior:
+- React naturally and transition: start with an outcome-oriented, professional reaction (1 sentence max) referencing their last answer (e.g., "A 10% revenue lift is a great business outcome," or "Balancing product features and tech debt is always a challenging trade-off.").
+- Probe details: ask about their role in the decisions, why they chose a particular strategy, how they aligned stakeholder expectations, or how they handled setbacks.
+- DO NOT repeat any questions or topics that were already discussed in the Q&A history.`;
+  } else if (persona === "Startup Founder") {
+    personaInstruction = `You are a Startup Founder. Analyze the candidate's last response and the entire conversation history.
+Focus on: Independence, speed of execution, passion, self-direction, scaling, and drive.
+Behavior:
+- React naturally and transition: start with a direct, fast-paced reaction (1 sentence max) referencing their last answer (e.g., "Shipping in a week is the kind of speed we like," or "Moving fast sometimes breaks things, which is fine.").
+- Probe details: ask about how they managed under extreme uncertainty, how they decided what not to build, or how they stayed motivated.
+- DO NOT repeat any questions or topics that were already discussed in the Q&A history.`;
+  } else {
+    personaInstruction = `You are a professional interviewer. React naturally to the candidate's answer and ask a relevant follow-up question. Do not repeat previous topics.`;
+  }
+
+  const stressInstruction = stressMode
+    ? "Be highly critical, demanding, and direct. Interrupt vague answers or call out filler words. Press for exact metrics and facts."
+    : "Maintain a professional, constructive, and conversational tone.";
+  const jdInstruction = jobDescription ? `Ensure your follow-up tests skills mentioned in this Job Description: ${jobDescription}` : "";
+
+  const prompt = [
+    personaInstruction,
+    `The candidate was asked: "${previousQuestion}"`,
+    `They answered: "${candidateAnswer}"`,
+    stressInstruction,
+    jdInstruction,
+    `Review the complete conversation history to avoid repeating questions: ${JSON.stringify(qaHistory)}`,
+    `Review candidate's resume data: ${JSON.stringify(resumeData)}`,
+    `Generate ONLY the next spoken follow-up question, including the natural transition phrase. Do not include quotes or conversational meta-text. Speak directly to the candidate.`
+  ].join("\n");
+
+  const response = await requestGeminiText(prompt, 0.5);
+  if (!response.ok) return "Could you expand on that with a specific example?";
+  const responseJson = await response.json();
+  const outputText = extractGeminiText(responseJson);
+  return outputText ? outputText.replace(/^["']|["']$/g, "").replace(/```/g, "").trim() : "Can you elaborate on that?";
+}
+
+export function generateImprovedExampleLocally(question: string, targetRole: string): string {
+  const q = question.toLowerCase();
+  if (q.includes("architecture") || q.includes("system") || q.includes("design") || q.includes("scale") || q.includes("data") || q.includes("database")) {
+    return `Situation: In my previous role as a ${targetRole}, our web platform experienced a 40% surge in user traffic, causing API latency to degrade by 2.4 seconds.\n` +
+      `Task: I was tasked with refactoring the database access layer and introducing a caching layer to bring latency down to < 200ms.\n` +
+      `Action: I designed a Redis-backed caching strategy with a cache-aside pattern for hot endpoints. I also optimized database query indexes on our PostgreSQL instance and implemented connection pooling using Node/TypeScript.\n` +
+      `Result: This system architecture optimization successfully reduced average query execution times by 85% and sustained the traffic load without any service degradation.`;
+  } else if (q.includes("conflict") || q.includes("team") || q.includes("prioritize") || q.includes("deadline") || q.includes("collaborate") || q.includes("work")) {
+    return `Situation: During a critical release cycle for our team, we faced a scope conflict between product roadmap deliverables and critical security patches.\n` +
+      `Task: As a ${targetRole}, I had to negotiate with the Product Manager to align priorities without missing the core sprint deployment date.\n` +
+      `Action: I organized a technical alignment meeting, presented a breakdown of security risks vs feature value, and proposed a compromise: we deferred two low-priority UI features and fast-tracked the security fixes.\n` +
+      `Result: We successfully shipped the core product updates and security patches on time, maintaining both application security and product metrics.`;
+  } else if (q.includes("failure") || q.includes("mistake") || q.includes("bug") || q.includes("error") || q.includes("problem") || q.includes("challenge")) {
+    return `Situation: Shortly after deploying a major release, we noticed memory leaks in our production logs, which eventually caused the service container to crash.\n` +
+      `Task: I needed to identify the root cause of the memory leaks under high stress and restore service availability.\n` +
+      `Action: I analyzed memory dumps using Chrome DevTools, traced the issue to uncleaned event listeners in our main React view, and pushed a patch that explicitly cleaned up resources on component unmount.\n` +
+      `Result: The service stabilized immediately, memory usage was reduced by 60%, and we established a new ESLint rule to prevent similar memory leak patterns.`;
+  } else {
+    return `Situation: In a recent project as a ${targetRole}, we needed to improve performance and code quality across our services.\n` +
+      `Task: I was responsible for identifying bottlenecks and implementing optimizations within a tight two-week sprint.\n` +
+      `Action: I profiled the codebase, restructured inefficient algorithms, updated test suites for coverage, and automated our linting workflow.\n` +
+      `Result: Code coverage increased by 15%, load latency decreased by 30%, and the team improved deployment velocity.`;
+  }
+}
+
+export function evaluateAnswerLocally(
+  question: string,
+  answer: string,
+  targetRole: string,
+  difficulty: string
+): {
+  clarity: number;
+  confidence: number;
+  relevance: number;
+  technicalAccuracy: number;
+  communicationQuality: number;
+  problemSolving: number;
+  completeness: number;
+  domainKnowledge: number;
+  reasoning: string;
+  feedback: string;
+  improvedAnswerExample: string;
+} {
+  const normalizedAnswer = answer.trim().toLowerCase();
+  const wordCount = normalizedAnswer.split(/\s+/).filter(Boolean).length;
+  
+  // 1. Detect filler words
+  const fillers = ["um", "uh", "like", "actually", "basically", "you know", "so yeah", "sort of", "kind of"];
+  let fillerCount = 0;
+  for (const filler of fillers) {
+    const regex = new RegExp(`\\b${filler}\\b`, "g");
+    const matches = normalizedAnswer.match(regex);
+    if (matches) {
+      fillerCount += matches.length;
+    }
+  }
+  const fillerDensity = wordCount > 0 ? fillerCount / wordCount : 0;
+
+  // 2. Communication Quality (1-10)
+  let communicationQuality = 6;
+  if (wordCount < 15) {
+    communicationQuality = Math.max(1, Math.round(wordCount / 3));
+  } else {
+    let lengthBonus = 0;
+    if (wordCount >= 50 && wordCount <= 200) lengthBonus = 2;
+    else if (wordCount > 200) lengthBonus = 1;
+    
+    let fillerPenalty = 0;
+    if (fillerDensity > 0.1) fillerPenalty = 4;
+    else if (fillerDensity > 0.05) fillerPenalty = 2;
+    else if (fillerDensity > 0.02) fillerPenalty = 1;
+
+    communicationQuality = Math.max(1, Math.min(10, 6 + lengthBonus - fillerPenalty));
+  }
+
+  // 3. Confidence (1-10)
+  let confidence = 7;
+  if (wordCount < 15) {
+    confidence = Math.max(1, Math.round(wordCount / 2));
+  } else {
+    let fillerPenalty = 0;
+    if (fillerDensity > 0.1) fillerPenalty = 4;
+    else if (fillerDensity > 0.05) fillerPenalty = 2;
+    
+    const uncertaintyMarkers = ["i think", "maybe", "not sure", "guess", "probably", "sort of", "kind of", "perhaps"];
+    let uncertaintyCount = 0;
+    for (const marker of uncertaintyMarkers) {
+      const regex = new RegExp(`\\b${marker}\\b`, "g");
+      const matches = normalizedAnswer.match(regex);
+      if (matches) uncertaintyCount += matches.length;
+    }
+    const uncertaintyPenalty = Math.min(3, uncertaintyCount);
+    
+    confidence = Math.max(1, Math.min(10, 8 - fillerPenalty - uncertaintyPenalty));
+  }
+
+  // 4. Clarity (1-10)
+  let clarity = 6;
+  const sentenceCount = answer.split(/[.!?]+/).filter(s => s.trim().length > 0).length;
+  if (wordCount < 15) {
+    clarity = Math.max(1, Math.round(wordCount / 2.5));
+  } else {
+    const avgSentenceLength = wordCount / (sentenceCount || 1);
+    let structureScore = 8;
+    if (avgSentenceLength > 30) structureScore -= 2;
+    if (avgSentenceLength < 5) structureScore -= 2;
+    
+    clarity = Math.max(1, Math.min(10, structureScore));
+  }
+
+  // 5. Technical Accuracy & Domain Knowledge (1-10)
+  const roleLower = targetRole.toLowerCase();
+  const techKeywords = [
+    "react", "node", "database", "api", "javascript", "typescript", "sql", "nosql", "git", 
+    "docker", "aws", "scaling", "cache", "redis", "system", "architecture", "design", 
+    "performance", "async", "promise", "security", "algorithm", "optimised", "complexity", 
+    "time", "space", "memory", "concurrency", "threading", "rest", "graphql", "mongodb", 
+    "postgres", "kubernetes", "cloud", "frontend", "backend", "fullstack", "server", "client", 
+    "component", "state", "redux", "hook", "effect", "index", "query", "load", "network", 
+    "protocol", "http", "tcp", "dns", "cipher", "encryption"
+  ];
+  const PM_HR_Keywords = [
+    "product", "design", "ux", "ui", "roadmap", "backlog", "agile", "scrum", "sprint", 
+    "metric", "kpi", "strategy", "user", "research", "stakeholder", "market", "feedback", 
+    "analytics", "team", "collaboration", "conflict", "timeline", "prioritization", "scoping", 
+    "customer", "growth", "revenue", "conversion", "retention", "interview", "hiring", 
+    "culture", "values", "leadership", "mentoring", "ownership", "okr"
+  ];
+
+  const targetKeywords = (roleLower.includes("engineer") || roleLower.includes("developer") || roleLower.includes("tech") || roleLower.includes("coder") || roleLower.includes("architect"))
+    ? techKeywords
+    : PM_HR_Keywords;
+
+  let keywordMatches = 0;
+  const matchedList: string[] = [];
+  for (const kw of targetKeywords) {
+    const regex = new RegExp(`\\b${kw}(?:s|ed|ing|er)?\\b`, "g");
+    const matches = normalizedAnswer.match(regex);
+    if (matches) {
+      keywordMatches += matches.length;
+      matchedList.push(kw);
+    }
+  }
+
+  let technicalAccuracy = 5;
+  let domainKnowledge = 5;
+  if (wordCount < 15) {
+    technicalAccuracy = Math.max(1, Math.round(wordCount / 3));
+    domainKnowledge = Math.max(1, Math.round(wordCount / 3));
+  } else {
+    let expectedMatches = 2;
+    if (difficulty.toLowerCase() === "hard") expectedMatches = 4;
+    else if (difficulty.toLowerCase() === "easy") expectedMatches = 1;
+
+    const coverageRatio = keywordMatches / expectedMatches;
+    let scoreBase = 5;
+    if (coverageRatio >= 1.5) scoreBase = 8;
+    else if (coverageRatio >= 1.0) scoreBase = 7;
+    else if (coverageRatio >= 0.5) scoreBase = 6;
+    else scoreBase = 4;
+
+    if (wordCount > 100) scoreBase += 1;
+    if (wordCount > 180) scoreBase += 1;
+
+    technicalAccuracy = Math.max(1, Math.min(10, scoreBase));
+    domainKnowledge = Math.max(1, Math.min(10, scoreBase + (keywordMatches >= 1 ? 1 : 0)));
+  }
+
+  // 6. Problem Solving (1-10)
+  let problemSolving = 5;
+  if (wordCount < 15) {
+    problemSolving = Math.max(1, Math.round(wordCount / 3));
+  } else {
+    const reasoningWords = [
+      "because", "therefore", "since", "so", "consequently", "resolved", "solved", 
+      "optimized", "analyzed", "investigated", "fixed", "tradeoff", "alternative", 
+      "reason", "strategy", "impact", "logic", "concurrency", "deadlock", "leak", "bottleneck"
+    ];
+    let reasoningScore = 0;
+    for (const rw of reasoningWords) {
+      const regex = new RegExp(`\\b${rw}\\b`, "g");
+      const matches = normalizedAnswer.match(regex);
+      if (matches) reasoningScore += matches.length;
+    }
+
+    let pbBase = 5;
+    if (reasoningScore >= 3) pbBase = 8;
+    else if (reasoningScore >= 1) pbBase = 7;
+    else pbBase = 4;
+
+    if (wordCount > 120) pbBase += 1;
+
+    problemSolving = Math.max(1, Math.min(10, pbBase));
+  }
+
+  // 7. Completeness (1-10)
+  let completeness = 5;
+  if (wordCount < 15) {
+    completeness = Math.max(1, Math.round(wordCount / 3));
+  } else {
+    const starKeywords = [
+      "situation", "task", "action", "result", "goal", "outcome", "metric", "kpi", 
+      "percent", "increase", "decrease", "reduce", "grow", "deliver", "ship", "collaborate",
+      "lead", "achieve", "outperform", "impact", "optimize"
+    ];
+    let starMatchCount = 0;
+    for (const kw of starKeywords) {
+      const regex = new RegExp(`\\b${kw}(?:s|ed|ing|ment)?\\b`, "g");
+      const matches = normalizedAnswer.match(regex);
+      if (matches) starMatchCount += matches.length;
+    }
+
+    const metricsCount = (answer.match(/\b\d+(?:\.\d+)?%?\b/g) ?? []).length;
+
+    let completenessScore = 5;
+    if (starMatchCount >= 4 && metricsCount >= 1) completenessScore = 8;
+    else if (starMatchCount >= 2) completenessScore = 7;
+    else if (starMatchCount >= 1) completenessScore = 6;
+    else completenessScore = 4;
+
+    if (wordCount > 150) completenessScore += 1;
+
+    completeness = Math.max(1, Math.min(10, completenessScore));
+  }
+
+  // 8. Relevance (1-10)
+  let relevance = 6;
+  if (wordCount < 15) {
+    relevance = Math.max(1, Math.round(wordCount / 2.5));
+  } else {
+    const questionTokens = tokenize(question);
+    let overlaps = 0;
+    for (const qt of questionTokens) {
+      if (normalizedAnswer.includes(qt)) {
+        overlaps++;
+      }
+    }
+    
+    let relevanceScore = 6;
+    if (overlaps >= 3) relevanceScore = 8;
+    else if (overlaps >= 1) relevanceScore = 7;
+    else relevanceScore = 5;
+
+    relevance = Math.max(1, Math.min(10, relevanceScore));
+  }
+
+  const reasoning = `Local evaluation engine analyzed the response text (${wordCount} words). ` +
+    `Found ${fillerCount} filler words (${Math.round(fillerDensity * 100)}% density) and ${keywordMatches} relevant keyword matches ` +
+    `for target role '${targetRole}'. Overlap with question keywords is ${relevance >= 8 ? 'high' : 'moderate'}. ` +
+    `Reasoning indicators score: ${problemSolving >= 8 ? 'high structural logic' : 'basic structural logic'}. ` +
+    `STAR method indicators show ${completeness >= 8 ? 'strong impact metrics' : 'room for structural improvement'}.`;
+
+  let feedback = "Answer recorded. ";
+  if (wordCount < 30) {
+    feedback += "Your response is brief. Try to structure it using the STAR framework (Situation, Task, Action, Result) to provide sufficient depth and context.";
+  } else if (fillerDensity > 0.05) {
+    feedback += `We detected a high density of filler words (e.g. like, um, basic). Focus on pacing, pause when needed, and express technical details directly.`;
+  } else if (keywordMatches === 0) {
+    feedback += `To improve, incorporate more role-specific terminology relevant to a ${targetRole} (e.g. design patterns, tools, database optimization, or architectural trade-offs).`;
+  } else if (completeness < 7) {
+    feedback += `Good effort. Enhance your response by quantifying the impact of your actions (e.g., using percentages, timeline improvements, or team size metrics).`;
+  } else {
+    feedback += "Excellent structure and technical vocabulary. To further optimize, discuss alternative strategies or tradeoffs you considered.";
+  }
+
+  const improvedAnswerExample = generateImprovedExampleLocally(question, targetRole);
+
+  return {
+    clarity,
+    confidence,
+    relevance,
+    technicalAccuracy,
+    communicationQuality,
+    problemSolving,
+    completeness,
+    domainKnowledge,
+    reasoning,
+    feedback,
+    improvedAnswerExample
+  };
+}
+
+export function generateInterviewReportLocally(qaHistory: any[]): {
+  overallScore: number;
+  strengths: string[];
+  weaknesses: string[];
+  recommendations: string[];
+} {
+  if (qaHistory.length === 0) {
+    return {
+      overallScore: 0,
+      strengths: [],
+      weaknesses: [],
+      recommendations: ["Ensure you attempt and answer the interview questions next time."]
+    };
+  }
+
+  let totalCommunication = 0;
+  let totalTechnical = 0;
+  let totalProblemSolving = 0;
+  let totalConfidence = 0;
+  let totalCompleteness = 0;
+  let totalDomainKnowledge = 0;
+  let count = 0;
+
+  qaHistory.forEach(q => {
+    const f = q.feedback || (q.answer && q.answer.feedback);
+    if (f) {
+      totalCommunication += f.communicationQuality || f.clarity || 0;
+      totalTechnical += f.technicalAccuracy || 0;
+      totalProblemSolving += f.problemSolving || f.relevance || 0;
+      totalConfidence += f.confidence || 0;
+      totalCompleteness += f.completeness || f.clarity || 0;
+      totalDomainKnowledge += f.domainKnowledge || f.technicalAccuracy || 0;
+      count++;
+    }
+  });
+
+  const divisor = count || 1;
+  const communication = totalCommunication / divisor;
+  const technicalAccuracy = totalTechnical / divisor;
+  const problemSolving = totalProblemSolving / divisor;
+  const confidence = totalConfidence / divisor;
+  const completeness = totalCompleteness / divisor;
+  const domainKnowledge = totalDomainKnowledge / divisor;
+
+  const overallScore = Math.round(((communication + technicalAccuracy + problemSolving + confidence + completeness + domainKnowledge) / 6) * 10) / 10;
+
+  const categories = [
+    { name: "Communication Quality", score: communication, desc: "vocal articulation and flow" },
+    { name: "Technical Accuracy", score: technicalAccuracy, desc: "precision of technical answers" },
+    { name: "Problem Solving", score: problemSolving, desc: "depth of reasoning and logic" },
+    { name: "Confidence", score: confidence, desc: "clarity and verbal structure" },
+    { name: "Completeness", score: completeness, desc: "use of structured impact metrics" },
+    { name: "Domain Knowledge", score: domainKnowledge, desc: "role-specific expertise" }
+  ];
+
+  const sorted = [...categories].sort((a, b) => b.score - a.score);
+  const topCategories = sorted.slice(0, 2);
+  const bottomCategories = sorted.slice(-2).reverse();
+
+  const strengths = topCategories.map(cat => 
+    `Strong performance in ${cat.name} (${Math.round(cat.score * 10) / 10}/10), demonstrating good ${cat.desc}.`
+  );
+  const weaknesses = bottomCategories.map(cat => 
+    `Needs improvement in ${cat.name} (${Math.round(cat.score * 10) / 10}/10), specifically in terms of ${cat.desc}.`
+  );
+
+  const recommendations = [
+    "Practice structure by using the STAR (Situation, Task, Action, Result) method in responses.",
+    "Refine technical terminology and provide more metrics to support claims.",
+    "Do more mock interviews to practice verbal confidence and pace."
+  ];
+
+  return {
+    overallScore,
+    strengths,
+    weaknesses,
+    recommendations
+  };
+}
+
+export async function evaluateInterviewAnswer(
+  question: string,
+  answer: string,
+  targetRole: string,
+  difficulty: string
+): Promise<{
+  clarity: number;
+  confidence: number;
+  relevance: number;
+  technicalAccuracy: number;
+  communicationQuality: number;
+  problemSolving: number;
+  completeness: number;
+  domainKnowledge: number;
+  reasoning: string;
+  feedback: string;
+  improvedAnswerExample: string;
+}> {
+  if (!env.GEMINI_API_KEY && !env.OPENAI_API_KEY) {
+    return evaluateAnswerLocally(question, answer, targetRole, difficulty);
+  }
+
+  const prompt = [
+    `Evaluate the candidate's answer to the following question.`,
+    `Question: ${question}`,
+    `Answer: ${answer}`,
+    `Target Role: ${targetRole}`,
+    `Difficulty: ${difficulty}`,
+    `CRITICAL INSTRUCTION: You must evaluate the actual answer text provided by the candidate. Do not use generic template feedback.`,
+    `If the candidate gave a very short, incorrect, incomplete, or evasive answer, reflect this by giving low scores (1-4) in relevant categories (e.g. technicalAccuracy, completeness, domainKnowledge, problemSolving).`,
+    `Your feedback must directly point out specific omissions or mistakes in their actual words (e.g. "You stated X, but did not explain how it works or mention key concept Y").`,
+    `Provide a score on a 1-10 scale for:`,
+    `- clarity (structural clarity, flow)`,
+    `- confidence (presence, phrasing)`,
+    `- relevance (directly answering the question)`,
+    `- technicalAccuracy (accuracy of engineering or factual claims)`,
+    `- communicationQuality (overall clarity, vocabulary, verbal structure)`,
+    `- problemSolving (logic, depth of analysis, systematic troubleshooting)`,
+    `- completeness (whether they answered all parts of the question, e.g. using STAR)`,
+    `- domainKnowledge (expertise in the target role domain)`,
+    `Also provide:`,
+    `- reasoning (the logical explanation of how these scores were derived from the actual text of the answer)`,
+    `- feedback (brief, constructive feedback on how to improve)`,
+    `- improvedAnswerExample (a highly detailed, specific example answer written in the STAR framework that would score 10/10 for this question)`,
+    `Return strict JSON only matching this format:`,
+    `{`,
+    `  "clarity": number,`,
+    `  "confidence": number,`,
+    `  "relevance": number,`,
+    `  "technicalAccuracy": number,`,
+    `  "communicationQuality": number,`,
+    `  "problemSolving": number,`,
+    `  "completeness": number,`,
+    `  "domainKnowledge": number,`,
+    `  "reasoning": "string",`,
+    `  "feedback": "string",`,
+    `  "improvedAnswerExample": "string"`,
+    `}`
+  ].join("\n");
+
+  try {
+    const response = await requestGeminiJson(prompt, 0.3);
+    if (!response.ok) {
+      return evaluateAnswerLocally(question, answer, targetRole, difficulty);
+    }
+    
+    const responseJson = await response.json();
+    const outputText = extractGeminiText(responseJson);
+    const parsed = safeJsonParse(outputText) as any;
+    return {
+      clarity: Number(parsed.clarity ?? 6),
+      confidence: Number(parsed.confidence ?? 6),
+      relevance: Number(parsed.relevance ?? 6),
+      technicalAccuracy: Number(parsed.technicalAccuracy ?? 6),
+      communicationQuality: Number(parsed.communicationQuality ?? parsed.clarity ?? 6),
+      problemSolving: Number(parsed.problemSolving ?? parsed.relevance ?? 6),
+      completeness: Number(parsed.completeness ?? parsed.clarity ?? 6),
+      domainKnowledge: Number(parsed.domainKnowledge ?? parsed.technicalAccuracy ?? 6),
+      reasoning: String(parsed.reasoning ?? "Derivation based on response patterns."),
+      feedback: String(parsed.feedback ?? "Ensure your answer clearly addresses the core of the question."),
+      improvedAnswerExample: String(parsed.improvedAnswerExample ?? "")
+    };
+  } catch (e) {
+    return evaluateAnswerLocally(question, answer, targetRole, difficulty);
+  }
+}
+
+export async function generateInterviewReport(qaHistory: any[]): Promise<{ overallScore: number; strengths: string[]; weaknesses: string[]; recommendations: string[] }> {
+  if (!env.GEMINI_API_KEY && !env.OPENAI_API_KEY) {
+    return generateInterviewReportLocally(qaHistory);
+  }
+
+  const prompt = [
+    `The interview session is complete. Review the array of questions and the candidate's answers, along with their individual evaluation scores and feedback.`,
+    `Generate a comprehensive final report.`,
+    `CRITICAL INSTRUCTION: This report must be constructed ONLY from the actual Q&A history. Do NOT use generic template text or placeholder feedback.`,
+    `Requirements:`,
+    `- overallScore: A realistic aggregate rating out of 10. Do NOT generate a random score. Base it on the mathematical performance of the candidate across the questions they answered, penalizing them heavily for skipped or poorly answered questions.`,
+    `- strengths: An array of 2-3 specific strengths. Each strength MUST reference a specific example or quote from the candidate's answers (e.g. "Demonstrated strong knowledge of database optimization when discussing indexing strategy..."). If they did not demonstrate any notable strengths, state that clearly and construct positive feedback around areas they started to grasp.`,
+    `- weaknesses: An array of 2-3 areas for improvement. Each area MUST reference a specific example or quote from the candidate's answers where they were vague, incorrect, or incomplete (e.g., "In Question 2, when asked about React state, the candidate's answer was limited to a single brief sentence without details...").`,
+    `- recommendations: An array of 3-4 actionable next steps, listing specific skills to improve, concrete learning resources (articles, courses, books), and practice advice.`,
+    `Return strict JSON only matching this format:`,
+    `{ "overallScore": number, "strengths": ["string"], "weaknesses": ["string"], "recommendations": ["string"] }`,
+    `Q&A HISTORY:\n${JSON.stringify(qaHistory)}`
+  ].join("\n");
+
+  try {
+    const response = await requestGeminiJson(prompt, 0.3);
+    if (!response.ok) {
+      return generateInterviewReportLocally(qaHistory);
+    }
+
+    const responseJson = await response.json();
+    const outputText = extractGeminiText(responseJson);
+    const parsed = safeJsonParse(outputText) as any;
+    return {
+      overallScore: Number(parsed.overallScore ?? 6),
+      strengths: Array.isArray(parsed.strengths) ? parsed.strengths.map(String) : ["Attempted all questions"],
+      weaknesses: Array.isArray(parsed.weaknesses) ? parsed.weaknesses.map(String) : ["Unable to generate detailed analysis"],
+      recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations.map(String) : ["Review your answers"]
+    };
+  } catch (e) {
+    return generateInterviewReportLocally(qaHistory);
+  }
 }

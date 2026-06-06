@@ -115,6 +115,13 @@ router.post("/parse-resume", upload.single("resume"), async (req, res, next) => 
     const result = await pdfParse(req.file.buffer);
     const parsedResume = await parseResumeWithGemini(result.text);
     
+    if (parsedResume.isResume === false) {
+      return res.status(400).json({
+        message: "The uploaded file does not appear to be a valid resume or CV.",
+        error: "The uploaded file does not appear to be a valid resume or CV."
+      });
+    }
+
     res.json(parsedResume);
   } catch (error) {
     next(error);

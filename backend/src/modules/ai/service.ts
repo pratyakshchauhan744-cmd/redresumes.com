@@ -604,6 +604,7 @@ export async function translateResumeWithGemini(input: ResumeTranslationInput): 
 
 function getFallbackParsedResume(text: string) {
   return {
+    isResume: true,
     fullName: "Applicant",
     jobTitle: "Professional",
     email: "",
@@ -636,10 +637,11 @@ export async function parseResumeWithGemini(text: string): Promise<any> {
   }
 
   const prompt = [
-    `Extract the following resume text into a structured JSON object.`,
+    `Analyze the input text. If it is NOT a resume, CV, or professional profile (e.g. if it is a receipt, textbook, research paper, terms of service, random code, logs, or other unrelated document), set isResume to false. Otherwise, extract the resume text into a structured JSON object.`,
     "Return strict JSON only.",
     "The JSON should match this exact interface:",
     `{
+      isResume: boolean; // MUST be true if the document is a resume, CV, or professional profile; false otherwise.
       fullName: string;
       jobTitle: string;
       email: string;

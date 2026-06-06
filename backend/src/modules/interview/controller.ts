@@ -50,6 +50,13 @@ export async function uploadAndParseResume(req: Request, res: Response, next: Ne
 
     const structuredData = await parseResumeWithGemini(parsedText);
 
+    if (structuredData.isResume === false) {
+      return res.status(400).json({
+        message: "The uploaded file does not appear to be a valid resume or CV.",
+        error: "The uploaded file does not appear to be a valid resume or CV."
+      });
+    }
+
     const resume = await prisma.resume.create({
       data: {
         userId: userId || null,

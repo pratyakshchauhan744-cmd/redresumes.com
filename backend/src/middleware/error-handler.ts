@@ -21,7 +21,8 @@ export function errorHandler(error: unknown, _req: Request, res: Response, _next
       lower.includes("prisma.")
     ) {
       res.status(503).json({
-        message: "Database is offline. Start PostgreSQL (Docker) and try again."
+        message: "Database is offline. Start PostgreSQL (Docker) and try again.",
+        error: error.message
       });
       return;
     }

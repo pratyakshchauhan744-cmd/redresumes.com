@@ -1,5 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const pdfParse = require("pdf-parse");
 import { analyzeAtsScore, improveResumeWithGemini, translateResumeWithGemini, parseResumeWithGemini } from "./service.js";
 import { requireAuth } from "../../middleware/auth.js";
 
@@ -109,9 +112,6 @@ router.post("/parse-resume", upload.single("resume"), async (req, res, next) => 
       return res.status(400).json({ error: "Only PDF files are supported at this time." });
     }
 
-    import { createRequire } from "module";
-    const require = createRequire(import.meta.url);
-    const pdfParse = require("pdf-parse");
     const result = await pdfParse(req.file.buffer);
     const parsedResume = await parseResumeWithGemini(result.text);
     

@@ -504,31 +504,14 @@ export const backendApi = {
   getPublicResume: (id: string) =>
     request<PublicResumeResponse>(`/api/public-resumes/${encodeURIComponent(id)}`),
 
-  parseResume: async (file: File, token: string) => {
+  parseResume: (file: File, token: string) => {
     const formData = new FormData();
     formData.append("resume", file);
-    
-    const response = await fetch(`${API_BASE_URL}/api/ai/parse-resume`, {
+    return request<any>("/api/ai/parse-resume", {
       method: "POST",
-      credentials: "include",
-      headers: {
-        Authorization: `Bearer ${token}`
-      },
-      body: formData,
+      token,
+      body: formData
     });
-    
-    if (!response.ok) {
-      let errorMessage = "Parse failed";
-      try {
-        const errorBody = await response.json();
-        errorMessage = errorBody.error ?? errorBody.message ?? errorMessage;
-      } catch {
-        // ignore
-      }
-      throw new Error(errorMessage);
-    }
-    
-    return response.json();
   },
 
   analyzeInterviewResume: (file: File, token: string) => {

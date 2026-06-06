@@ -7,6 +7,7 @@ import { backendApi, type PublicResumeResponse } from '../lib/backendApi';
 import { readStoredUser } from '../lib/auth';
 import { templates } from '../data/templates';
 import type { TemplateResumeData } from '../types';
+import { Seo } from '../components/Seo';
 
 const LOCAL_PUBLIC_RESUMES_STORAGE_KEY = 'redresumes_local_public_resumes';
 
@@ -151,18 +152,26 @@ export const PublicResumePage = () => {
 
   if (error || !resumeData) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-16 text-center">
-        <h1 className="text-3xl font-black tracking-tight text-zinc-900">Resume link unavailable</h1>
-        <p className="mt-3 text-zinc-500">{error ?? 'This shared resume could not be opened.'}</p>
-        <Link to="/builder" className="mt-6 inline-flex rounded-xl bg-primary px-5 py-3 text-sm font-bold text-white">
-          Create a resume
-        </Link>
-      </div>
+      <>
+        <Seo title="Resume Unavailable | Red Resumes" description="This shared resume link is no longer active or could not be found." />
+        <div className="mx-auto max-w-3xl px-6 py-16 text-center">
+          <h1 className="text-3xl font-black tracking-tight text-zinc-900">Resume link unavailable</h1>
+          <p className="mt-3 text-zinc-500">{error ?? 'This shared resume could not be opened.'}</p>
+          <Link to="/builder" className="mt-6 inline-flex rounded-xl bg-primary px-5 py-3 text-sm font-bold text-white">
+            Create a resume
+          </Link>
+        </div>
+      </>
     );
   }
 
   return (
-    <div className="public-resume-page bg-zinc-50">
+    <>
+      <Seo
+        title={`${resumeData.fullName || 'Candidate Resume'} | Shared via Red Resumes`}
+        description={`View ${resumeData.fullName || 'the candidate'}'s professional resume on Red Resumes. ATS-optimized layout with detailed skills, experience, and certifications.`}
+      />
+      <div className="public-resume-page bg-zinc-50">
       <section className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="no-print mb-5 flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -199,7 +208,7 @@ export const PublicResumePage = () => {
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
               <Lock className="h-7 w-7 text-primary" />
             </div>
-            <h3 className="mt-5 text-center text-xl font-extrabold tracking-tight text-zinc-900">Sign in to download</h3>
+            <h2 className="mt-5 text-center text-xl font-extrabold tracking-tight text-zinc-900 text-lg">Sign in to download</h2>
             <p className="mt-2 text-center text-sm leading-6 text-zinc-500">
               Create a free account or sign in to download this resume as PDF.
             </p>
@@ -220,5 +229,6 @@ export const PublicResumePage = () => {
         </div>
       )}
     </div>
+    </>
   );
 };

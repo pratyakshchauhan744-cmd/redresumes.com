@@ -15,6 +15,7 @@ import { premiumFeatures } from '../data/premiumFeatures';
 import { generateResumeDocx } from '../lib/docxExport';
 import type { PremiumFeatureItem, TemplateItem, TemplateResumeData, ExperienceItem, CustomColumnItem, EducationItem, ResumeListStyle } from '../types';
 import { useLocation, Link } from 'react-router-dom';
+import { Seo } from '../components/Seo';
 
 const MAX_RESUME_HISTORY_ITEMS = 50;
 const LOCAL_PUBLIC_RESUMES_STORAGE_KEY = 'redresumes_local_public_resumes';
@@ -2282,7 +2283,12 @@ export const ResumeBuilderPage = ({
   };
 
   return (
-    <div className="bg-white">
+    <>
+      <Seo
+        title="Resume Builder | Design Your Resume Online | Red Resumes"
+        description="Create and customize your resume section by section with real-time preview, professional suggestions, and easy PDF export."
+      />
+      <div className="bg-white">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:py-12">
         <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
           <div>
@@ -3161,5 +3167,6 @@ export const ResumeBuilderPage = ({
     </div>
   )}
   </div>
+  </>
   );
 };

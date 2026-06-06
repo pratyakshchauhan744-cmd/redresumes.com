@@ -1,6 +1,7 @@
 import { useState, useEffect, type ChangeEvent } from 'react';
 import { FileText, Clock, Settings, User, Trash2, Edit3, Save, ExternalLink, QrCode } from 'lucide-react';
 import { Section } from '../components/Section';
+import { Seo } from '../components/Seo';
 import { PrimaryButton, SecondaryButton } from '../components/Buttons';
 import { APPLIED_JOBS_STORAGE_KEY, LOCAL_ACCOUNTS_STORAGE_KEY, RESUME_HISTORY_STORAGE_KEY, SAVED_JOBS_STORAGE_KEY, USER_STORAGE_KEY, buildUserScopedStorageKey, getStoredAccessToken, readStoredUser } from '../lib/auth';
 import { backendApi, type AuthUser } from '../lib/backendApi';
@@ -95,24 +96,37 @@ export const DashboardPage = ({
         description: res.productDescription,
         order_id: res.orderId,
         handler: async function (response: any) {
-          setPurchaseLoading(null);
-          setProfileMessage("Payment successful! Your credits will update shortly.");
-          
-          // Poll transactions to update the UI balance after a short delay
-          setTimeout(async () => {
+          setPurchaseLoading(packageKey);
+          setProfileMessage("Verifying payment...");
+          try {
+            const verifyResult = await backendApi.verifyCreditPayment({
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpayOrderId: response.razorpay_order_id,
+              razorpaySignature: response.razorpay_signature,
+              packageKey
+            }, accessToken);
+
+            setCreditsBalance(verifyResult.balance);
+            if (user) {
+              const updatedUser = { ...user, credits: verifyResult.balance };
+              saveUserLocally(updatedUser);
+            }
+
+            // Refresh transactions list
             try {
               const data = await backendApi.getCreditTransactions(accessToken);
-              setCreditsBalance(data.balance);
               setTransactions(data.transactions || []);
-
-              if (user) {
-                const updatedUser = { ...user, credits: data.balance };
-                saveUserLocally(updatedUser);
-              }
-            } catch (err) {
-              console.error("Failed to refresh transactions:", err);
+            } catch (txErr) {
+              console.error("Failed to refresh transactions log:", txErr);
             }
-          }, 3000);
+
+            setProfileMessage("Payment successful! Your credits have been updated.");
+          } catch (err: any) {
+            console.error("Payment verification failed:", err);
+            setPurchaseError(err.message || "Payment verification failed. Please contact support.");
+          } finally {
+            setPurchaseLoading(null);
+          }
         },
         prefill: {
           name: user?.name || '',
@@ -288,20 +302,31 @@ export const DashboardPage = ({
 
   if (!user) {
     return (
-      <Section title="Your dashboard" kicker="Account">
-        <div className="rounded-[30px] border border-zinc-200 bg-white p-8 shadow-[0_18px_48px_rgba(15,23,42,0.06)]">
-          <h3 className="text-2xl font-bold text-zinc-900">Sign in to view your profile</h3>
-          <p className="mt-3 text-zinc-500">Your account dashboard shows profile details, saved jobs, applications, and resume history.</p>
-          <button onClick={() => navigate('/login')} className="mt-6 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-white">
-            Go to login
-          </button>
-        </div>
-      </Section>
+      <>
+        <Seo
+          title="Dashboard | Manage Your Resumes | Red Resumes"
+          description="Access your saved resumes, draft cover letters, job tracking boards, and AI mock interview history in your account dashboard."
+        />
+        <Section h1 title="Your dashboard" kicker="Account">
+          <div className="rounded-[30px] border border-zinc-200 bg-white p-8 shadow-[0_18px_48px_rgba(15,23,42,0.06)]">
+            <h2 className="text-2xl font-bold text-zinc-900">Sign in to view your profile</h2>
+            <p className="mt-3 text-zinc-500">Your account dashboard shows profile details, saved jobs, applications, and resume history.</p>
+            <button onClick={() => navigate('/login')} className="mt-6 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-white">
+              Go to login
+            </button>
+          </div>
+        </Section>
+      </>
     );
   }
 
   return (
-    <Section title="Your dashboard" kicker="Account">
+    <>
+      <Seo
+        title="Dashboard | Manage Your Resumes | Red Resumes"
+        description="Access your saved resumes, draft cover letters, job tracking boards, and AI mock interview history in your account dashboard."
+      />
+      <Section h1 title="Your dashboard" kicker="Account">
       <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="space-y-6">
           <div className="rounded-[30px] border border-zinc-200 bg-[linear-gradient(145deg,#ffffff_0%,#fff7f7_52%,#f8fafc_100%)] p-7 shadow-[0_18px_54px_rgba(15,23,42,0.08)]">
@@ -315,7 +340,7 @@ export const DashboardPage = ({
                   </div>
                 )}
                 <div>
-                  <h3 className="text-2xl font-black tracking-tight text-zinc-900">{user.name}</h3>
+                  <h2 className="text-2xl font-black tracking-tight text-zinc-900">{user.name}</h2>
                   <p className="mt-1 text-sm text-zinc-500">{user.email}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <span className="rounded-full border border-primary/10 bg-primary/5 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-primary">
@@ -353,7 +378,7 @@ export const DashboardPage = ({
           <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
             <div className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-150 pb-4 mb-4">
               <div>
-                <h3 className="font-bold text-zinc-900 text-lg">Interview Credits</h3>
+                <h2 className="font-bold text-zinc-900 text-lg">Interview Credits</h2>
                 <p className="text-sm text-zinc-500 mt-0.5">Use credits to run interactive AI mock interviews. 1 Interview = 1 Credit.</p>
               </div>
               <div className="bg-primary/5 border border-primary/20 rounded-xl px-4 py-2 text-right">
@@ -372,7 +397,7 @@ export const DashboardPage = ({
                 <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-bl-[50px] -z-10" />
                 <div>
                   <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Starter Pack</span>
-                  <h4 className="text-2xl font-black text-zinc-950 mt-1">5 Credits</h4>
+                  <h3 className="text-2xl font-black text-zinc-950 mt-1">5 Credits</h3>
                   <p className="text-xs text-zinc-500 mt-2">Practice up to 5 complete rounds with AI feedback.</p>
                 </div>
                 <button
@@ -391,7 +416,7 @@ export const DashboardPage = ({
                 </div>
                 <div>
                   <span className="text-xs font-bold text-primary uppercase tracking-widest">Pro Pack</span>
-                  <h4 className="text-2xl font-black text-zinc-950 mt-1">15 Credits</h4>
+                  <h3 className="text-2xl font-black text-zinc-950 mt-1">15 Credits</h3>
                   <p className="text-xs text-zinc-500 mt-2">Practice 15 complete rounds. Best value for active job hunters.</p>
                 </div>
                 <button
@@ -408,7 +433,7 @@ export const DashboardPage = ({
             {/* Transaction Log */}
             {transactions.length > 0 && (
               <div className="border-t border-zinc-100 pt-6 mt-6">
-                <h4 className="font-bold text-zinc-900 text-sm mb-3">Billing History</h4>
+                <h3 className="font-bold text-zinc-900 text-sm mb-3">Billing History</h3>
                 <div className="space-y-2.5 max-h-40 overflow-y-auto pr-1">
                   {transactions.map((tx: any) => (
                     <div key={tx.id} className="flex justify-between items-center bg-zinc-50 p-3 rounded-lg text-xs border border-zinc-100">
@@ -428,7 +453,7 @@ export const DashboardPage = ({
           </div>
 
           <div className="rounded-2xl border border-zinc-200 bg-white p-6">
-            <h3 className="font-semibold text-zinc-900">Full user profile</h3>
+            <h2 className="font-semibold text-zinc-900">Full user profile</h2>
             <div className="mt-5 grid gap-4 md:grid-cols-2 text-sm">
               <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-4">
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-400">Full name</p>
@@ -465,7 +490,7 @@ export const DashboardPage = ({
         <div className="space-y-6">
           <div className="rounded-2xl border border-zinc-200 bg-white p-6">
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-zinc-900">Resume history</h3>
+              <h2 className="font-semibold text-zinc-900">Resume history</h2>
               <button onClick={() => navigate('/builder')} className="text-sm font-semibold text-primary">Open builder</button>
             </div>
             <div className="mt-4 space-y-3 text-sm">
@@ -484,7 +509,7 @@ export const DashboardPage = ({
 
           <div className="rounded-2xl border border-zinc-200 bg-white p-6">
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-zinc-900">AI Mock Interviews</h3>
+              <h2 className="font-semibold text-zinc-900">AI Mock Interviews</h2>
               <button onClick={() => navigate('/interview/setup')} className="text-sm font-semibold text-primary hover:underline">Practice New</button>
             </div>
             <div className="mt-4 space-y-3">
@@ -517,5 +542,6 @@ export const DashboardPage = ({
         </div>
       </div>
     </Section>
+    </>
   );
 };

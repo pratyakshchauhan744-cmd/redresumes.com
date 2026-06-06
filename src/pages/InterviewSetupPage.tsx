@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { UploadCloud, Briefcase, FileText, Settings, Loader2, Building, Sparkles, AlertCircle, ArrowRight } from 'lucide-react';
 import { backendApi } from '../lib/backendApi';
 import { getStoredAccessToken, USER_STORAGE_KEY } from '../lib/auth';
+import { Seo } from '../components/Seo';
 
 const loadRazorpayScript = () => {
   return new Promise((resolve) => {
@@ -80,30 +81,36 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
         description: res.productDescription,
         order_id: res.orderId,
         handler: async function (response: any) {
-          setPurchaseLoading(null);
-          setShowPaywall(false);
-          setError("");
-          
-          // Poll transactions/balance after a short delay
-          setTimeout(async () => {
-            try {
-              const data = await backendApi.getCreditTransactions(token);
-              setCredits(data.balance);
+          setPurchaseLoading(packageKey);
+          setError("Verifying payment...");
+          try {
+            const verifyResult = await backendApi.verifyCreditPayment({
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpayOrderId: response.razorpay_order_id,
+              razorpaySignature: response.razorpay_signature,
+              packageKey
+            }, token);
 
-              // Update context user and local storage
-              const storedUserRaw = window.localStorage.getItem(USER_STORAGE_KEY);
-              if (storedUserRaw) {
-                const storedUser = JSON.parse(storedUserRaw);
-                storedUser.credits = data.balance;
-                window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(storedUser));
-                if (onUserUpdated) {
-                  onUserUpdated(storedUser);
-                }
+            setCredits(verifyResult.balance);
+            setShowPaywall(false);
+            setError("");
+
+            // Update context user and local storage
+            const storedUserRaw = window.localStorage.getItem(USER_STORAGE_KEY);
+            if (storedUserRaw) {
+              const storedUser = JSON.parse(storedUserRaw);
+              storedUser.credits = verifyResult.balance;
+              window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(storedUser));
+              if (onUserUpdated) {
+                onUserUpdated(storedUser);
               }
-            } catch (err) {
-              console.error("Failed to refresh transactions:", err);
             }
-          }, 3000);
+          } catch (err: any) {
+            console.error("Payment verification failed:", err);
+            setError(err.message || "Payment verification failed. Please contact support.");
+          } finally {
+            setPurchaseLoading(null);
+          }
         },
         prefill: {
           name: currentUser?.name || '',
@@ -249,7 +256,12 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
   };
 
   return (
-    <div className="max-w-5xl mx-auto py-12 px-4 sm:px-6 lg:px-8 min-h-[85vh]">
+    <>
+      <Seo
+        title="AI Interview Practice | Prepare for Mock Interviews | Red Resumes"
+        description="Set up personalized AI-powered mock interviews. Receive realistic questions and instant feedback tailored to your job role."
+      />
+      <div className="max-w-5xl mx-auto py-12 px-4 sm:px-6 lg:px-8 min-h-[85vh]">
       {/* Step 2: Full-screen AI Analysis loader overlay */}
       {isStarting && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-zinc-950 text-white p-4 transition-all">
@@ -331,7 +343,7 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
                 </div>
                 <div>
-                  <h4 className="font-bold text-white text-sm">Detected Core Strengths</h4>
+                  <h3 className="font-bold text-white text-sm">Detected Core Strengths</h3>
                   <p className="text-xs text-zinc-400 mt-1">
                     {parsedProfile.skills?.slice(0, 5).join(', ') || 'Analytical thinking, system engineering, problem solving'}
                   </p>
@@ -343,7 +355,7 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                 </div>
                 <div>
-                  <h4 className="font-bold text-white text-sm">Target Areas for Follow-Ups</h4>
+                  <h3 className="font-bold text-white text-sm">Target Areas for Follow-Ups</h3>
                   <p className="text-xs text-zinc-400 mt-1">
                     Architectural scaling, metrics metrics verification, and strategic alignment.
                   </p>
@@ -656,5 +668,6 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
         </div>
       )}
     </div>
+    </>
   );
 };

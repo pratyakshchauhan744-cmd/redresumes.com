@@ -9,6 +9,7 @@ const routes = [
   '/',
   '/templates',
   '/builder',
+  '/cover-letter',
   '/pricing',
   '/examples',
   '/job-finder',

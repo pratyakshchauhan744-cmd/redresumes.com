@@ -3,6 +3,7 @@ import { Eye, EyeOff, Check } from 'lucide-react';
 import { backendApi, type AuthUser } from '../lib/backendApi';
 import { LOCAL_ACCOUNTS_STORAGE_KEY, setStoredAuthTokens, USER_STORAGE_KEY } from '../lib/auth';
 import type { LocalAccount } from '../types';
+import { Seo } from '../components/Seo';
 
 declare global {
   interface Window {
@@ -445,7 +446,12 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
   };
 
   return (
-    <section className="py-10 md:py-16">
+    <>
+      <Seo
+        title="Sign In & Get Started | Red Resumes"
+        description="Log in or register to save your resumes, track job applications, and practice mock interviews on Red Resumes."
+      />
+      <section className="py-10 md:py-16">
       <div className="mx-auto grid max-w-6xl gap-6 px-4 sm:px-6 md:grid-cols-[1.05fr_0.95fr] md:gap-10 md:items-stretch">
         <div className="rounded-2xl border border-zinc-200 bg-[linear-gradient(145deg,#ffffff_0%,#fff9f9_50%,#f8fafc_100%)] p-4 shadow-[0_12px_34px_rgba(15,23,42,0.06)] md:rounded-[32px] md:p-10 md:shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
           <p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-primary md:text-xs md:tracking-[0.24em]">Account Access</p>
@@ -476,9 +482,9 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
               </button>
             ))}
           </div>
-          <h2 className="mt-4 text-3xl font-extrabold leading-tight tracking-tight text-zinc-900 md:mt-5 md:text-4xl">
+          <h1 className="mt-4 text-3xl font-extrabold leading-tight tracking-tight text-zinc-900 md:mt-5 md:text-4xl">
             {authTitle}
-          </h2>
+          </h1>
           <p className="mt-3 max-w-md text-sm leading-6 text-zinc-500 md:text-base md:leading-7">
             {authDescription}
           </p>
@@ -801,7 +807,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
           </div>
         </div>
         <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 shadow-[0_10px_28px_rgba(15,23,42,0.04)] md:rounded-[32px] md:p-10 md:shadow-[0_16px_44px_rgba(15,23,42,0.05)]">
-          <h3 className="text-xl font-bold tracking-tight text-zinc-900 md:text-2xl">Why professionals choose RedResumes</h3>
+          <h2 className="text-xl font-bold tracking-tight text-zinc-900 md:text-2xl">Why professionals choose RedResumes</h2>
           <p className="mt-3 text-sm leading-6 text-zinc-500">Everything stays focused on clarity, speed, and recruiter-friendly presentation.</p>
           <div className="mt-4 space-y-3 md:mt-6 md:space-y-4">
             {[
@@ -815,7 +821,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                     <Check className="h-4 w-4" />
                   </span>
                   <div>
-                    <h4 className="text-sm font-semibold text-zinc-900">{item.title}</h4>
+                    <h3 className="text-sm font-semibold text-zinc-900">{item.title}</h3>
                     <p className="mt-1 text-sm text-zinc-500">{item.desc}</p>
                   </div>
                 </div>
@@ -840,5 +846,6 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
         </div>
       </div>
     </section>
+    </>
   );
 };

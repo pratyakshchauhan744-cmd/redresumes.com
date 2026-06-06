@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuth } from "../../middleware/auth.js";
-import { createCheckoutSession, handleRazorpayWebhook, getTransactions, devAddCredits } from "./controller.js";
+import { createCheckoutSession, handleRazorpayWebhook, getTransactions, devAddCredits, verifyPayment } from "./controller.js";
 
 const router = Router();
 
@@ -9,6 +9,7 @@ router.post("/webhook", handleRazorpayWebhook);
 
 // Protected routes
 router.post("/checkout", requireAuth, createCheckoutSession);
+router.post("/verify", requireAuth, verifyPayment);
 router.get("/transactions", requireAuth, getTransactions);
 router.post("/dev-add", requireAuth, devAddCredits);
 

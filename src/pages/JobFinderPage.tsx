@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Search, MapPin, Filter, ExternalLink, Bookmark, LoaderCircle, Building2, BriefcaseBusiness, Check, Send, X } from 'lucide-react';
 import { backendApi, mapBackendJobToUiJob, type AuthUser, type JobFilters } from '../lib/backendApi';
 import { Section } from '../components/Section';
+import { Seo } from '../components/Seo';
 import { buildUserScopedStorageKey, getStoredAccessToken, SAVED_JOBS_STORAGE_KEY, APPLIED_JOBS_STORAGE_KEY } from '../lib/auth';
 import type { JobItem } from '../types';
 import { useNavigate } from 'react-router-dom';
@@ -372,7 +373,12 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
   const appliedCount = Object.keys(appliedJobs).length;
 
   return (
-    <Section title="Job finder" kicker="Find and apply faster">
+    <>
+      <Seo
+        title="Job Finder | Find and Apply to Jobs | Red Resumes"
+        description="Search for career opportunities, track your applications, and optimize your resume compatibility for each target role."
+      />
+      <Section h1 title="Job finder" kicker="Find and apply faster">
       <div className="rounded-2xl border border-zinc-200 bg-[linear-gradient(145deg,#ffffff_0%,#fff8f8_45%,#f7fafc_100%)] p-4 shadow-[0_12px_34px_rgba(15,23,42,0.06)] md:rounded-[30px] md:p-8 md:shadow-[0_20px_54px_rgba(15,23,42,0.08)]">
         <div className="grid gap-3 md:gap-4 lg:grid-cols-[1.4fr_1fr_1fr_auto]">
           <input
@@ -430,7 +436,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
             <div key={job.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_44px_rgba(15,23,42,0.1)] md:p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-lg font-extrabold tracking-tight text-zinc-900 md:text-xl">{job.title}</h3>
+                  <h2 className="text-lg font-extrabold tracking-tight text-zinc-900 md:text-xl">{job.title}</h2>
                   <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-500">
                     {job.companyUrl ? (
                       <a
@@ -493,7 +499,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
         <div className="space-y-3 md:space-y-4">
           <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] md:p-5">
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">Pipeline</p>
-            <h3 className="mt-2 text-xl font-extrabold text-zinc-900">Application Tracker</h3>
+            <h2 className="mt-2 text-xl font-extrabold text-zinc-900">Application Tracker</h2>
             <div className="mt-4 grid grid-cols-3 gap-3">
               {[
                 { label: 'Saved', value: savedJobs.length },
@@ -509,7 +515,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
           </div>
 
           <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] md:p-5">
-            <h3 className="text-base font-bold text-zinc-900">AI Suggestions</h3>
+            <h2 className="text-base font-bold text-zinc-900">AI Suggestions</h2>
             <ul className="mt-3 space-y-2 text-sm text-zinc-600">
               <li className="flex items-start gap-2"><Check className="mt-0.5 h-4 w-4 text-primary" /> Add React Native to increase matches by 9%.</li>
               <li className="flex items-start gap-2"><Check className="mt-0.5 h-4 w-4 text-primary" /> Update summary for leadership roles.</li>
@@ -533,7 +539,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">Application tracker</p>
-                <h3 id="job-apply-dialog-title" className="mt-2 text-2xl font-black tracking-tight text-zinc-900">{activeJob.title}</h3>
+                <h2 id="job-apply-dialog-title" className="mt-2 text-2xl font-black tracking-tight text-zinc-900">{activeJob.title}</h2>
                 <p className="mt-1 text-sm text-zinc-500">{activeJob.company} - {activeJob.location}</p>
               </div>
               <button
@@ -585,6 +591,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
           </div>
         </div>
       )}
-    </Section>
+      </Section>
+    </>
   );
 };

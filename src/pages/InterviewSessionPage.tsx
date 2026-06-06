@@ -4,6 +4,7 @@ import { Mic, MicOff, Video, VideoOff, Monitor, Edit2, PhoneOff, Loader2, AlertC
 import { useWebSpeech, VoiceState } from '../hooks/useWebSpeech';
 import { backendApi } from '../lib/backendApi';
 import { getStoredAccessToken } from '../lib/auth';
+import { Seo } from '../components/Seo';
 
 type Message = {
   id: string;
@@ -646,7 +647,12 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
   const activeQuestionText = messages.filter(m => m.role === 'ai').slice(-1)[0]?.text;
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white flex flex-col justify-between select-none relative overflow-hidden">
+    <>
+      <Seo
+        title="Interview Session | AI Mock Interview | Red Resumes"
+        description="Participate in an interactive AI mock interview. Practice answering industry-specific questions under realistic constraints."
+      />
+      <div className="min-h-screen bg-zinc-950 text-white flex flex-col justify-between select-none relative overflow-hidden">
       
       {/* Top Header Bar */}
       <div className="bg-zinc-900/60 border-b border-zinc-800/80 px-6 py-4 flex items-center justify-between backdrop-blur-md z-10">
@@ -1028,5 +1034,6 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
       )}
       
     </div>
+    </>
   );
 };

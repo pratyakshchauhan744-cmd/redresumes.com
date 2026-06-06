@@ -51,16 +51,40 @@ const pageSeo: Record<string, { title: string; description: string; type?: 'webs
   },
 };
 
+export interface SeoProps {
+  title?: string;
+  description?: string;
+  canonicalUrl?: string;
+  ogImage?: string;
+  type?: 'website' | 'article';
+  jsonLd?: Record<string, any> | Record<string, any>[];
+}
+
 const jsonLdForPath = (path: string, url: string) => {
   if (path === '/') {
     return {
       '@context': 'https://schema.org',
-      '@type': 'Organization',
-      name: SITE_NAME,
-      url,
-      logo: `${url}${LOGO_IMAGE}`,
-      image: `${url}${DEFAULT_IMAGE}`,
-      sameAs: [],
+      '@graph': [
+        {
+          '@type': 'WebSite',
+          '@id': `${url}/#website`,
+          'url': `${url}/`,
+          'name': SITE_NAME,
+        },
+        {
+          '@type': 'Organization',
+          '@id': `${url}/#organization`,
+          'name': SITE_NAME,
+          'url': url,
+          'logo': `${url}${LOGO_IMAGE}`,
+          'image': `${url}${DEFAULT_IMAGE}`,
+          'contactPoint': {
+            '@type': 'ContactPoint',
+            'email': 'support@redresumes.com',
+            'contactType': 'customer support',
+          },
+        },
+      ],
     };
   }
   if (path === '/templates') {
@@ -72,40 +96,73 @@ const jsonLdForPath = (path: string, url: string) => {
       description: 'ATS-friendly resume template collection by Red Resumes.',
     };
   }
+  if (path === '/pricing') {
+    return {
+      '@context': 'https://schema.org',
+      '@type': 'Product',
+      name: 'Red Resumes Premium',
+      description: 'AI-powered ATS-friendly resume builder and mock interview preparation.',
+      offers: [
+        {
+          '@type': 'Offer',
+          'name': 'Free Plan',
+          'price': '0.00',
+          'priceCurrency': 'USD',
+          'category': 'Subscription',
+        },
+        {
+          '@type': 'Offer',
+          'name': 'Premium Plan',
+          'price': '19.00',
+          'priceCurrency': 'USD',
+          'category': 'Subscription',
+        },
+      ],
+    };
+  }
   return null;
 };
 
-export const Seo = () => {
+export const Seo = ({ title, description, canonicalUrl, ogImage, type, jsonLd }: SeoProps = {}) => {
   const location = useLocation();
   const path = location.pathname;
   const siteUrl = import.meta.env.VITE_SITE_URL?.replace(/\/+$/, '') || 'https://redresumes.com';
-  const currentUrl = `${siteUrl}${path}`;
-  const seo = pageSeo[path] ?? {
+  const currentUrl = canonicalUrl || `${siteUrl}${path}`;
+  const defaultSeo = pageSeo[path] ?? {
     title: DEFAULT_TITLE,
     description: DEFAULT_DESCRIPTION,
     type: 'website' as const,
   };
-  const jsonLd = jsonLdForPath(path, siteUrl);
+
+  const finalTitle = title || defaultSeo.title || DEFAULT_TITLE;
+  const finalDescription = description || defaultSeo.description || DEFAULT_DESCRIPTION;
+  const finalType = type || defaultSeo.type || 'website';
+  const finalOgImage = ogImage || `${siteUrl}${DEFAULT_IMAGE}`;
+  const finalJsonLd = jsonLd || jsonLdForPath(path, siteUrl);
 
   return (
     <Helmet>
-      <title>{seo.title || DEFAULT_TITLE}</title>
-      <meta name="description" content={seo.description || DEFAULT_DESCRIPTION} />
+      <title>{finalTitle}</title>
+      <meta name="description" content={finalDescription} />
       <meta property="og:site_name" content={SITE_NAME} />
-      <meta property="og:type" content={seo.type || 'website'} />
-      <meta property="og:title" content={seo.title || DEFAULT_TITLE} />
-      <meta property="og:description" content={seo.description || DEFAULT_DESCRIPTION} />
+      <meta property="og:type" content={finalType} />
+      <meta property="og:title" content={finalTitle} />
+      <meta property="og:description" content={finalDescription} />
       <meta property="og:url" content={currentUrl} />
-      <meta property="og:image" content={`${siteUrl}${DEFAULT_IMAGE}`} />
+      <meta property="og:image" content={finalOgImage} />
       <meta property="og:image:type" content="image/png" />
       <meta property="og:image:width" content="1200" />
       <meta property="og:image:height" content="630" />
       <meta name="twitter:card" content="summary_large_image" />
-      <meta name="twitter:title" content={seo.title || DEFAULT_TITLE} />
-      <meta name="twitter:description" content={seo.description || DEFAULT_DESCRIPTION} />
-      <meta name="twitter:image" content={`${siteUrl}${DEFAULT_IMAGE}`} />
+      <meta name="twitter:title" content={finalTitle} />
+      <meta name="twitter:description" content={finalDescription} />
+      <meta name="twitter:image" content={finalOgImage} />
       <link rel="canonical" href={currentUrl} />
-      {jsonLd ? <script type="application/ld+json">{JSON.stringify(jsonLd)}</script> : null}
+      {finalJsonLd ? (
+        <script type="application/ld+json">
+          {JSON.stringify(finalJsonLd)}
+        </script>
+      ) : null}
     </Helmet>
   );
 };

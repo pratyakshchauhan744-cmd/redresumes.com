@@ -5,7 +5,7 @@ export const Footer = ({ currentUser }: { currentUser: AuthUser | null }) => (
   <footer className="border-t border-zinc-100 bg-white">
     <div className="max-w-7xl mx-auto px-6 py-12 grid grid-cols-1 md:grid-cols-4 gap-10 text-sm">
       <div>
-        <h3 className="text-lg font-bold text-zinc-900">RedResumes</h3>
+        <p className="text-lg font-bold text-zinc-900">RedResumes</p>
         <p className="text-zinc-500 mt-2">Build resumes that are clear, ATS-friendly, and recruiter-ready.</p>
       </div>
       <div className="space-y-2 flex flex-col items-start">

@@ -600,6 +600,13 @@ export const backendApi = {
       body: { packageKey }
     }),
 
+  verifyCreditPayment: (body: { razorpayPaymentId: string; razorpayOrderId: string; razorpaySignature: string; packageKey: string }, token: string) =>
+    request<any>("/api/credits/verify", {
+      method: "POST",
+      token,
+      body
+    }),
+
   getCreditTransactions: (token: string) =>
     request<{ balance: number; transactions: any[] }>("/api/credits/transactions", { token }),
 

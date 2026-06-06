@@ -3,6 +3,7 @@ import { AlertCircle, RefreshCw, ShieldCheck, Users } from 'lucide-react';
 import { Section } from '../components/Section';
 import { backendApi, type AdminSignInActivityItem } from '../lib/backendApi';
 import { getStoredAccessToken } from '../lib/auth';
+import { Seo } from '../components/Seo';
 
 const methodLabels: Record<AdminSignInActivityItem['method'], string> = {
   google: 'Google',
@@ -44,7 +45,12 @@ export const AdminPage = () => {
   }), [items]);
 
   return (
-    <Section title="Sign-in activity" kicker="Admin">
+    <>
+      <Seo
+        title="Admin Dashboard | Red Resumes"
+        description="Monitor user logins and session statuses on the Red Resumes administrative interface."
+      />
+      <Section h1 title="Sign-in activity" kicker="Admin">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           { label: 'Visible users', value: counts.total, icon: Users },
@@ -65,7 +71,7 @@ export const AdminPage = () => {
       <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 md:p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h3 className="text-xl font-extrabold text-zinc-900 dark:text-white">Users who signed in</h3>
+            <h2 className="text-xl font-extrabold text-zinc-900 dark:text-white">Users who signed in</h2>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
               New logins show Google or email/password. Older active sessions appear as existing sessions.
             </p>
@@ -129,5 +135,6 @@ export const AdminPage = () => {
         </div>
       </div>
     </Section>
+    </>
   );
 };

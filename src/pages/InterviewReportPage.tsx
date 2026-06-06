@@ -4,6 +4,7 @@ import { Award, CheckCircle, XCircle, ChevronRight, BarChart3, Loader2, Mic, Act
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { backendApi } from '../lib/backendApi';
 import { getStoredAccessToken } from '../lib/auth';
+import { Seo } from '../components/Seo';
 
 export const InterviewReportPage = () => {
   const { id: reportId } = useParams<{ id: string }>();
@@ -52,7 +53,7 @@ export const InterviewReportPage = () => {
             <AlertTriangle className="w-6 h-6" />
           </div>
           <div className="space-y-2">
-            <h3 className="text-xl font-bold text-white">Incomplete Interview Data</h3>
+            <h1 className="text-xl font-bold text-white">Incomplete Interview Data</h1>
             <p className="text-sm text-zinc-400 leading-relaxed">
               {error || 'Unable to generate report because insufficient interview data was collected.'}
             </p>
@@ -91,7 +92,7 @@ export const InterviewReportPage = () => {
             <AlertTriangle className="w-6 h-6" />
           </div>
           <div className="space-y-2">
-            <h3 className="text-xl font-bold text-white">Incomplete Interview Data</h3>
+            <h1 className="text-xl font-bold text-white">Incomplete Interview Data</h1>
             <p className="text-sm text-zinc-400 leading-relaxed">
               No interview data available.
             </p>
@@ -138,7 +139,12 @@ export const InterviewReportPage = () => {
   };
 
   return (
-    <div className="max-w-6xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+    <>
+      <Seo
+        title="Interview Report & AI Feedback | Red Resumes"
+        description="Review detailed feedback, grammar suggestions, and AI evaluation of your responses from your mock interview session."
+      />
+      <div className="max-w-6xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
       
       {/* Top Banner */}
       <div className="mb-10 flex flex-col md:flex-row justify-between items-start md:items-end gap-6 pb-6 border-b border-zinc-200 dark:border-zinc-800">
@@ -227,9 +233,9 @@ export const InterviewReportPage = () => {
           </div>
           
           <div className="w-full sm:w-1/2">
-            <h3 className="text-lg font-bold text-zinc-900 dark:text-white mb-5 flex items-center gap-2">
+            <h2 className="text-lg font-bold text-zinc-900 dark:text-white mb-5 flex items-center gap-2">
               <BarChart3 className="w-5 h-5 text-primary" /> Skill Heatmap Details
-            </h3>
+            </h2>
             <div className="space-y-4">
               {radarData.map((item) => (
                 <div key={item.subject}>
@@ -373,9 +379,9 @@ export const InterviewReportPage = () => {
 
       {/* Replay Timeline Chapters section */}
       <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 mb-10 shadow-xl">
-        <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+        <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
           <Play className="w-5 h-5 text-red-400" /> Interview Replay Timeline
-        </h3>
+        </h2>
         
         <div className="flex flex-col md:flex-row items-stretch gap-3">
           {timelineChapters.map((chapter) => (
@@ -406,9 +412,9 @@ export const InterviewReportPage = () => {
       {sortedQuestions[activeQuestionIdx] && (
         <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden mb-10 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="p-6 border-b border-zinc-200 dark:border-zinc-800 flex justify-between items-center bg-zinc-50 dark:bg-zinc-900/50">
-            <h3 className="text-lg font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+            <h2 className="text-lg font-bold text-zinc-900 dark:text-white flex items-center gap-2">
               <BookOpen className="w-5 h-5 text-primary" /> AI Coaching: Chapter Detail (Question {activeQuestionIdx + 1})
-            </h3>
+            </h2>
             <span className="bg-primary text-white px-3.5 py-1.5 rounded-full text-xs font-bold">
               Score: {sortedQuestions[activeQuestionIdx].answer ? `${sortedQuestions[activeQuestionIdx].answer.score}/10` : 'Skipped'}
             </span>
@@ -422,7 +428,7 @@ export const InterviewReportPage = () => {
               </div>
               <div>
                 <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">Question Asked</span>
-                <h4 className="text-lg font-bold text-zinc-900 dark:text-white">{sortedQuestions[activeQuestionIdx].questionText}</h4>
+                <h3 className="text-lg font-bold text-zinc-900 dark:text-white">{sortedQuestions[activeQuestionIdx].questionText}</h3>
               </div>
             </div>
 
@@ -491,5 +497,6 @@ export const InterviewReportPage = () => {
       )}
       
     </div>
+    </>
   );
 };

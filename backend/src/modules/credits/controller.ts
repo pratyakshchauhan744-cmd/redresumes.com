@@ -229,4 +229,104 @@ export async function devAddCredits(req: Request, res: Response, next: NextFunct
     next(err);
   }
 }
-// Force reload watch 2
+
+export async function verifyPayment(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.id;
+    const { razorpayPaymentId, razorpayOrderId, razorpaySignature, packageKey } = req.body;
+
+    if (!packageKey || !PACKAGES[packageKey]) {
+      return res.status(400).json({ message: "Invalid package key selected" });
+    }
+
+    const pkg = PACKAGES[packageKey];
+
+    // If Razorpay keys are not configured, simulate sandbox success
+    if (!razorpay || !env.RAZORPAY_KEY_SECRET) {
+      console.warn("Razorpay configuration missing during verification. Simulating success.");
+      const balance = await prisma.$transaction(async (tx) => {
+        const credit = await tx.userCredit.upsert({
+          where: { userId },
+          create: { userId, balance: pkg.credits },
+          update: { balance: { increment: pkg.credits } }
+        });
+
+        await tx.creditTransaction.create({
+          data: {
+            userId,
+            packageName: pkg.name,
+            creditsAdded: pkg.credits,
+            paymentAmount: pkg.price,
+            razorpayPaymentId: razorpayPaymentId || `mock_verify_${Date.now()}`,
+            status: "succeeded"
+          }
+        });
+        return credit.balance;
+      });
+
+      return res.json({
+        message: `Successfully added ${pkg.credits} credits (sandbox).`,
+        balance
+      });
+    }
+
+    if (!razorpayPaymentId || !razorpayOrderId || !razorpaySignature) {
+      return res.status(400).json({ message: "Missing required payment parameters" });
+    }
+
+    // Verify signature using HMAC SHA256
+    const expectedSignature = crypto
+      .createHmac("sha256", env.RAZORPAY_KEY_SECRET)
+      .update(`${razorpayOrderId}|${razorpayPaymentId}`)
+      .digest("hex");
+
+    if (expectedSignature !== razorpaySignature) {
+      console.error("Razorpay payment signature verification failed");
+      return res.status(400).json({ message: "Payment signature verification failed" });
+    }
+
+    const balance = await prisma.$transaction(async (tx) => {
+      // Check if transaction already processed
+      const existingTx = await tx.creditTransaction.findUnique({
+        where: { razorpayPaymentId }
+      });
+
+      if (existingTx) {
+        const currentCredit = await tx.userCredit.findUnique({
+          where: { userId }
+        });
+        return currentCredit?.balance ?? 0;
+      }
+
+      // Update user balance
+      const credit = await tx.userCredit.upsert({
+        where: { userId },
+        create: { userId, balance: pkg.credits },
+        update: { balance: { increment: pkg.credits } }
+      });
+
+      // Log transaction
+      await tx.creditTransaction.create({
+        data: {
+          userId,
+          packageName: pkg.name,
+          creditsAdded: pkg.credits,
+          paymentAmount: pkg.price,
+          razorpayPaymentId,
+          status: "succeeded"
+        }
+      });
+
+      return credit.balance;
+    });
+
+    console.log(`Successfully verified payment and credited user ${userId} with ${pkg.credits} credits.`);
+    res.json({
+      message: `Successfully added ${pkg.credits} credits.`,
+      balance
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+

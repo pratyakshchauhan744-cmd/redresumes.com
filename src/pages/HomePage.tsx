@@ -90,7 +90,7 @@ export const HomePage = ({
           <div className="rounded-xl border border-zinc-100 bg-white p-4 md:rounded-2xl md:p-6">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="font-semibold text-zinc-900">Resume Preview</h3>
+                <h2 className="font-semibold text-zinc-900">Resume Preview</h2>
                 <p className="text-xs text-zinc-500">Optimized for ATS + recruiters</p>
               </div>
               <span className="shrink-0 rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600 md:px-3">92 ATS Score</span>
@@ -193,7 +193,7 @@ export const HomePage = ({
                   <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500/10 to-red-500/10 dark:from-rose-500/20 dark:to-red-500/20 text-primary mb-3">
                     <item.icon className="h-4.5 w-4.5" />
                   </div>
-                  <h4 className="font-bold text-zinc-900 dark:text-white text-xs sm:text-sm">{item.title}</h4>
+                  <h3 className="font-bold text-zinc-900 dark:text-white text-xs sm:text-sm">{item.title}</h3>
                   <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">{item.desc}</p>
                 </div>
               ))}
@@ -479,7 +479,7 @@ export const HomePage = ({
       <div className="mx-auto max-w-7xl px-4 sm:px-6">
         <div className="flex flex-col items-stretch justify-between gap-5 rounded-2xl border border-zinc-100 bg-zinc-50 p-5 md:flex-row md:items-center md:gap-6 md:rounded-3xl md:p-10">
           <div>
-            <h3 className="text-xl font-bold text-zinc-900 md:text-2xl">Ready to build a better resume?</h3>
+            <h2 className="text-xl font-bold text-zinc-900 md:text-2xl">Ready to build a better resume?</h2>
             <p className="text-zinc-600 mt-2">Create, optimize, and apply with confidence.</p>
           </div>
           <PrimaryButton label="Start for free" onClick={() => navigate('/builder')} />
@@ -498,7 +498,7 @@ export const HomePage = ({
           <div className="z-10 flex items-start justify-between gap-2 border-b border-zinc-200 bg-white/95 px-3 py-3 md:px-6 md:py-5">
             <div className="min-w-0 pt-1">
               <p className="text-[0.6rem] font-bold uppercase tracking-[0.16em] text-zinc-400 md:text-xs md:tracking-[0.2em]">Full Resume Preview</p>
-              <h3 id="home-template-preview-title" className="mt-1 truncate text-lg font-black tracking-tight text-zinc-900 md:text-2xl">{previewTemplate.name}</h3>
+              <h2 id="home-template-preview-title" className="mt-1 truncate text-lg font-black tracking-tight text-zinc-900 md:text-2xl">{previewTemplate.name}</h2>
             </div>
             <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
               <button
@@ -576,7 +576,7 @@ export const HomePage = ({
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs uppercase tracking-[0.2em] text-zinc-400 font-semibold">Premium feature</p>
-              <h3 id="premium-feature-title" className="text-2xl font-bold text-zinc-900 mt-2">{activePremiumFeature.title}</h3>
+              <h2 id="premium-feature-title" className="text-2xl font-bold text-zinc-900 mt-2">{activePremiumFeature.title}</h2>
             </div>
             <button
               onClick={closePremiumFeature}

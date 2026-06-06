@@ -109,9 +109,10 @@ router.post("/parse-resume", upload.single("resume"), async (req, res, next) => 
       return res.status(400).json({ error: "Only PDF files are supported at this time." });
     }
 
-    const { PDFParse } = await import("pdf-parse");
-    const parser = new PDFParse({ data: req.file.buffer });
-    const result = await parser.getText();
+    import { createRequire } from "module";
+    const require = createRequire(import.meta.url);
+    const pdfParse = require("pdf-parse");
+    const result = await pdfParse(req.file.buffer);
     const parsedResume = await parseResumeWithGemini(result.text);
     
     res.json(parsedResume);

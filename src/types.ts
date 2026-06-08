@@ -79,7 +79,7 @@ export interface ResumeExamplePreset {
   achievementsInput: string;
 }
 
-export type ResumeListStyle = 'bullet' | 'number';
+export type ResumeListStyle = 'bullet' | 'number' | 'paragraph';
 export type ResumeProjectsDisplay = 'paragraph' | 'list';
 
 export type TemplateResumeData = {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, type ChangeEvent } from 'react';
-import { Download, Layout, Sparkles, User, FileText, CheckCircle, Save, HelpCircle, Briefcase, ChevronRight, PenTool, Type, Move, Plus, X, ArrowUp, ArrowDown, GripVertical, Check, MessageSquare, AlertCircle, Copy, Code, ArrowLeft, LoaderCircle, ClipboardCheck, List, ListOrdered, Lock } from 'lucide-react';
+import { Download, Layout, Sparkles, User, FileText, CheckCircle, Save, HelpCircle, Briefcase, ChevronRight, PenTool, Type, Move, Plus, X, ArrowUp, ArrowDown, GripVertical, Check, MessageSquare, AlertCircle, Copy, Code, ArrowLeft, LoaderCircle, ClipboardCheck, List, ListOrdered, Lock, AlignLeft } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
@@ -20,6 +20,27 @@ import { Seo } from '../components/Seo';
 const MAX_RESUME_HISTORY_ITEMS = 50;
 const LOCAL_PUBLIC_RESUMES_STORAGE_KEY = 'redresumes_local_public_resumes';
 const cleanListLine = (line: string) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim();
+
+const getEffectiveListStyle = (text: string, globalStyle: string): 'bullet' | 'number' | 'paragraph' => {
+  if (!text) return 'paragraph';
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) return 'paragraph';
+
+  const listMarkerRegex = /^\s*(?:[-*•]|\d+[.)])/;
+  const hasAnyListMarker = lines.some(line => listMarkerRegex.test(line));
+  
+  if (!hasAnyListMarker) {
+    return 'paragraph';
+  }
+
+  const numberMarkerRegex = /^\s*\d+[.)]/;
+  const hasNumberMarker = lines.some(line => numberMarkerRegex.test(line));
+  if (hasNumberMarker) {
+    return 'number';
+  }
+
+  return (globalStyle === 'number' || globalStyle === 'bullet') ? (globalStyle as 'number' | 'bullet') : 'bullet';
+};
 
 export const ResumeBuilderPage = ({
   selectedTemplate,
@@ -361,7 +382,7 @@ export const ResumeBuilderPage = ({
     setAchievementsInput(data.achievementsInput);
     setVolunteerInput(data.volunteerInput);
     setCustomColumns(Array.isArray(data.customColumns) ? data.customColumns : []);
-    setListStyle(data.listStyle === 'number' ? 'number' : 'bullet');
+    setListStyle(data.listStyle === 'number' ? 'number' : data.listStyle === 'paragraph' ? 'paragraph' : 'bullet');
   };
 
   const restoreResumeFromHistory = (entry: ResumeHistoryEntry) => {
@@ -1532,8 +1553,21 @@ export const ResumeBuilderPage = ({
     const skillsMarkup = parsedSkills.map((skill) => `<span class="tag">${escapeHtml(skill)}</span>`).join('');
     const experienceMarkup = experiences
       .map((item) => {
+        const itemStyle = getEffectiveListStyle(item.bullets, listStyle);
+        if (itemStyle === 'paragraph') {
+          return `
+            <article class="exp-item">
+              <h3>${escapeHtml(item.title || 'Experience title')}</h3>
+              <p class="meta">${escapeHtml(item.dates || 'Dates')}</p>
+              <p style="margin-top: 8px; white-space: pre-line; line-height: 1.5; color: var(--ink);">${escapeHtml(item.bullets)}</p>
+            </article>
+          `;
+        }
+
+        const bulletTag = itemStyle === 'number' ? 'ol' : 'ul';
         const bulletMarkup = item.bullets
           .split('\n')
+          .map(cleanListLine)
           .map((line) => line.trim())
           .filter(Boolean)
           .map((line) => `<li>${escapeHtml(line)}</li>`)
@@ -1542,7 +1576,7 @@ export const ResumeBuilderPage = ({
           <article class="exp-item">
             <h3>${escapeHtml(item.title || 'Experience title')}</h3>
             <p class="meta">${escapeHtml(item.dates || 'Dates')}</p>
-            <ul>${bulletMarkup || '<li>Add measurable impact bullets</li>'}</ul>
+            <${bulletTag}>${bulletMarkup || '<li>Add measurable impact bullets</li>'}</${bulletTag}>
           </article>
         `;
       })
@@ -2372,12 +2406,7 @@ export const ResumeBuilderPage = ({
             >
               Redo
             </button>
-            <button
-              onClick={() => saveCurrentResumeToHistory('Manual save')}
-              className="w-full rounded-full border border-zinc-300 px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:border-zinc-900"
-            >
-              Save version
-            </button>
+
             <button
               onClick={openPreviewPanel}
               className="w-full rounded-full border border-zinc-300 px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:border-zinc-900"
@@ -2647,6 +2676,15 @@ export const ResumeBuilderPage = ({
                     <ListOrdered className="h-3.5 w-3.5" />
                     Numbers
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setListStyle('paragraph')}
+                    className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${listStyle === 'paragraph' ? 'bg-white text-zinc-950 shadow-sm' : 'text-zinc-500 hover:text-zinc-900'}`}
+                    aria-pressed={listStyle === 'paragraph'}
+                  >
+                    <AlignLeft className="h-3.5 w-3.5" />
+                    Paragraph
+                  </button>
                 </div>
               </div>
               <div className="mt-4 space-y-4 text-sm">
@@ -2660,7 +2698,13 @@ export const ResumeBuilderPage = ({
                         value={exp.bullets}
                         onChange={(e) => updateExperience(index, 'bullets', e.target.value)}
                         className="border border-zinc-200 rounded-lg px-3 py-2 w-full h-24 bg-white"
-                        placeholder={listStyle === 'number' ? 'Write each numbered point on a new line' : 'Write each point on a new line'}
+                        placeholder={
+                          listStyle === 'number'
+                            ? 'Write each numbered point on a new line'
+                            : listStyle === 'paragraph'
+                            ? 'Write your work experience in paragraph form'
+                            : 'Write each point on a new line'
+                        }
                       />
                     </div>
                   </div>
@@ -2991,6 +3035,27 @@ export const ResumeBuilderPage = ({
           </div>
 
           <div className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+            <h3 className="font-semibold text-zinc-900">Job Description Match</h3>
+            <textarea
+              value={jobDescriptionInput}
+              onChange={(e) => setJobDescriptionInput(e.target.value)}
+              className="mt-3 h-24 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-700"
+              placeholder="Paste a target job description here..."
+            />
+            <div className="mt-2 text-sm text-zinc-500">Match rate: {atsResult?.score ?? '--'}%</div>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+              {(atsResult?.matchedKeywords.length ? atsResult.matchedKeywords : ['Run ATS check to see matched keywords']).slice(0, 8).map((kw) => (
+                <span key={kw} className="px-3 py-1 rounded-full bg-zinc-50 border border-zinc-200 text-zinc-500">{kw}</span>
+              ))}
+            </div>
+            {atsResult?.missingKeywords?.length ? (
+              <p className="mt-3 text-xs text-zinc-400">
+                Missing keywords: {atsResult.missingKeywords.slice(0, 8).join(', ')}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-zinc-900">ATS Checker</h3>
               <span className="text-xs px-3 py-1 rounded-full bg-zinc-100 text-zinc-500">
@@ -3110,27 +3175,6 @@ export const ResumeBuilderPage = ({
               </div>
             )}
             {aiApplyMessage && <p className="mt-3 text-xs font-medium text-emerald-700">{aiApplyMessage}</p>}
-          </div>
-
-          <div className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-            <h3 className="font-semibold text-zinc-900">Job Description Match</h3>
-            <textarea
-              value={jobDescriptionInput}
-              onChange={(e) => setJobDescriptionInput(e.target.value)}
-              className="mt-3 h-24 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-700"
-              placeholder="Paste a target job description here..."
-            />
-            <div className="mt-2 text-sm text-zinc-500">Match rate: {atsResult?.score ?? '--'}%</div>
-            <div className="mt-3 flex flex-wrap gap-2 text-xs">
-              {(atsResult?.matchedKeywords.length ? atsResult.matchedKeywords : ['Run ATS check to see matched keywords']).slice(0, 8).map((kw) => (
-                <span key={kw} className="px-3 py-1 rounded-full bg-zinc-50 border border-zinc-200 text-zinc-500">{kw}</span>
-              ))}
-            </div>
-            {atsResult?.missingKeywords?.length ? (
-              <p className="mt-3 text-xs text-zinc-400">
-                Missing keywords: {atsResult.missingKeywords.slice(0, 8).join(', ')}
-              </p>
-            ) : null}
           </div>
         </div>
       </div>

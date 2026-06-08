@@ -188,7 +188,35 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
 
   const persistSignedInUser = (user: AuthUser, accessToken: string) => {
     setStoredAuthTokens(accessToken);
-    window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+    
+    // Merge with existing local account data to avoid losing phone, location, bio, photoDataUrl
+    let storedDetails: Partial<AuthUser> = {};
+    try {
+      const rawAccounts = window.localStorage.getItem(LOCAL_ACCOUNTS_STORAGE_KEY);
+      if (rawAccounts) {
+        const accounts = JSON.parse(rawAccounts);
+        if (Array.isArray(accounts)) {
+          const found = accounts.find((acc: any) => acc.id === user.id || acc.email.toLowerCase() === user.email.toLowerCase());
+          if (found) {
+            storedDetails = {
+              phone: found.phone || '',
+              location: found.location || '',
+              bio: found.bio || '',
+              photoDataUrl: found.photoDataUrl || ''
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to read local accounts:', e);
+    }
+    
+    const mergedUser = {
+      ...storedDetails,
+      ...user
+    };
+    
+    window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(mergedUser));
   };
 
   const handleGoogleCredential = async (credential?: string) => {
@@ -653,26 +681,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                     </button>
                   </div>
                 </div>
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-zinc-700">Account type</label>
-                  <div className="grid grid-cols-2 gap-3">
-                    {[
-                      { id: 'candidate', label: 'Candidate' },
-                      { id: 'employer', label: 'Employer' },
-                    ].map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setRole(item.id as 'candidate' | 'employer' | 'admin')}
-                        className={`rounded-2xl border px-3 py-3 text-sm font-semibold transition ${
-                          role === item.id ? 'border-primary bg-primary/5 text-primary' : 'border-zinc-200 bg-white text-zinc-600'
-                        }`}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+
               </>
             )}
               </>

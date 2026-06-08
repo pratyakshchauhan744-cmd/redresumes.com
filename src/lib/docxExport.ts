@@ -2,9 +2,30 @@ import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import { saveAs } from 'file-saver';
 import type { TemplateResumeData } from '../types';
 
+const getEffectiveListStyle = (text: string, globalStyle: string): 'bullet' | 'number' | 'paragraph' => {
+  if (!text) return 'paragraph';
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) return 'paragraph';
+
+  const listMarkerRegex = /^\s*(?:[-*•]|\d+[.)])/;
+  const hasAnyListMarker = lines.some(line => listMarkerRegex.test(line));
+  
+  if (!hasAnyListMarker) {
+    return 'paragraph';
+  }
+
+  const numberMarkerRegex = /^\s*\d+[.)]/;
+  const hasNumberMarker = lines.some(line => numberMarkerRegex.test(line));
+  if (hasNumberMarker) {
+    return 'number';
+  }
+
+  return (globalStyle === 'number' || globalStyle === 'bullet') ? (globalStyle as 'number' | 'bullet') : 'bullet';
+};
+
 export const generateResumeDocx = async (data: TemplateResumeData) => {
   const children: Paragraph[] = [];
-  const listStyle = data.listStyle === 'number' ? 'number' : 'bullet';
+  const listStyle = data.listStyle === 'number' ? 'number' : data.listStyle === 'paragraph' ? 'paragraph' : 'bullet';
   const cleanListLine = (line: string) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim();
 
   const addHeading = (text: string, level: typeof HeadingLevel[keyof typeof HeadingLevel] = HeadingLevel.HEADING_3) => {
@@ -28,9 +49,10 @@ export const generateResumeDocx = async (data: TemplateResumeData) => {
     });
   };
 
-  const addList = (items: string[]) => {
+  const addList = (items: string[], styleOverride?: 'bullet' | 'number') => {
     const cleanedItems = items.map(cleanListLine).filter(Boolean);
-    if (listStyle === 'number') {
+    const activeStyle = styleOverride ?? listStyle;
+    if (activeStyle === 'number') {
       cleanedItems.forEach((item, index) => {
         children.push(new Paragraph({ text: `${index + 1}. ${item}` }));
       });
@@ -100,8 +122,20 @@ export const generateResumeDocx = async (data: TemplateResumeData) => {
         );
       }
       
-      const bullets = exp.bullets.split('\n').map(cleanListLine).filter(Boolean);
-      addList(bullets);
+      const itemStyle = getEffectiveListStyle(exp.bullets, listStyle);
+      if (itemStyle === 'paragraph') {
+        if (exp.bullets) {
+          children.push(
+            new Paragraph({
+              text: exp.bullets,
+              spacing: { after: 150 },
+            })
+          );
+        }
+      } else {
+        const bullets = exp.bullets.split('\n').map(cleanListLine).filter(Boolean);
+        addList(bullets, itemStyle === 'number' ? 'number' : 'bullet');
+      }
     });
   } else if (data.bullets && data.bullets.length > 0) {
     // Fallback for simple bullets

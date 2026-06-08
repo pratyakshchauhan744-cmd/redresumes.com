@@ -192,16 +192,26 @@ export const DashboardPage = ({
     void backendApi
       .getMe(accessToken)
       .then((me) => {
-        setUser(me);
-        setProfileName(me.name ?? '');
-        setProfilePhone(me.phone ?? '');
-        setProfileLocation(me.location ?? '');
-        setProfileBio(me.bio ?? '');
-        if (typeof me.credits === 'number') {
-          setCreditsBalance(me.credits);
+        const stored = readStoredUser();
+        const mergedUser = {
+          ...stored,
+          ...me,
+          // Preserve local-only fields if they are missing/empty in me and IDs match
+          phone: (stored && stored.id === me.id) ? (me.phone || stored.phone || '') : (me.phone || ''),
+          location: (stored && stored.id === me.id) ? (me.location || stored.location || '') : (me.location || ''),
+          bio: (stored && stored.id === me.id) ? (me.bio || stored.bio || '') : (me.bio || ''),
+          photoDataUrl: (stored && stored.id === me.id) ? (me.photoDataUrl || stored.photoDataUrl || '') : (me.photoDataUrl || ''),
+        };
+        setUser(mergedUser);
+        setProfileName(mergedUser.name ?? '');
+        setProfilePhone(mergedUser.phone ?? '');
+        setProfileLocation(mergedUser.location ?? '');
+        setProfileBio(mergedUser.bio ?? '');
+        if (typeof mergedUser.credits === 'number') {
+          setCreditsBalance(mergedUser.credits);
         }
-        window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(me));
-        onUserUpdated(me);
+        window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(mergedUser));
+        onUserUpdated(mergedUser);
       })
       .catch(() => {
         setProfileError('Showing saved profile details because the live account service is unavailable.');
@@ -242,10 +252,21 @@ export const DashboardPage = ({
 
   const handleProfileSave = () => {
     if (!user) return;
+    
+    const phoneTrimmed = profilePhone.trim();
+    if (phoneTrimmed !== '') {
+      const digitsOnly = phoneTrimmed.replace(/[^0-9]/g, '');
+      if (digitsOnly.length < 7 || digitsOnly.length > 15 || !/^\+?[0-9\s\-()]+$/.test(phoneTrimmed)) {
+        setProfileError('Please enter a valid phone number (7 to 15 digits).');
+        setProfileMessage(null);
+        return;
+      }
+    }
+
     const updatedUser: AuthUser = {
       ...user,
       name: profileName.trim() || user.name,
-      phone: profilePhone.trim(),
+      phone: phoneTrimmed,
       location: profileLocation.trim(),
       bio: profileBio.trim(),
     };
@@ -491,7 +512,7 @@ export const DashboardPage = ({
           <div className="rounded-2xl border border-zinc-200 bg-white p-6">
             <div className="flex items-center justify-between">
               <h2 className="font-semibold text-zinc-900">Resume history</h2>
-              <button onClick={() => navigate('/builder')} className="text-sm font-semibold text-primary">Open builder</button>
+              <button onClick={() => navigate('/builder')} className="text-sm font-semibold text-primary">Created resume</button>
             </div>
             <div className="mt-4 space-y-3 text-sm">
               {resumeHistory.length === 0 ? (
@@ -510,7 +531,7 @@ export const DashboardPage = ({
           <div className="rounded-2xl border border-zinc-200 bg-white p-6">
             <div className="flex items-center justify-between">
               <h2 className="font-semibold text-zinc-900">AI Mock Interviews</h2>
-              <button onClick={() => navigate('/interview/setup')} className="text-sm font-semibold text-primary hover:underline">Practice New</button>
+              <button onClick={() => navigate('/interview/setup')} className="text-sm font-semibold text-primary hover:underline">Practice now</button>
             </div>
             <div className="mt-4 space-y-3">
               {interviewHistory.length === 0 ? (

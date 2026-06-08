@@ -3,6 +3,27 @@ import type { ReactNode } from 'react';
 import type { TemplateItem, TemplateResumeData } from '../types';
 import { templatePreviewThemeById } from '../data/templates';
 
+const getEffectiveListStyle = (text: string, globalStyle: string): 'bullet' | 'number' | 'paragraph' => {
+  if (!text) return 'paragraph';
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) return 'paragraph';
+
+  const listMarkerRegex = /^\s*(?:[-*•]|\d+[.)])/;
+  const hasAnyListMarker = lines.some(line => listMarkerRegex.test(line));
+  
+  if (!hasAnyListMarker) {
+    return 'paragraph';
+  }
+
+  const numberMarkerRegex = /^\s*\d+[.)]/;
+  const hasNumberMarker = lines.some(line => numberMarkerRegex.test(line));
+  if (hasNumberMarker) {
+    return 'number';
+  }
+
+  return (globalStyle === 'number' || globalStyle === 'bullet') ? (globalStyle as 'number' | 'bullet') : 'bullet';
+};
+
 export const TemplateVisualPreview = ({
   template,
   data,
@@ -34,7 +55,7 @@ export const TemplateVisualPreview = ({
   const hobbies = data?.hobbies?.length ? data.hobbies : (isLiveData ? [] : ['Reading', 'Running', 'Chess']);
   const achievements = data?.achievements?.length ? data.achievements : (isLiveData ? [] : ['Won hackathon among 120+ teams.', 'Improved product conversion by 21% in previous role.']);
   const volunteer = data?.volunteer?.length ? data.volunteer : (isLiveData ? [] : ['Mentored students in resume writing and interview prep.']);
-  const listStyle = data?.listStyle === 'number' ? 'number' : 'bullet';
+  const listStyle = data?.listStyle === 'number' ? 'number' : data?.listStyle === 'paragraph' ? 'paragraph' : 'bullet';
   const ListTag: 'ol' | 'ul' = listStyle === 'number' ? 'ol' : 'ul';
   const listClassName = listStyle === 'number' ? 'list-decimal' : 'list-disc';
   const isTwoColumn = template.id === 'two-column' || template.id === 'finance';
@@ -121,6 +142,24 @@ export const TemplateVisualPreview = ({
         {sectionTitle('Experience')}
         <div className="mt-4 space-y-5">
           {experienceItems.map((experience, index) => {
+            const itemStyle = getEffectiveListStyle(experience.bullets, listStyle);
+            const ItemTag = itemStyle === 'number' ? 'ol' : 'ul';
+            const itemClassName = itemStyle === 'number' ? 'list-decimal' : 'list-disc';
+
+            if (itemStyle === 'paragraph') {
+              return (
+                <div key={`${experience.title}-${index}`}>
+                  {experience.title && <p className="text-2xl font-black leading-tight text-zinc-900">{experience.title}</p>}
+                  {experience.dates && <p className="text-xl leading-8 text-zinc-500">{experience.dates}</p>}
+                  {experience.bullets && (
+                    <p className="mt-3 whitespace-pre-line text-[1.05rem] leading-7 text-zinc-700">
+                      {experience.bullets}
+                    </p>
+                  )}
+                </div>
+              );
+            }
+
             const bulletLines = experience.bullets
               .split('\n')
               .map(cleanListLine)
@@ -131,9 +170,9 @@ export const TemplateVisualPreview = ({
                 {experience.title && <p className="text-2xl font-black leading-tight text-zinc-900">{experience.title}</p>}
                 {experience.dates && <p className="text-xl leading-8 text-zinc-500">{experience.dates}</p>}
                 {bulletLines.length > 0 && (
-                  <ListTag className={`mt-3 ${listClassName} space-y-2 pl-6 text-[1.05rem] leading-7 text-zinc-700`}>
+                  <ItemTag className={`mt-3 ${itemClassName} space-y-2 pl-6 text-[1.05rem] leading-7 text-zinc-700`}>
                     {bulletLines.map((item) => <li key={item}>{item}</li>)}
-                  </ListTag>
+                  </ItemTag>
                 )}
               </div>
             );

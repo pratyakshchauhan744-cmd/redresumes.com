@@ -10,44 +10,44 @@ const LOGO_IMAGE = '/favicon-192x192.png';
 
 const pageSeo: Record<string, { title: string; description: string; type?: 'website' | 'article' }> = {
   '/': {
-    title: 'Red Resumes | Build ATS-Friendly Resume Fast',
+    title: 'AI Resume Builder & ATS Resume Checker | Red Resumes',
     description:
-      'Create professional resumes in minutes with ATS-ready templates, AI suggestions, and instant export.',
+      'Create professional resumes in minutes with our AI Resume Builder, ATS Resume Checker, dynamic resume optimization, and mock interview simulator.',
   },
   '/templates': {
-    title: 'Resume Templates | Red Resumes',
+    title: 'ATS Resume Templates & Optimization | Red Resumes',
     description:
-      'Browse modern, professional, creative, and ATS-friendly resume templates tailored to every role.',
+      'Browse modern, creative, and technical ATS-friendly resume templates. Optimize your resume layouts for top Applicant Tracking Systems.',
   },
   '/builder': {
-    title: 'Resume Builder | Red Resumes',
+    title: 'Resume Optimization & AI Resume Builder | Red Resumes',
     description:
-      'Build and customize your resume section by section with live preview and downloadable output.',
+      'Build, edit, and optimize your resume section-by-section using AI. Run real-time ATS checks and download print-ready PDF resumes.',
   },
   '/examples': {
-    title: 'Resume Examples | Red Resumes',
-    description: 'Explore real resume examples by role and quickly adapt them to your profile.',
+    title: 'Resume Examples & Optimization Presets | Red Resumes',
+    description: 'Explore role-specific resume examples and optimize your layout to target key skills.',
   },
   '/job-finder': {
-    title: 'Job Finder | Red Resumes',
-    description: 'Search jobs, track applications, and apply with resume-ready suggestions.',
+    title: 'Job Application Tools & Tracker | Red Resumes',
+    description: 'Search jobs, track application status, and match your resume to target descriptions using our job application tools.',
   },
   '/blog': {
-    title: 'Blog | Red Resumes',
-    description: 'Career tips, ATS guidance, and resume writing strategies from Red Resumes.',
+    title: 'Career Tips & Resume Analysis | Red Resumes',
+    description: 'Expert advice on resume writing, ATS screening secrets, resume optimization, and mock interview preparation.',
   },
   '/blog/post': {
-    title: 'Career Article | Red Resumes',
-    description: 'In-depth guidance on resume writing, ATS optimization, and interview preparation.',
+    title: 'ATS Resume Optimization Guide | Red Resumes',
+    description: 'Detailed analysis on resume optimization, beating ATS systems, and using job application tools effectively.',
     type: 'article',
   },
   '/contact': {
-    title: 'Contact | Red Resumes',
-    description: 'Get in touch with Red Resumes for support, feedback, and partnership inquiries.',
+    title: 'Contact & Support | Red Resumes',
+    description: 'Connect with our team for support regarding our AI Resume Builder, ATS Checker, or Mock Interview Platform.',
   },
   '/login': {
-    title: 'Login | Red Resumes',
-    description: 'Sign in or create your Red Resumes account to build and manage your resumes.',
+    title: 'Log In or Sign Up | Red Resumes',
+    description: 'Access your saved resumes, draft cover letters, job tracker, and AI mock interview feedback in your dashboard.',
   },
 };
 
@@ -70,6 +70,10 @@ const jsonLdForPath = (path: string, url: string) => {
           '@id': `${url}/#website`,
           'url': `${url}/`,
           'name': SITE_NAME,
+          'description': 'AI Resume Builder, ATS Resume Checker, and Mock Interview Platform.',
+          'publisher': {
+            '@id': `${url}/#organization`
+          }
         },
         {
           '@type': 'Organization',
@@ -84,6 +88,50 @@ const jsonLdForPath = (path: string, url: string) => {
             'contactType': 'customer support',
           },
         },
+        {
+          '@type': 'SoftwareApplication',
+          '@id': `${url}/#softwareapplication`,
+          'name': 'Red Resumes AI Builder & ATS Checker',
+          'applicationCategory': 'BusinessApplication',
+          'operatingSystem': 'All',
+          'url': `${url}/`,
+          'description': 'AI-powered ATS resume builder, resume optimizer, and mock interview simulation platform.',
+          'offers': {
+            '@type': 'Offer',
+            'price': '0',
+            'priceCurrency': 'USD'
+          }
+        },
+        {
+          '@type': 'FAQPage',
+          '@id': `${url}/#faq`,
+          'mainEntity': [
+            {
+              '@type': 'Question',
+              'name': 'How does the AI Resume Builder work?',
+              'acceptedAnswer': {
+                '@type': 'Answer',
+                'text': 'Our AI Resume Builder guides you section-by-section to build professional resumes, suggesting optimized summaries, key skills, and impact-focused achievements tailored to your industry.'
+              }
+            },
+            {
+              '@type': 'Question',
+              'name': 'What is an ATS Resume Checker?',
+              'acceptedAnswer': {
+                '@type': 'Answer',
+                'text': 'An Applicant Tracking System (ATS) checker scans your resume against a target job description, identifying missing keywords and generating a compatibility score with constructive improvement tips.'
+              }
+            },
+            {
+              '@type': 'Question',
+              'name': 'How does the Mock Interview Platform work?',
+              'acceptedAnswer': {
+                '@type': 'Answer',
+                'text': 'The platform initiates a Google Meet-style simulation where an AI interviewer asks relevant, role-specific questions. It then provides feedback on speech metrics (words-per-minute, filler words), presence, and accuracy.'
+              }
+            }
+          ]
+        }
       ],
     };
   }

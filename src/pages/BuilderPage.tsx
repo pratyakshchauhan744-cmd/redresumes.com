@@ -521,6 +521,7 @@ export const ResumeBuilderPage = ({
     volunteer: parsedVolunteer,
     customColumns: effectiveCustomColumns,
     listStyle,
+    photoDataUrl,
   }), [
     fullName,
     jobTitle,
@@ -545,6 +546,7 @@ export const ResumeBuilderPage = ({
     newCustomColumnTitle,
     newCustomColumnContent,
     listStyle,
+    photoDataUrl,
   ]);
   const datePlaceText = [
     importantDate.trim() ? `Date: ${importantDate.trim()}` : '',

@@ -106,6 +106,7 @@ export type TemplateResumeData = {
   volunteer: string[];
   customColumns?: CustomColumnItem[];
   listStyle?: ResumeListStyle;
+  photoDataUrl?: string;
 };
 
 export interface ExperienceItem {

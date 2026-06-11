@@ -472,11 +472,16 @@ async function sendOtpEmail(email: string, otp: string): Promise<void> {
   }
 
   if (provider === "smtp") {
-    const host = process.env.SMTP_HOST;
+    const host = process.env.SMTP_HOST || "smtp.gmail.com";
     const port = Number(process.env.SMTP_PORT ?? 587);
     const secure = String(process.env.SMTP_SECURE ?? "false") === "true";
-    const user = process.env.SMTP_USER;
-    const pass = process.env.SMTP_PASS;
+    const user = process.env.SMTP_USER || process.env.EMAIL_FROM;
+    let pass = process.env.SMTP_PASS;
+
+    if (pass) {
+      // Clean non-breaking spaces (char code 160) commonly copied from Google settings
+      pass = pass.replace(/\u00a0/g, " ").trim();
+    }
 
     if (!host || !user || !pass) {
       throw new Error("EMAIL_CONFIG_ERROR: SMTP_HOST, SMTP_USER, and SMTP_PASS are required for SMTP mode.");

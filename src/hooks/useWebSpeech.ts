@@ -107,8 +107,10 @@ export function useWebSpeech() {
         setTimeout(() => {
           if (shouldListenRef.current && !isRecognitionRunningRef.current) {
             try {
+              isRecognitionRunningRef.current = true; // eager track
               recognition.start();
             } catch (err) {
+              isRecognitionRunningRef.current = false;
               console.warn('Could not restart SpeechRecognition:', err);
             }
           }
@@ -137,9 +139,11 @@ export function useWebSpeech() {
     transcriptRef.current = '';
     setTranscript('');
     try {
+      isRecognitionRunningRef.current = true; // eager track
       recognitionRef.current.start();
       // onstart will set isListening=true
     } catch (err) {
+      isRecognitionRunningRef.current = false;
       console.warn('Could not start listening:', err);
     }
   }, []);

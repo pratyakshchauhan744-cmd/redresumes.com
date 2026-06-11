@@ -637,11 +637,11 @@ export async function parseResumeWithGemini(text: string): Promise<any> {
   }
 
   const prompt = [
-    `Analyze the input text. If it is NOT a resume, CV, or professional profile (e.g. if it is a receipt, textbook, research paper, terms of service, random code, logs, or other unrelated document), set isResume to false. Otherwise, extract the resume text into a structured JSON object.`,
+    `Analyze the input text. CRITICAL INSTRUCTION: If the text does NOT appear to be a genuine resume, CV, or professional profile (e.g. if it is a receipt, textbook, research paper, terms of service, random code, logs, conversational text, or other unrelated document), you MUST set "isResume" to false and leave the rest of the fields empty. Otherwise, if it IS a valid resume, set "isResume" to true and extract the text into a structured JSON object.`,
     "Return strict JSON only.",
     "The JSON should match this exact interface:",
     `{
-      isResume: boolean; // MUST be true if the document is a resume, CV, or professional profile; false otherwise.
+      isResume: boolean; // MUST be false if the document is NOT a valid resume, CV, or professional profile. MUST be true otherwise.
       fullName: string;
       jobTitle: string;
       email: string;

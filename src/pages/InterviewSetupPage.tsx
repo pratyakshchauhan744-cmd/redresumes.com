@@ -405,7 +405,7 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
                 <div className="border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-xl p-8 text-center hover:border-primary transition-colors cursor-pointer relative">
                   <input 
                     type="file" 
-                    accept=".pdf,.docx,.txt" 
+                    accept=".pdf,.txt" 
                     onChange={handleFileChange} 
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
                     id="resume-upload" 
@@ -413,7 +413,7 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
                   <div className="flex flex-col items-center">
                     <UploadCloud className="w-12 h-12 text-zinc-400 mb-3" />
                     <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-                      {file ? file.name : "Click or drag PDF/DOCX to upload"}
+                      {file ? file.name : "Click or drag PDF/TXT to upload"}
                     </span>
                     <span className="text-xs text-zinc-400 mt-1">Maximum size 5MB</span>
                   </div>

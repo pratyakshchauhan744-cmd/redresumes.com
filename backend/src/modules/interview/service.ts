@@ -85,6 +85,7 @@ export async function answerInterviewQuestion(
 
   const currentQuestion = session.questions.find(q => q.id === questionId);
   if (!currentQuestion) throw new Error("Question not found in this session");
+  if (currentQuestion.answer) throw new Error("This question has already been answered.");
 
   const evaluation = await evaluateInterviewAnswer(
     currentQuestion.questionText,

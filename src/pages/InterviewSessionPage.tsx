@@ -84,6 +84,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
   const transcriptRef = useRef('');
   const currentQuestionIdRef = useRef<string | null>(null);
   const speakingStartTimeRef = useRef<number | null>(null);
+  const isCompletedRef = useRef(false);
   
   // Analytics State
   const [speakingStartTime, setSpeakingStartTime] = useState<number | null>(null);
@@ -224,7 +225,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
     speak(text, () => {
       // Use refs so this callback always sees the current values, not stale closure
       setAvatarState('idle');
-      if (!isMicMutedRef.current && hasJoinedRef.current) {
+      if (!isMicMutedRef.current && hasJoinedRef.current && !isCompletedRef.current) {
         const now = Date.now();
         setSpeakingStartTime(now);
         speakingStartTimeRef.current = now;
@@ -481,6 +482,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
       }, token);
 
       if (data.isComplete) {
+        isCompletedRef.current = true;
         handleAiSpeak("Thank you, the interview is now complete. Generating your comprehensive analysis report.");
         setTimeout(() => {
           navigate(`/interview/report/${data.reportId || sessionId}`);
@@ -518,6 +520,9 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
 
   const handleConfirmExitEarly = async (generateReport: boolean) => {
     setShowExitModal(false);
+    isCompletedRef.current = true;
+    stopSpeaking();
+    stopListening();
     stopCamera();
     stopScreenShare();
 

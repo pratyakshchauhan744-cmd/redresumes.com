@@ -55,6 +55,7 @@ export const TemplateVisualPreview = ({
   const hobbies = data?.hobbies?.length ? data.hobbies : (isLiveData ? [] : ['Reading', 'Running', 'Chess']);
   const achievements = data?.achievements?.length ? data.achievements : (isLiveData ? [] : ['Won hackathon among 120+ teams.', 'Improved product conversion by 21% in previous role.']);
   const volunteer = data?.volunteer?.length ? data.volunteer : (isLiveData ? [] : ['Mentored students in resume writing and interview prep.']);
+  const photoDataUrl = data?.photoDataUrl;
   const listStyle = data?.listStyle === 'number' ? 'number' : data?.listStyle === 'paragraph' ? 'paragraph' : 'bullet';
   const ListTag: 'ol' | 'ul' = listStyle === 'number' ? 'ol' : 'ul';
   const listClassName = listStyle === 'number' ? 'list-decimal' : 'list-disc';
@@ -275,6 +276,9 @@ export const TemplateVisualPreview = ({
       <div className="template-visual-preview border border-zinc-200 bg-white text-zinc-900">
         <div className={`grid ${template.id === 'two-column' ? 'grid-cols-[0.55fr_1fr]' : 'grid-cols-[0.65fr_1fr]'}`}>
           <aside className={`${template.id === 'two-column' ? 'border-r border-zinc-200 bg-slate-50' : ''} p-8`}>
+            {photoDataUrl && (
+              <img className="h-20 w-20 rounded-2xl object-cover border border-zinc-200 mb-4" src={photoDataUrl} alt="Profile photo" />
+            )}
             <h2 className="text-4xl font-black leading-none tracking-tight text-slate-950">{fullName}</h2>
             <p className="mt-2 text-xl font-bold text-slate-700">{roleTitle}</p>
             <div className="mt-5 space-y-1 text-sm leading-6 text-slate-700">
@@ -295,10 +299,14 @@ export const TemplateVisualPreview = ({
     <div className="template-visual-preview overflow-hidden border border-zinc-200 bg-white text-zinc-900">
       <div className="border-b border-zinc-200 px-12 py-10" style={{ background: theme.headerBg }}>
         <div className="flex items-center gap-7">
-          {template.id === 'modern' && (
-            <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-3xl border border-zinc-200 bg-zinc-50 text-zinc-400">
-              <User className="h-10 w-10" />
-            </div>
+          {photoDataUrl ? (
+            <img className="h-24 w-24 shrink-0 rounded-3xl object-cover border border-zinc-200" src={photoDataUrl} alt="Profile photo" />
+          ) : (
+            template.id === 'modern' && (
+              <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-3xl border border-zinc-200 bg-zinc-50 text-zinc-400">
+                <User className="h-10 w-10" />
+              </div>
+            )
           )}
           <div className="min-w-0">
             <h2 className="text-5xl font-black leading-tight tracking-tight">{fullName}</h2>

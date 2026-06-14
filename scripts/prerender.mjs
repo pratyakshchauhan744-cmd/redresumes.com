@@ -66,7 +66,14 @@ const server = http.createServer(async (req, res) => {
 
 await new Promise((resolve) => server.listen(port, resolve));
 
-const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+let browser;
+try {
+  browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+} catch (error) {
+  console.warn('[prerender] Puppeteer failed to launch. Skipping prerendering.', error.message);
+  await new Promise((resolve) => server.close(resolve));
+  process.exit(0);
+}
 
 for (const route of routes) {
   const page = await browser.newPage();

@@ -1,24 +1,29 @@
-# Red Resumes
+# RedResumes — Free ATS-Friendly Resume Builder with AI Writing Help
 
-Red Resumes is an AI-powered resume builder, optimization, and career preparation platform designed to help candidates beat Applicant Tracking Systems (ATS) and excel in mock interviews.
+## About
+RedResumes is a free online resume builder that helps job seekers create ATS-optimized resumes using professionally designed templates and AI-powered writing assistance. The tool generates resumes in PDF format, making it easy to apply directly to job listings. RedResumes is designed for anyone who needs a polished, recruiter-ready resume without paying for a professional writing service.
 
-## Core Services
+## What We Do
+- Build ATS-friendly resumes that pass applicant tracking systems
+- Provide AI-powered writing suggestions for bullet points and summaries
+- Offer professionally designed resume templates for all industries
+- Export finished resumes as downloadable PDF files
+- Guide users through each resume section step by step
 
-- **AI Resume Builder**: Create modern, professional, creative, and technical resumes using ATS-optimized templates.
-- **ATS Resume Checker**: Analyze your resume against target job descriptions to compute compatibility scores, extract missing keywords, and suggest improvements.
-- **Resume Analysis**: Scan PDF resumes to extract structured user profiles.
-- **Mock Interview Platform**: Practice realistic Google Meet-style mock interviews with real-time video/microphone streams, whiteboards, and AI-powered performance debriefs.
-- **Resume Optimization**: Improve professional summaries, bullet points, and key terms using Gemini AI.
-- **Job Application Tools**: Track, manage, and optimize job applications.
+## Who We Serve
+Job seekers at all career levels — from recent graduates to experienced professionals — who want a fast, free way to build a standout resume without design or writing expertise.
 
-## Keywords & Ranking Focus
-- AI Resume Builder
-- ATS Resume Checker
-- Resume Analysis
-- Mock Interview Platform
-- Resume Optimization
-- Job Application Tools
+## Key Pages
+- Homepage / Resume Builder: https://redresumes.com/
+- Resume Templates: https://redresumes.com/templates
+- Pricing / Plans: https://redresumes.com/pricing
+- FAQ: https://redresumes.com/faq
 
 ## Contact
-- Website: https://redresumes.com/
-- Support: support@redresumes.com
+https://redresumes.com/contact
+
+## Update Frequency
+Content updated regularly. Resume templates and AI features updated monthly.
+
+## Language
+English

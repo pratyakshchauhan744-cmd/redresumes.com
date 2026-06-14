@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
-    "build": "vite build && node scripts/prerender.mjs",
+    "build": "vite build && npx puppeteer browsers install chrome && node scripts/prerender.mjs",
     "postinstall": "prisma generate --schema backend/prisma/schema.prisma",
     "preview": "vite preview",
     "clean": "rm -rf dist",

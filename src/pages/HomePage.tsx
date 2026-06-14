@@ -64,46 +64,7 @@ export const HomePage = ({
   return (
     <div>
       <Helmet>
-        <script type="application/ld+json">
-          {JSON.stringify({
-            "@context": "https://schema.org",
-            "@type": "FAQPage",
-            "mainEntity": [
-              {
-                "@type": "Question",
-                "name": "Is RedResumes completely free?",
-                "acceptedAnswer": {
-                  "@type": "Answer",
-                  "text": "Yes. RedResumes is 100% free. Build, edit, and download your resume as a PDF without paying anything."
-                }
-              },
-              {
-                "@type": "Question",
-                "name": "Does RedResumes pass ATS?",
-                "acceptedAnswer": {
-                  "@type": "Answer",
-                  "text": "Yes. Every template uses clean ATS-friendly formatting with no tables or graphics that confuse applicant tracking systems."
-                }
-              },
-              {
-                "@type": "Question",
-                "name": "How long does it take to build a resume?",
-                "acceptedAnswer": {
-                  "@type": "Answer",
-                  "text": "Most users finish in under 15 minutes using AI writing assistance and pre-filled templates."
-                }
-              },
-              {
-                "@type": "Question",
-                "name": "Do I need to create an account?",
-                "acceptedAnswer": {
-                  "@type": "Answer",
-                  "text": "No account or sign-up required. Start building immediately and download when ready."
-                }
-              }
-            ]
-          })}
-        </script>
+        <title>RedResumes — Free ATS Resume Builder</title>
       </Helmet>
     <section className="bg-white">
       <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 md:grid-cols-2 md:gap-12 md:py-20 md:items-center">
@@ -516,6 +477,27 @@ export const HomePage = ({
         ))}
       </div>
     </Section>
+
+    <section aria-label="About RedResumes" className="py-10 md:py-16">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6">
+        <h2 className="text-2xl font-extrabold leading-tight text-zinc-900 md:text-4xl">About RedResumes</h2>
+        <div className="mt-6 md:mt-10 rounded-2xl border border-zinc-100 bg-white p-6 md:p-8 text-zinc-600 leading-relaxed text-sm shadow-sm">
+          <p>
+            RedResumes is a free online resume builder designed to help job seekers create
+            ATS-friendly resumes quickly and without design expertise. Users fill in their
+            work history, education, and skills through a guided step-by-step interface,
+            then choose from professionally designed templates optimized for applicant
+            tracking systems. An AI writing assistant suggests bullet points and professional
+            summary language based on the user's experience and target role. Finished resumes
+            can be exported as PDF files and submitted directly to job listings on platforms
+            like LinkedIn, Indeed, and Glassdoor. Unlike many resume builders that require a
+            paid subscription to download the finished document, RedResumes provides PDF
+            export free of charge, making it a cost-accessible option for job seekers at
+            any career stage.
+          </p>
+        </div>
+      </div>
+    </section>
 
     <section className="py-10 md:py-16">
       <div className="mx-auto max-w-7xl px-4 sm:px-6">

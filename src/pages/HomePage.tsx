@@ -1,4 +1,5 @@
 import { Fragment, useState } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { Check, ClipboardCheck, Layers, Search, SlidersHorizontal, Sparkles, Star, Wand2, X, Video, Mic, Volume2, Bot, Cpu, Zap, BarChart3 } from 'lucide-react';
 import { Section } from '../components/Section';
 import { PrimaryButton, SecondaryButton } from '../components/Buttons';
@@ -62,6 +63,48 @@ export const HomePage = ({
 
   return (
     <div>
+      <Helmet>
+        <script type="application/ld+json">
+          {JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "FAQPage",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "Is RedResumes completely free?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. RedResumes is 100% free. Build, edit, and download your resume as a PDF without paying anything."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Does RedResumes pass ATS?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. Every template uses clean ATS-friendly formatting with no tables or graphics that confuse applicant tracking systems."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "How long does it take to build a resume?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Most users finish in under 15 minutes using AI writing assistance and pre-filled templates."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Do I need to create an account?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "No account or sign-up required. Start building immediately and download when ready."
+                }
+              }
+            ]
+          })}
+        </script>
+      </Helmet>
     <section className="bg-white">
       <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 md:grid-cols-2 md:gap-12 md:py-20 md:items-center">
         <div>
@@ -460,11 +503,10 @@ export const HomePage = ({
       <div className="grid gap-4 md:grid-cols-2 md:gap-6">
         {
           [
-            { q: 'Is it free?', a: 'Yes. You can build one resume for free with basic templates.' },
-            { q: 'Can I download in PDF?', a: 'Yes. PDF export is included in every plan.' },
-            { q: 'Is it ATS-friendly?', a: 'All templates are tested for ATS parsing.' },
-            { q: 'Can I create multiple resumes?', a: 'Premium users can create unlimited versions.' },
-            { q: 'Can I edit later?', a: 'Yes. Your documents are saved to your dashboard.' },
+            { q: 'Is RedResumes completely free?', a: 'Yes. RedResumes is 100% free to use. You can build, edit, and download your resume as a PDF without paying anything or entering a credit card.' },
+            { q: 'Does RedResumes pass ATS (applicant tracking systems)?', a: 'Yes. Every template is built with clean, ATS-friendly formatting — no tables, graphics, or unusual fonts that confuse ATS scanners used by recruiters.' },
+            { q: 'How long does it take to build a resume?', a: 'Most users finish a polished resume in under 15 minutes using our AI-powered writing assistant and pre-filled templates.' },
+            { q: 'Do I need to create an account?', a: 'No account or sign-up required. Start building immediately and download your resume when you\'re ready.' },
           ]
         .map((item) => (
           <div key={item.q} className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">

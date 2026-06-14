@@ -10,9 +10,9 @@ const LOGO_IMAGE = '/favicon-192x192.png';
 
 const pageSeo: Record<string, { title: string; description: string; type?: 'website' | 'article' }> = {
   '/': {
-    title: 'AI Resume Builder & ATS Resume Checker | Red Resumes',
+    title: 'Free ATS Resume Builder — RedResumes',
     description:
-      'Create professional resumes in minutes with our AI Resume Builder, ATS Resume Checker, dynamic resume optimization, and mock interview simulator.',
+      'Build ATS-friendly resumes free. Beautiful templates, AI writing help, instant PDF download. No sign-up needed. Finish in 15 minutes.',
   },
   '/templates': {
     title: 'ATS Resume Templates & Optimization | Red Resumes',

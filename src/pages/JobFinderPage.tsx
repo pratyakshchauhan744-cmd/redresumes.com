@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Search, MapPin, Bookmark, BookmarkCheck, LoaderCircle,
-  Building2, Clock, ExternalLink, Briefcase, DollarSign,
+  Building2, Clock, ExternalLink, Briefcase,
   Filter, X, ChevronDown, CheckCircle2, Globe,
 } from 'lucide-react';
 import { backendApi, mapBackendJobToUiJob, type AuthUser, type JobFilters } from '../lib/backendApi';
@@ -152,8 +152,8 @@ const JobCard = ({
               {job.type}
             </span>
             <span className="inline-flex items-center gap-1">
-              <DollarSign className="h-3.5 w-3.5 flex-shrink-0" />
-              {job.salary}
+              <span className="text-[13px] font-semibold text-zinc-400">₹</span>
+              {job.salary.replace(/^₹/, '')}
             </span>
             <span className="inline-flex items-center gap-1 text-zinc-400">
               <Clock className="h-3.5 w-3.5 flex-shrink-0" />
@@ -271,9 +271,6 @@ const jobTypeFilters = [
 ══════════════════════════════════════════════════════════════ */
 export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null }) => {
 
-  const buildJobSearchUrl = (title: string, company: string) =>
-    `https://www.google.com/search?q=${encodeURIComponent(`${title} ${company} careers apply`)}`;
-
   const fallbackJobs: JobItem[] = [
     {
       id: 'local-0',
@@ -284,7 +281,8 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
       salary: '₹8L – ₹12L per annum',
       match: 90,
       skills: ['Lead Generation', 'Client Outreach', 'Negotiation'],
-      url: buildJobSearchUrl('Business Development Executive', 'GrowthBridge Consulting'),
+      url: 'https://www.linkedin.com/jobs/search/?keywords=Business+Development+Executive&location=Noida',
+      companyUrl: 'https://www.linkedin.com/company/growthbridge-consulting',
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
     },
     {
@@ -296,7 +294,8 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
       salary: '₹7L – ₹10L per annum',
       match: 86,
       skills: ['Sales Pipeline', 'B2B', 'Communication'],
-      url: buildJobSearchUrl('Business Development Associate', 'ScaleAxis Technologies'),
+      url: 'https://www.linkedin.com/jobs/search/?keywords=Business+Development+Associate&location=Gurugram',
+      companyUrl: 'https://www.naukri.com/scaleaxis-technologies-jobs',
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 15).toISOString(),
     },
     {
@@ -308,7 +307,8 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
       salary: '₹18L – ₹26L per annum',
       match: 92,
       skills: ['React', 'TypeScript', 'Design Systems'],
-      url: buildJobSearchUrl('Senior Frontend Engineer', 'ArcScale Labs'),
+      url: 'https://www.linkedin.com/jobs/search/?keywords=Senior+Frontend+Engineer&location=Bengaluru',
+      companyUrl: 'https://www.linkedin.com/company/arcscale-labs',
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 6).toISOString(),
     },
     {
@@ -320,7 +320,8 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
       salary: '₹12L – ₹18L per annum',
       match: 88,
       skills: ['Figma', 'UX Research', 'Prototyping'],
-      url: buildJobSearchUrl('Product Designer', 'VelocityOS'),
+      url: 'https://www.linkedin.com/jobs/search/?keywords=Product+Designer&location=Mumbai',
+      companyUrl: 'https://www.linkedin.com/company/velocityos',
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 20).toISOString(),
     },
     {
@@ -332,7 +333,8 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
       salary: '₹14L – ₹20L per annum',
       match: 81,
       skills: ['SEO', 'Lifecycle Marketing', 'Performance Ads'],
-      url: buildJobSearchUrl('Growth Marketing Manager', 'Northline Commerce'),
+      url: 'https://www.linkedin.com/jobs/search/?keywords=Growth+Marketing+Manager&location=Delhi',
+      companyUrl: 'https://www.naukri.com/northline-commerce-jobs',
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 38).toISOString(),
     },
     {
@@ -344,7 +346,8 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
       salary: '₹9L – ₹14L per annum',
       match: 79,
       skills: ['SQL', 'Power BI', 'Python'],
-      url: buildJobSearchUrl('Data Analyst', 'Quorix Health'),
+      url: 'https://www.linkedin.com/jobs/search/?keywords=Data+Analyst&location=Hyderabad',
+      companyUrl: 'https://www.linkedin.com/company/quorix-health',
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 52).toISOString(),
     },
     {
@@ -356,7 +359,8 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
       salary: '₹15L – ₹22L per annum',
       match: 85,
       skills: ['Node.js', 'PostgreSQL', 'REST APIs'],
-      url: buildJobSearchUrl('Backend Software Engineer', 'Clarixion Systems'),
+      url: 'https://www.linkedin.com/jobs/search/?keywords=Backend+Software+Engineer&location=Pune',
+      companyUrl: 'https://www.naukri.com/clarixion-systems-jobs',
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
     },
     {
@@ -368,7 +372,8 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
       salary: '₹10L – ₹16L per annum',
       match: 83,
       skills: ['Figma', 'Motion Design', 'Wireframing'],
-      url: buildJobSearchUrl('UI UX Designer', 'Prism Digital Studio'),
+      url: 'https://www.linkedin.com/jobs/search/?keywords=UI+UX+Designer&location=Bengaluru',
+      companyUrl: 'https://www.linkedin.com/company/prism-digital-studio',
       postedAt: new Date(Date.now() - 1000 * 60 * 40).toISOString(),
     },
   ];

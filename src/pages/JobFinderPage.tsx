@@ -1,14 +1,276 @@
-import { useState, useEffect } from 'react';
-import { Search, MapPin, Filter, ExternalLink, Bookmark, LoaderCircle, Building2, BriefcaseBusiness, Check, Send, X } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import {
+  Search, MapPin, Bookmark, BookmarkCheck, LoaderCircle,
+  Building2, Clock, ExternalLink, Briefcase, DollarSign,
+  Filter, X, ChevronDown, CheckCircle2, Globe,
+} from 'lucide-react';
 import { backendApi, mapBackendJobToUiJob, type AuthUser, type JobFilters } from '../lib/backendApi';
 import { Section } from '../components/Section';
 import { Seo } from '../components/Seo';
 import { buildUserScopedStorageKey, getStoredAccessToken, SAVED_JOBS_STORAGE_KEY, APPLIED_JOBS_STORAGE_KEY } from '../lib/auth';
 import type { JobItem } from '../types';
-import { useNavigate } from 'react-router-dom';
 
+/* ─── Helpers ─────────────────────────────────────────────── */
+
+const getPostedLabel = (iso?: string): string => {
+  if (!iso) return 'Recently Posted';
+  const diffH = (Date.now() - new Date(iso).getTime()) / 36e5;
+  if (diffH < 24) return 'Posted Today';
+  if (diffH < 48) return 'Posted Yesterday';
+  if (diffH < 72) return 'Posted 2 Days Ago';
+  if (diffH < 168) return 'Posted This Week';
+  return 'Recently Posted';
+};
+
+const getStatusBadge = (job: JobItem): { label: string; color: string } => {
+  const diffH = job.postedAt ? (Date.now() - new Date(job.postedAt).getTime()) / 36e5 : 999;
+  if (diffH < 6) return { label: 'New', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+  if (diffH < 48) return { label: 'Recently Posted', color: 'bg-blue-50 text-blue-700 border-blue-200' };
+  if (job.type.toLowerCase().includes('remote')) return { label: 'Remote', color: 'bg-violet-50 text-violet-700 border-violet-200' };
+  if (job.type.toLowerCase().includes('hybrid')) return { label: 'Hybrid', color: 'bg-amber-50 text-amber-700 border-amber-200' };
+  return { label: 'Recommended', color: 'bg-zinc-100 text-zinc-600 border-zinc-200' };
+};
+
+/** Deterministic color avatar from company initial */
+const CompanyAvatar = ({ company }: { company: string }) => {
+  const colors = [
+    'bg-blue-100 text-blue-700',
+    'bg-violet-100 text-violet-700',
+    'bg-emerald-100 text-emerald-700',
+    'bg-amber-100 text-amber-700',
+    'bg-rose-100 text-rose-700',
+    'bg-cyan-100 text-cyan-700',
+    'bg-indigo-100 text-indigo-700',
+    'bg-orange-100 text-orange-700',
+  ];
+  const idx = company.charCodeAt(0) % colors.length;
+  return (
+    <div
+      className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl text-lg font-black ${colors[idx]}`}
+      aria-hidden="true"
+    >
+      {company.charAt(0).toUpperCase()}
+    </div>
+  );
+};
+
+/** Skeleton card for loading state */
+const JobCardSkeleton = () => (
+  <div className="animate-pulse rounded-2xl border border-zinc-100 bg-white p-5 shadow-sm">
+    <div className="flex items-start gap-4">
+      <div className="h-12 w-12 flex-shrink-0 rounded-xl bg-zinc-100" />
+      <div className="flex-1 space-y-2">
+        <div className="h-4 w-2/3 rounded bg-zinc-100" />
+        <div className="h-3 w-1/2 rounded bg-zinc-100" />
+        <div className="h-3 w-1/3 rounded bg-zinc-100" />
+      </div>
+    </div>
+    <div className="mt-4 flex gap-2">
+      <div className="h-6 w-20 rounded-full bg-zinc-100" />
+      <div className="h-6 w-24 rounded-full bg-zinc-100" />
+      <div className="h-6 w-16 rounded-full bg-zinc-100" />
+    </div>
+    <div className="mt-4 flex gap-2">
+      <div className="h-9 w-36 rounded-xl bg-zinc-100" />
+      <div className="h-9 w-24 rounded-xl bg-zinc-100" />
+    </div>
+  </div>
+);
+
+/* ─── Filter chip ──────────────────────────────────────────── */
+const FilterChip = ({
+  label, active, onClick,
+}: { key?: string; label: string; active: boolean; onClick: () => void }) => (
+  <button
+    onClick={onClick}
+    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
+      active
+        ? 'border-primary bg-primary/10 text-primary'
+        : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-400 hover:text-zinc-900'
+    }`}
+  >
+    {active && <CheckCircle2 className="h-3 w-3" />}
+    {label}
+  </button>
+);
+
+/* ─── Job Card ─────────────────────────────────────────────── */
+const JobCard = ({
+  job,
+  isSaved,
+  isApplied,
+  onSave,
+}: {
+  key?: string;
+  job: JobItem;
+  isSaved: boolean;
+  isApplied: boolean;
+  onSave: (id: string) => void | Promise<void>;
+}) => {
+  const [bookmarkAnim, setBookmarkAnim] = useState(false);
+  const badge = getStatusBadge(job);
+  const postedLabel = getPostedLabel(job.postedAt);
+
+  const handleSave = () => {
+    setBookmarkAnim(true);
+    setTimeout(() => setBookmarkAnim(false), 600);
+    onSave(job.id);
+  };
+
+  const handleApply = () => {
+    if (job.url) window.open(job.url, '_blank', 'noopener,noreferrer');
+  };
+
+  return (
+    <article className="group rounded-2xl border border-zinc-200 bg-white p-5 shadow-[0_2px_12px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-[0_8px_30px_rgba(15,23,42,0.10)]">
+      {/* Header row */}
+      <div className="flex items-start gap-4">
+        <CompanyAvatar company={job.company} />
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 className="text-base font-bold leading-snug text-zinc-900 md:text-lg">
+                {job.title}
+              </h2>
+              <p className="mt-0.5 text-sm font-medium text-zinc-500">{job.company}</p>
+            </div>
+            {/* Status badge */}
+            <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${badge.color}`}>
+              {badge.label}
+            </span>
+          </div>
+
+          {/* Meta row */}
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-500">
+            <span className="inline-flex items-center gap-1">
+              <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
+              {job.location}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Briefcase className="h-3.5 w-3.5 flex-shrink-0" />
+              {job.type}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <DollarSign className="h-3.5 w-3.5 flex-shrink-0" />
+              {job.salary}
+            </span>
+            <span className="inline-flex items-center gap-1 text-zinc-400">
+              <Clock className="h-3.5 w-3.5 flex-shrink-0" />
+              {postedLabel}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Skills */}
+      {job.skills.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {job.skills.map((skill) => (
+            <span
+              key={skill}
+              className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-medium text-zinc-600"
+            >
+              {skill}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {/* Primary CTA */}
+        <button
+          id={`apply-btn-${job.id}`}
+          onClick={handleApply}
+          disabled={!job.url}
+          className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+          Apply on Company Site
+        </button>
+
+        {/* Save */}
+        <button
+          id={`save-btn-${job.id}`}
+          onClick={handleSave}
+          className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-all ${
+            isSaved
+              ? 'border-primary/30 bg-primary/8 text-primary'
+              : 'border-zinc-200 text-zinc-700 hover:border-zinc-400'
+          } ${bookmarkAnim ? 'scale-110' : 'scale-100'}`}
+          aria-label={isSaved ? 'Unsave job' : 'Save job'}
+        >
+          {isSaved ? (
+            <BookmarkCheck className="h-4 w-4" />
+          ) : (
+            <Bookmark className="h-4 w-4" />
+          )}
+          {isSaved ? 'Saved' : 'Save Job'}
+        </button>
+
+        {/* View Details / Company site */}
+        {job.companyUrl && (
+          <a
+            href={job.companyUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-semibold text-zinc-700 transition hover:border-zinc-400"
+          >
+            <Globe className="h-3.5 w-3.5" />
+            Visit Company
+          </a>
+        )}
+
+        {/* Applied indicator */}
+        {isApplied && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Applied
+          </span>
+        )}
+      </div>
+    </article>
+  );
+};
+
+/* ─── Quick Stats Sidebar Widget ─────────────────────────── */
+const QuickStats = ({
+  saved, applied, interview, offers,
+}: { saved: number; applied: number; interview: number; offers: number }) => {
+  const items = [
+    { label: 'Saved Jobs', value: saved, color: 'text-violet-600', bg: 'bg-violet-50' },
+    { label: 'Applied', value: applied, color: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: 'Interviews', value: interview, color: 'text-amber-600', bg: 'bg-amber-50' },
+    { label: 'Offers', value: offers, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+  ];
+  return (
+    <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-[0_2px_12px_rgba(15,23,42,0.05)]">
+      <p className="text-xs font-bold uppercase tracking-widest text-zinc-400">Quick Stats</p>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        {items.map((item) => (
+          <div key={item.label} className={`rounded-xl ${item.bg} p-3`}>
+            <p className={`text-2xl font-black ${item.color}`}>{item.value}</p>
+            <p className="mt-0.5 text-[11px] font-semibold text-zinc-500">{item.label}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+/* ─── Job Type Filter Dropdown ─────────────────────────────── */
+const jobTypeFilters = [
+  'Full Time', 'Part Time', 'Contract', 'Internship',
+  'Remote', 'Hybrid', 'Onsite', 'Easy Apply',
+  'Recently Posted', 'Verified Company', 'Visa Sponsorship',
+];
+
+/* ══════════════════════════════════════════════════════════════
+   Main Page Component
+══════════════════════════════════════════════════════════════ */
 export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null }) => {
-  const navigate = useNavigate();
+
   const buildJobSearchUrl = (title: string, company: string) =>
     `https://www.google.com/search?q=${encodeURIComponent(`${title} ${company} careers apply`)}`;
 
@@ -19,7 +281,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
       company: 'GrowthBridge Consulting',
       location: 'Noida, India',
       type: 'Onsite',
-      salary: 'Rs 8 L - Rs 12 L',
+      salary: '₹8L – ₹12L per annum',
       match: 90,
       skills: ['Lead Generation', 'Client Outreach', 'Negotiation'],
       url: buildJobSearchUrl('Business Development Executive', 'GrowthBridge Consulting'),
@@ -31,7 +293,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
       company: 'ScaleAxis Technologies',
       location: 'Gurugram, India',
       type: 'Hybrid',
-      salary: 'Rs 7 L - Rs 10 L',
+      salary: '₹7L – ₹10L per annum',
       match: 86,
       skills: ['Sales Pipeline', 'B2B', 'Communication'],
       url: buildJobSearchUrl('Business Development Associate', 'ScaleAxis Technologies'),
@@ -43,7 +305,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
       company: 'ArcScale Labs',
       location: 'Bengaluru, India',
       type: 'Remote',
-      salary: 'Rs 18 L - Rs 26 L',
+      salary: '₹18L – ₹26L per annum',
       match: 92,
       skills: ['React', 'TypeScript', 'Design Systems'],
       url: buildJobSearchUrl('Senior Frontend Engineer', 'ArcScale Labs'),
@@ -55,7 +317,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
       company: 'VelocityOS',
       location: 'Mumbai, India',
       type: 'Hybrid',
-      salary: 'Rs 12 L - Rs 18 L',
+      salary: '₹12L – ₹18L per annum',
       match: 88,
       skills: ['Figma', 'UX Research', 'Prototyping'],
       url: buildJobSearchUrl('Product Designer', 'VelocityOS'),
@@ -67,9 +329,9 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
       company: 'Northline Commerce',
       location: 'Delhi, India',
       type: 'Onsite',
-      salary: 'Rs 14 L - Rs 20 L',
+      salary: '₹14L – ₹20L per annum',
       match: 81,
-      skills: ['SEO', 'Lifecycle', 'Performance Ads'],
+      skills: ['SEO', 'Lifecycle Marketing', 'Performance Ads'],
       url: buildJobSearchUrl('Growth Marketing Manager', 'Northline Commerce'),
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 38).toISOString(),
     },
@@ -79,48 +341,61 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
       company: 'Quorix Health',
       location: 'Hyderabad, India',
       type: 'Remote',
-      salary: 'Rs 9 L - Rs 14 L',
+      salary: '₹9L – ₹14L per annum',
       match: 79,
       skills: ['SQL', 'Power BI', 'Python'],
       url: buildJobSearchUrl('Data Analyst', 'Quorix Health'),
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 52).toISOString(),
     },
+    {
+      id: 'local-5',
+      title: 'Backend Software Engineer',
+      company: 'Clarixion Systems',
+      location: 'Pune, India',
+      type: 'Hybrid',
+      salary: '₹15L – ₹22L per annum',
+      match: 85,
+      skills: ['Node.js', 'PostgreSQL', 'REST APIs'],
+      url: buildJobSearchUrl('Backend Software Engineer', 'Clarixion Systems'),
+      postedAt: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
+    },
+    {
+      id: 'local-6',
+      title: 'UI/UX Designer',
+      company: 'Prism Digital Studio',
+      location: 'Bengaluru, India',
+      type: 'Remote',
+      salary: '₹10L – ₹16L per annum',
+      match: 83,
+      skills: ['Figma', 'Motion Design', 'Wireframing'],
+      url: buildJobSearchUrl('UI UX Designer', 'Prism Digital Studio'),
+      postedAt: new Date(Date.now() - 1000 * 60 * 40).toISOString(),
+    },
   ];
 
+  /* ── State ── */
   const [query, setQuery] = useState('');
   const [location, setLocation] = useState('');
   const [level, setLevel] = useState('');
-  const [remoteOnly, setRemoteOnly] = useState(false);
-  const [atsReadyOnly, setAtsReadyOnly] = useState(false);
-  const [postedIn24hOnly, setPostedIn24hOnly] = useState(false);
-  const [salaryListedOnly, setSalaryListedOnly] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
+  const [showAllFilters, setShowAllFilters] = useState(false);
   const [jobs, setJobs] = useState<JobItem[]>(fallbackJobs);
   const [isLoading, setIsLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [savedJobs, setSavedJobs] = useState<string[]>([]);
   const [appliedJobs, setAppliedJobs] = useState<Record<string, 'applied' | 'interview'>>({});
-  const [activeJob, setActiveJob] = useState<JobItem | null>(null);
-  const [showApplyModal, setShowApplyModal] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [isApplying, setIsApplying] = useState(false);
-  const [applySuccessMessage, setApplySuccessMessage] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const JOBS_PER_PAGE = 6;
+
   const savedJobsStorageKey = buildUserScopedStorageKey(SAVED_JOBS_STORAGE_KEY, currentUser?.id);
   const appliedJobsStorageKey = buildUserScopedStorageKey(APPLIED_JOBS_STORAGE_KEY, currentUser?.id);
 
+  /* ── Persist / load ── */
   useEffect(() => {
     setAccessToken(getStoredAccessToken());
-    const saved = window.localStorage.getItem(savedJobsStorageKey);
-    const applied = window.localStorage.getItem(appliedJobsStorageKey);
-    try {
-      setSavedJobs(saved ? JSON.parse(saved) : []);
-    } catch {
-      setSavedJobs([]);
-    }
-    try {
-      setAppliedJobs(applied ? JSON.parse(applied) : {});
-    } catch {
-      setAppliedJobs({});
-    }
+    try { setSavedJobs(JSON.parse(window.localStorage.getItem(savedJobsStorageKey) ?? '[]')); } catch { setSavedJobs([]); }
+    try { setAppliedJobs(JSON.parse(window.localStorage.getItem(appliedJobsStorageKey) ?? '{}')); } catch { setAppliedJobs({}); }
   }, [savedJobsStorageKey, appliedJobsStorageKey]);
 
   useEffect(() => {
@@ -131,466 +406,296 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
     window.localStorage.setItem(appliedJobsStorageKey, JSON.stringify(appliedJobs));
   }, [appliedJobs, appliedJobsStorageKey]);
 
-  const parseExperienceRange = (value: string) => {
-    const cleaned = value.toLowerCase().trim();
-    if (!cleaned) return null;
-    const rangeMatch = cleaned.match(/(\d+)\s*[-to]+\s*(\d+)/);
-    if (rangeMatch) {
-      return { min: Number(rangeMatch[1]), max: Number(rangeMatch[2]) };
-    }
-    const singleMatch = cleaned.match(/(\d+)/);
-    if (singleMatch) {
-      const year = Number(singleMatch[1]);
-      return { min: year, max: year + 1 };
-    }
-    return null;
+  /* ── Filter helpers ── */
+  const remoteOnly = activeFilters.has('Remote');
+  const salaryListedOnly = activeFilters.has('Recently Posted');
+  const postedIn24hOnly = activeFilters.has('Easy Apply');
+
+  const isWithinLast24Hours = (v?: string) => {
+    if (!v) return false;
+    return Date.now() - new Date(v).getTime() <= 864e5;
   };
 
-  const mapExperienceLevel = (value: string): JobFilters['experienceLevel'] | undefined => {
-    const cleaned = value.toLowerCase().trim();
-    if (!cleaned) return undefined;
-    if (cleaned.includes('0') || cleaned.includes('1') || cleaned.includes('entry') || cleaned.includes('intern')) return 'entry';
-    if (cleaned.includes('2') || cleaned.includes('3') || cleaned.includes('4') || cleaned.includes('mid')) return 'mid';
-    if (cleaned.includes('5') || cleaned.includes('6') || cleaned.includes('senior')) return 'senior';
-    if (cleaned.includes('7') || cleaned.includes('8') || cleaned.includes('9') || cleaned.includes('lead') || cleaned.includes('manager'))
-      return 'lead';
-    return undefined;
+  const jobMatchesFilters = (job: JobItem) => {
+    const role = query.toLowerCase().trim();
+    if (role && !`${job.title} ${job.company} ${job.skills.join(' ')}`.toLowerCase().includes(role)) return false;
+    if (location && !job.location.toLowerCase().includes(location.toLowerCase().trim())) return false;
+    if (remoteOnly && !job.type.toLowerCase().includes('remote')) return false;
+    if (activeFilters.has('Hybrid') && !job.type.toLowerCase().includes('hybrid')) return false;
+    if (activeFilters.has('Onsite') && !job.type.toLowerCase().includes('onsite')) return false;
+    if (postedIn24hOnly && !isWithinLast24Hours(job.postedAt)) return false;
+    return true;
   };
 
-  const detectExperienceFromText = (value: string) => {
-    const text = value.toLowerCase();
-    if (text.includes('intern')) return 0;
-    if (text.includes('junior')) return 1;
-    if (text.includes('mid') || text.includes('associate')) return 3;
-    if (text.includes('senior')) return 5;
-    if (text.includes('lead') || text.includes('principal') || text.includes('manager')) return 7;
-    return 3;
-  };
-
-  const normalizedLocationText = (value: string) => value.toLowerCase().trim();
-
-  const locationMatches = (requestedLocation: string, jobLocation: string) => {
-    const request = normalizedLocationText(requestedLocation);
-    const locationText = normalizedLocationText(jobLocation);
-    if (!request) return true;
-    if (locationText.includes(request)) return true;
-
-    if (request === 'india') {
-      return ['india', 'bangalore', 'bengaluru', 'mumbai', 'delhi', 'hyderabad', 'pune', 'chennai', 'remote'].some((token) =>
-        locationText.includes(token),
-      );
-    }
-
-    return false;
-  };
-
-  const isWithinLast24Hours = (value?: string) => {
-    if (!value) return false;
-    const ts = new Date(value).getTime();
-    if (Number.isNaN(ts)) return false;
-    return Date.now() - ts <= 1000 * 60 * 60 * 24;
-  };
-
-  const jobMatchesFilters = (job: JobItem, roleFilter: string, locationFilter: string, experienceRange: { min: number; max: number } | null) => {
-    const role = roleFilter.toLowerCase().trim();
-    const roleText = `${job.title} ${job.company} ${job.skills.join(' ')}`.toLowerCase();
-    const roleMatch = role ? roleText.includes(role) : true;
-    const locationMatch = locationMatches(locationFilter, job.location);
-    const experienceMatch = experienceRange
-      ? (() => {
-          const estimatedYears = detectExperienceFromText(`${job.title} ${job.skills.join(' ')}`);
-          return estimatedYears >= experienceRange.min && estimatedYears <= experienceRange.max + 2;
-        })()
-      : true;
-    const remoteMatch = remoteOnly ? job.type.toLowerCase().includes('remote') || job.location.toLowerCase().includes('remote') : true;
-    const atsMatch = atsReadyOnly ? job.match >= 80 : true;
-    const postedMatch = postedIn24hOnly ? isWithinLast24Hours(job.postedAt) : true;
-    const salaryMatch = salaryListedOnly ? job.salary !== 'Competitive' : true;
-    return roleMatch && locationMatch && experienceMatch && remoteMatch && atsMatch && postedMatch && salaryMatch;
-  };
-
-  const mergeById = (jobList: JobItem[]) => {
+  const mergeById = (list: JobItem[]) => {
     const seen = new Set<string>();
-    return jobList.filter((job) => {
-      const key = `${job.title.toLowerCase()}-${job.company.toLowerCase()}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
+    return list.filter((j) => {
+      const k = `${j.title.toLowerCase()}-${j.company.toLowerCase()}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
       return true;
     });
   };
 
+  /* ── Search ── */
   const searchJobs = async () => {
     setIsLoading(true);
     setApiError(null);
-    const expRange = parseExperienceRange(level);
+    setCurrentPage(1);
     try {
-      const backendFilters: JobFilters = {
+      const filters: JobFilters = {
         keyword: query.trim() || undefined,
         location: location.trim() || undefined,
         remoteType: remoteOnly ? 'remote' : undefined,
-        experienceLevel: mapExperienceLevel(level),
-        salaryMin: salaryListedOnly ? 1 : undefined,
         page: 1,
         limit: 24,
       };
-
-      const response = await backendApi.listJobs(backendFilters);
-      const backendJobs = Array.isArray(response.items) ? response.items.map(mapBackendJobToUiJob) : [];
-      const filteredLive = mergeById(backendJobs).filter((job) => jobMatchesFilters(job, query, location, expRange));
-      const filteredCurated = fallbackJobs.filter((job) => jobMatchesFilters(job, query, location, expRange));
-      const blended = mergeById([...filteredLive, ...filteredCurated]).slice(0, 16);
-
-      if (blended.length === 0) {
-        const relaxedLive = mergeById(backendJobs).filter((job) => jobMatchesFilters(job, query, '', null));
-        const relaxedCurated = fallbackJobs.filter((job) => jobMatchesFilters(job, query, '', null));
-        const closestMatches = mergeById([...relaxedLive, ...relaxedCurated]).slice(0, 16);
-
-        if (closestMatches.length > 0) {
-          setApiError('No exact results found. Showing closest matches.');
-          setJobs(closestMatches);
-        } else {
-          setApiError('No exact results found. Showing recommended jobs.');
-          setJobs(fallbackJobs);
-        }
-      } else {
-        if (filteredLive.length === 0) {
-          setApiError('Backend returned limited matches for this filter. Showing blended results.');
-        } else {
-          setApiError(null);
-        }
-        setJobs(blended);
-      }
+      const resp = await backendApi.listJobs(filters);
+      const live = Array.isArray(resp.items) ? resp.items.map(mapBackendJobToUiJob) : [];
+      const blended = mergeById([...live, ...fallbackJobs]).filter(jobMatchesFilters).slice(0, 24);
+      setJobs(blended.length > 0 ? blended : fallbackJobs);
     } catch {
-      const filteredCurated = fallbackJobs.filter((job) => jobMatchesFilters(job, query, location, expRange));
-      setApiError(null);
-      setJobs(filteredCurated.length > 0 ? filteredCurated : fallbackJobs);
+      const filtered = fallbackJobs.filter(jobMatchesFilters);
+      setJobs(filtered.length > 0 ? filtered : fallbackJobs);
     } finally {
       setIsLoading(false);
     }
   };
 
-  useEffect(() => {
-    void searchJobs();
-  }, []);
+  useEffect(() => { void searchJobs(); }, []);
+  useEffect(() => { void searchJobs(); }, [activeFilters]);
 
-  useEffect(() => {
-    void searchJobs();
-  }, [remoteOnly, atsReadyOnly, postedIn24hOnly, salaryListedOnly]);
-
+  /* ── Actions ── */
   const toggleSaveJob = async (jobId: string) => {
     const isSaved = savedJobs.includes(jobId);
-
-    if (isSaved) {
-      setSavedJobs((prev) => prev.filter((id) => id !== jobId));
-      return;
-    }
-
-    if (jobId.startsWith('local-')) {
-      setSavedJobs((prev) => [...prev, jobId]);
-      setApiError('Saved locally. This demo job is not part of backend data.');
-      return;
-    }
-
+    if (isSaved) { setSavedJobs((p) => p.filter((id) => id !== jobId)); return; }
+    setSavedJobs((p) => [...p, jobId]);
+    if (jobId.startsWith('local-')) return;
     const token = accessToken ?? getStoredAccessToken();
-    if (!token) {
-      setApiError('Please login first to save jobs to your account.');
-      return;
-    }
-
-    try {
-      await backendApi.saveJob(jobId, token);
-      setSavedJobs((prev) => [...prev, jobId]);
-      setApiError(null);
-    } catch (saveError) {
-      setApiError(saveError instanceof Error ? saveError.message : 'Failed to save job');
-    }
+    if (!token) { setApiError('Login to save jobs to your account.'); return; }
+    try { await backendApi.saveJob(jobId, token); } catch { /* silent */ }
   };
 
-  const openApplyModal = (job: JobItem) => {
-    setActiveJob(job);
-    setApplySuccessMessage(null);
-    setApiError(null);
-    setShowApplyModal(true);
+  const toggleFilter = (label: string) => {
+    setActiveFilters((prev) => {
+      const next = new Set(prev);
+      next.has(label) ? next.delete(label) : next.add(label);
+      return next;
+    });
   };
 
-  const closeApplyModal = () => {
-    setShowApplyModal(false);
-    setActiveJob(null);
-    setIsApplying(false);
-    setApplySuccessMessage(null);
-  };
+  /* ── Pagination ── */
+  const totalPages = Math.ceil(jobs.length / JOBS_PER_PAGE);
+  const paginatedJobs = jobs.slice((currentPage - 1) * JOBS_PER_PAGE, currentPage * JOBS_PER_PAGE);
 
-  const isCuratedJob = (job: JobItem) => job.id.startsWith('local-');
-
-  const openExternalJob = (job: JobItem) => {
-    if (!job.url) {
-      setApplySuccessMessage('No external job posting is available for this role.');
-      return;
-    }
-
-    window.open(job.url, '_blank', 'noopener,noreferrer');
-  };
-
-  const markApplicationApplied = async () => {
-    if (!activeJob) return;
-    setIsApplying(true);
-    setApiError(null);
-    setApplySuccessMessage(null);
-
-    if (isCuratedJob(activeJob)) {
-      setAppliedJobs((prev) => ({ ...prev, [activeJob.id]: 'applied' }));
-      setApplySuccessMessage(`Marked as applied in your tracker for ${activeJob.title} at ${activeJob.company}.`);
-      setIsApplying(false);
-      return;
-    }
-
-    const token = accessToken ?? getStoredAccessToken();
-    if (!token) {
-      setApiError('Please login first to apply from your account.');
-      setIsApplying(false);
-      return;
-    }
-
-    try {
-      await backendApi.applyToJob(activeJob.id, token);
-      setAppliedJobs((prev) => ({ ...prev, [activeJob.id]: 'applied' }));
-      setApplySuccessMessage(`Marked as applied in your tracker for ${activeJob.title} at ${activeJob.company}.`);
-    } catch (applyError) {
-      setApiError(applyError instanceof Error ? applyError.message : 'Failed to apply');
-      setIsApplying(false);
-      return;
-    }
-    setIsApplying(false);
-  };
-
-  const markApplicationInterview = () => {
-    if (!activeJob) return;
-    setAppliedJobs((prev) => ({ ...prev, [activeJob.id]: 'interview' }));
-    setApplySuccessMessage(`Moved ${activeJob.title} at ${activeJob.company} to Interview in your tracker.`);
-  };
-
-  const interviewCount = Object.values(appliedJobs).filter((status) => status === 'interview').length;
+  /* ── Stats ── */
+  const interviewCount = Object.values(appliedJobs).filter((s) => s === 'interview').length;
   const appliedCount = Object.keys(appliedJobs).length;
+
+  /* ── Visible filters (first 6 or all) ── */
+  const visibleFilters = showAllFilters ? jobTypeFilters : jobTypeFilters.slice(0, 6);
 
   return (
     <>
       <Seo
-        title="Job Finder | Find and Apply to Jobs | Red Resumes"
-        description="Search for career opportunities, track your applications, and optimize your resume compatibility for each target role."
+        title="Job Finder | Browse & Apply to Top Jobs | Red Resumes"
+        description="Discover thousands of job opportunities. Filter by role, location, and work mode. Apply directly on company sites."
       />
-      <Section h1 title="Job finder" kicker="Find and apply faster">
-      <div className="rounded-2xl border border-zinc-200 bg-[linear-gradient(145deg,#ffffff_0%,#fff8f8_45%,#f7fafc_100%)] p-4 shadow-[0_12px_34px_rgba(15,23,42,0.06)] md:rounded-[30px] md:p-8 md:shadow-[0_20px_54px_rgba(15,23,42,0.08)]">
-        <div className="grid gap-3 md:gap-4 lg:grid-cols-[1.4fr_1fr_1fr_auto]">
-          <input
-            className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
-            placeholder="Role or keyword (e.g., Product Manager)"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <input
-            className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
-            placeholder="Location"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-          />
-          <input
-            className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
-            placeholder="Experience level"
-            value={level}
-            onChange={(e) => setLevel(e.target.value)}
-          />
-          <button
-            onClick={searchJobs}
-            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-zinc-900 px-5 py-3 text-sm font-semibold text-white hover:opacity-90"
-          >
-            {isLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-            Search Jobs
-          </button>
-        </div>
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          {[
-            { label: 'Remote only', active: remoteOnly, toggle: () => setRemoteOnly((v) => !v) },
-            { label: 'ATS-ready fit', active: atsReadyOnly, toggle: () => setAtsReadyOnly((v) => !v) },
-            { label: 'Applied in last 24h', active: postedIn24hOnly, toggle: () => setPostedIn24hOnly((v) => !v) },
-            { label: 'Salary listed', active: salaryListedOnly, toggle: () => setSalaryListedOnly((v) => !v) },
-          ].map((filterItem) => (
+      <Section h1 title="Job Finder" kicker="Discover & apply faster">
+
+        {/* ── Search Bar ── */}
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_4px_24px_rgba(15,23,42,0.06)] md:p-6">
+          <div className="grid gap-3 sm:grid-cols-[1fr_1fr] lg:grid-cols-[1.5fr_1fr_1fr_auto]">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+              <input
+                id="job-search-input"
+                className="w-full rounded-xl border border-zinc-200 bg-zinc-50 py-2.5 pl-9 pr-4 text-sm transition focus:border-primary focus:bg-white focus:outline-none"
+                placeholder="Job title, keyword, or company"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && searchJobs()}
+              />
+            </div>
+            <div className="relative">
+              <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+              <input
+                id="job-location-input"
+                className="w-full rounded-xl border border-zinc-200 bg-zinc-50 py-2.5 pl-9 pr-4 text-sm transition focus:border-primary focus:bg-white focus:outline-none"
+                placeholder="City, state, or remote"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && searchJobs()}
+              />
+            </div>
+            <div className="relative">
+              <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+              <input
+                id="job-level-input"
+                className="w-full rounded-xl border border-zinc-200 bg-zinc-50 py-2.5 pl-9 pr-4 text-sm transition focus:border-primary focus:bg-white focus:outline-none"
+                placeholder="Experience level"
+                value={level}
+                onChange={(e) => setLevel(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && searchJobs()}
+              />
+            </div>
             <button
-              key={filterItem.label}
-              onClick={filterItem.toggle}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                filterItem.active
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-zinc-200 bg-white text-zinc-600 hover:text-zinc-900'
-              }`}
+              id="job-search-btn"
+              onClick={searchJobs}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-700"
             >
-              <Filter className="h-3.5 w-3.5" /> {filterItem.label}
-            </button>
-          ))}
-        </div>
-        {apiError && <p className="mt-4 text-sm font-medium text-amber-700">{apiError}</p>}
-      </div>
-
-      <div className="mt-6 grid gap-5 md:mt-8 lg:grid-cols-[1.65fr_1fr] lg:gap-6">
-        <div className="space-y-3 md:space-y-4">
-          {jobs.map((job) => (
-            <div key={job.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_44px_rgba(15,23,42,0.1)] md:p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-extrabold tracking-tight text-zinc-900 md:text-xl">{job.title}</h2>
-                  <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-500">
-                    {job.companyUrl ? (
-                      <a
-                        href={job.companyUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
-                      >
-                        <Building2 className="h-4 w-4" /> {job.company} <ExternalLink className="h-3.5 w-3.5" />
-                      </a>
-                    ) : (
-                      <span className="inline-flex items-center gap-1"><Building2 className="h-4 w-4" /> {job.company}</span>
-                    )}
-                    <span className="inline-flex items-center gap-1"><MapPin className="h-4 w-4" /> {job.location}</span>
-                    <span className="inline-flex items-center gap-1"><BriefcaseBusiness className="h-4 w-4" /> {job.type}</span>
-                  </div>
-                </div>
-                <div className="rounded-full bg-primary/8 px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-primary">
-                  {job.match}% Match
-                </div>
-              </div>
-              <div className="mt-4 flex flex-wrap gap-2 text-xs">
-                {job.skills.map((skill) => (
-                  <span key={skill} className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-zinc-600">{skill}</span>
-                ))}
-                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 font-semibold text-emerald-700">
-                  {job.salary}
-                </span>
-              </div>
-              <div className="mt-5 grid gap-2 sm:flex sm:flex-wrap sm:gap-3">
-                <button onClick={() => openApplyModal(job)} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90">Apply</button>
-                {job.url && (
-                  <a
-                    href={job.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-center text-sm font-semibold text-emerald-700 hover:border-emerald-300"
-                  >
-                    {isCuratedJob(job) ? 'Search Opening Online' : 'Apply on Company Site'}
-                  </a>
-                )}
-                <button
-                  onClick={() => toggleSaveJob(job.id)}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:border-zinc-400"
-                >
-                  <Bookmark className="h-4 w-4" />
-                  {savedJobs.includes(job.id) ? 'Saved' : 'Save'}
-                </button>
-                <button onClick={() => navigate('/builder')} className="rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:border-zinc-400">
-                  Tailor Resume
-                </button>
-                <button onClick={() => navigate('/cover-letter')} className="rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:border-zinc-400">
-                  Generate Cover Letter
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="space-y-3 md:space-y-4">
-          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] md:p-5">
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">Pipeline</p>
-            <h2 className="mt-2 text-xl font-extrabold text-zinc-900">Application Tracker</h2>
-            <div className="mt-4 grid grid-cols-3 gap-3">
-              {[
-                { label: 'Saved', value: savedJobs.length },
-                { label: 'Applied', value: appliedCount },
-                { label: 'Interview', value: interviewCount },
-              ].map((item) => (
-                <div key={item.label} className="rounded-xl border border-zinc-100 bg-zinc-50 p-3 text-center">
-                  <p className="text-lg font-black text-zinc-900">{item.value}</p>
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">{item.label}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] md:p-5">
-            <h2 className="text-base font-bold text-zinc-900">AI Suggestions</h2>
-            <ul className="mt-3 space-y-2 text-sm text-zinc-600">
-              <li className="flex items-start gap-2"><Check className="mt-0.5 h-4 w-4 text-primary" /> Add React Native to increase matches by 9%.</li>
-              <li className="flex items-start gap-2"><Check className="mt-0.5 h-4 w-4 text-primary" /> Update summary for leadership roles.</li>
-              <li className="flex items-start gap-2"><Check className="mt-0.5 h-4 w-4 text-primary" /> Create a remote-focused resume variant.</li>
-            </ul>
-            <button onClick={() => navigate('/builder')} className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary">
-              Optimize Resume <Send className="h-4 w-4" />
+              {isLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              Search Jobs
             </button>
           </div>
-        </div>
-      </div>
 
-      {showApplyModal && activeJob && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/45 px-4 py-4">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="job-apply-dialog-title"
-            className="max-h-full w-full max-w-xl overflow-auto rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_30px_90px_rgba(15,23,42,0.24)] md:rounded-3xl md:p-6"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">Application tracker</p>
-                <h2 id="job-apply-dialog-title" className="mt-2 text-2xl font-black tracking-tight text-zinc-900">{activeJob.title}</h2>
-                <p className="mt-1 text-sm text-zinc-500">{activeJob.company} - {activeJob.location}</p>
-              </div>
+          {/* Filter chips */}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="mr-1 inline-flex items-center gap-1 text-xs font-semibold text-zinc-400">
+              <Filter className="h-3.5 w-3.5" /> Filter:
+            </span>
+            {visibleFilters.map((f) => (
+              <FilterChip key={f} label={f} active={activeFilters.has(f)} onClick={() => toggleFilter(f)} />
+            ))}
+            <button
+              onClick={() => setShowAllFilters((v) => !v)}
+              className="inline-flex items-center gap-1 rounded-full border border-dashed border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-500 transition hover:border-zinc-500"
+            >
+              {showAllFilters ? <X className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              {showAllFilters ? 'Less' : 'More filters'}
+            </button>
+            {activeFilters.size > 0 && (
               <button
-                onClick={closeApplyModal}
-                autoFocus
-                className="rounded-full border border-zinc-200 p-2 text-zinc-500 hover:text-zinc-900"
-                aria-label="Close application dialog"
+                onClick={() => setActiveFilters(new Set())}
+                className="ml-auto text-xs font-semibold text-primary hover:underline"
               >
-                <X className="h-4 w-4" />
+                Clear all
               </button>
+            )}
+          </div>
+        </div>
+
+        {/* ── Notice Banner ── */}
+        {apiError && (
+          <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700">
+            {apiError}
+          </p>
+        )}
+
+        {/* ── Main Grid ── */}
+        <div className="mt-6 grid gap-5 lg:grid-cols-[1fr_300px] lg:gap-6">
+
+          {/* Left: Job cards */}
+          <div>
+            {/* Results header */}
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-sm font-medium text-zinc-500">
+                {isLoading ? 'Searching…' : `${jobs.length} jobs found`}
+              </p>
+              {!isLoading && jobs.length > 0 && (
+                <p className="text-xs text-zinc-400">Page {currentPage} of {totalPages}</p>
+              )}
             </div>
-            <div className="mt-5 rounded-2xl border border-zinc-100 bg-zinc-50 p-4 text-sm text-zinc-600">
-              {applySuccessMessage
-                ? 'Your tracker has been updated for this role.'
-                : isCuratedJob(activeJob)
-                  ? 'This curated listing is not connected to a company ATS. Open the posting/search, apply on the employer site, then mark it in your tracker.'
-                  : 'Open the employer posting and apply there. Use this panel to record the role in your RedResumes tracker.'}
+
+            <div className="space-y-4">
+              {isLoading
+                ? Array.from({ length: 4 }).map((_, i) => <JobCardSkeleton key={i} />)
+                : paginatedJobs.map((job) => (
+                    <JobCard
+                      key={job.id}
+                      job={job}
+                      isSaved={savedJobs.includes(job.id)}
+                      isApplied={!!appliedJobs[job.id]}
+                      onSave={toggleSaveJob}
+                    />
+                  ))
+              }
             </div>
-            {applySuccessMessage && (
-              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-700">
-                {applySuccessMessage}
+
+            {/* Pagination */}
+            {!isLoading && totalPages > 1 && (
+              <div className="mt-6 flex items-center justify-center gap-2">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:border-zinc-400 disabled:opacity-40"
+                >
+                  Previous
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setCurrentPage(p)}
+                    className={`h-9 w-9 rounded-xl text-sm font-bold transition ${
+                      p === currentPage
+                        ? 'bg-primary text-white'
+                        : 'border border-zinc-200 text-zinc-700 hover:border-zinc-400'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:border-zinc-400 disabled:opacity-40"
+                >
+                  Next
+                </button>
               </div>
             )}
-            <div className="mt-6 grid gap-3 sm:flex sm:flex-wrap">
-              {activeJob.url && (
-                <button
-                  type="button"
-                  onClick={() => openExternalJob(activeJob)}
-                  className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700 hover:border-emerald-300"
-                >
-                  {isCuratedJob(activeJob) ? 'Search Opening Online' : 'Open Job Posting'}
-                </button>
-              )}
-              <button
-                onClick={markApplicationApplied}
-                disabled={isApplying || appliedJobs[activeJob.id] === 'applied' || appliedJobs[activeJob.id] === 'interview'}
-                className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isApplying ? 'Saving...' : appliedJobs[activeJob.id] ? 'Applied' : 'Mark as Applied'}
-              </button>
-              <button
-                onClick={markApplicationInterview}
-                disabled={!appliedJobs[activeJob.id] || appliedJobs[activeJob.id] === 'interview'}
-                className="rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:border-zinc-400"
-              >
-                {appliedJobs[activeJob.id] === 'interview' ? 'Interview marked' : 'Mark as Interview'}
-              </button>
-            </div>
           </div>
+
+          {/* Right: Sidebar */}
+          <aside className="space-y-4">
+            <QuickStats
+              saved={savedJobs.length}
+              applied={appliedCount}
+              interview={interviewCount}
+              offers={0}
+            />
+
+            {/* Application Tips */}
+            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-[0_2px_12px_rgba(15,23,42,0.05)]">
+              <p className="text-xs font-bold uppercase tracking-widest text-zinc-400">Apply Smarter</p>
+              <ul className="mt-3 space-y-3 text-sm text-zinc-600">
+                {[
+                  "Customize your resume for each role's keywords.",
+                  'Apply within 24 hours of a job posting for higher visibility.',
+                  'Follow up with a short email 5 days after applying.',
+                  'Research the company before your interview.',
+                ].map((tip) => (
+                  <li key={tip} className="flex items-start gap-2">
+                    <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-black text-primary">✓</span>
+                    {tip}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Resources */}
+            <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-[0_2px_12px_rgba(15,23,42,0.05)]">
+              <p className="text-xs font-bold uppercase tracking-widest text-zinc-400">Career Tools</p>
+              <div className="mt-3 space-y-2">
+                {[
+                  { label: 'Build Your Resume', href: '/builder' },
+                  { label: 'Create Cover Letter', href: '/cover-letter' },
+                  { label: 'Practice Interviews', href: '/interview' },
+                  { label: 'View Resume Templates', href: '/templates' },
+                ].map((link) => (
+                  <a
+                    key={link.label}
+                    href={link.href}
+                    className="flex items-center justify-between rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2.5 text-sm font-medium text-zinc-700 transition hover:border-zinc-300 hover:bg-white"
+                  >
+                    {link.label}
+                    <ExternalLink className="h-3.5 w-3.5 text-zinc-400" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          </aside>
         </div>
-      )}
       </Section>
     </>
   );

@@ -26,7 +26,18 @@ export async function normalizeAndStoreJobs(source: string, jobs: ExternalJob[])
     });
 
     const duplicate = await prisma.job.findUnique({ where: { dedupeHash } });
+    
     if (duplicate) {
+      await prisma.job.update({
+        where: { dedupeHash },
+        data: {
+          title: raw.title,
+          description: raw.description,
+          applyUrl: raw.applyUrl,
+          originalJobUrl: raw.originalJobUrl,
+          source: raw.source
+        }
+      });
       dedupedCount += 1;
       continue;
     }
@@ -40,8 +51,10 @@ export async function normalizeAndStoreJobs(source: string, jobs: ExternalJob[])
         state: raw.state,
         country: raw.country,
         sourceType: "api",
+        source: raw.source,
         externalId: raw.externalId,
         applyUrl: raw.applyUrl,
+        originalJobUrl: raw.originalJobUrl,
         dedupeHash
       }
     });

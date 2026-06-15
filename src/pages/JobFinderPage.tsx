@@ -23,8 +23,8 @@ const getPostedLabel = (iso?: string): string => {
 };
 
 const getStatusBadge = (job: JobItem): { label: string; color: string } => {
+  if (job.isNew) return { label: 'NEW', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
   const diffH = job.postedAt ? (Date.now() - new Date(job.postedAt).getTime()) / 36e5 : 999;
-  if (diffH < 6) return { label: 'New', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
   if (diffH < 48) return { label: 'Recently Posted', color: 'bg-blue-50 text-blue-700 border-blue-200' };
   if (job.type.toLowerCase().includes('remote')) return { label: 'Remote', color: 'bg-violet-50 text-violet-700 border-violet-200' };
   if (job.type.toLowerCase().includes('hybrid')) return { label: 'Hybrid', color: 'bg-amber-50 text-amber-700 border-amber-200' };
@@ -118,7 +118,8 @@ const JobCard = ({
   };
 
   const handleApply = () => {
-    if (job.url) window.open(job.url, '_blank', 'noopener,noreferrer');
+    const targetUrl = job.originalJobUrl || job.url;
+    if (targetUrl) window.open(targetUrl, '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -135,10 +136,6 @@ const JobCard = ({
               </h2>
               <p className="mt-0.5 text-sm font-medium text-zinc-500">{job.company}</p>
             </div>
-            {/* Status badge */}
-            <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${badge.color}`}>
-              {badge.label}
-            </span>
           </div>
 
           {/* Meta row */}
@@ -151,14 +148,7 @@ const JobCard = ({
               <Briefcase className="h-3.5 w-3.5 flex-shrink-0" />
               {job.type}
             </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="text-[13px] font-semibold text-zinc-400">₹</span>
-              {job.salary.replace(/^₹/, '')}
-            </span>
-            <span className="inline-flex items-center gap-1 text-zinc-400">
-              <Clock className="h-3.5 w-3.5 flex-shrink-0" />
-              {postedLabel}
-            </span>
+
           </div>
         </div>
       </div>
@@ -183,7 +173,7 @@ const JobCard = ({
         <button
           id={`apply-btn-${job.id}`}
           onClick={handleApply}
-          disabled={!job.url}
+          disabled={!(job.url || job.originalJobUrl)}
           className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <ExternalLink className="h-3.5 w-3.5" />
@@ -274,106 +264,106 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
   const fallbackJobs: JobItem[] = [
     {
       id: 'local-0',
-      title: 'Business Development Executive',
-      company: 'GrowthBridge Consulting',
-      location: 'Noida, India',
-      type: 'Onsite',
-      salary: '₹8L – ₹12L per annum',
+      title: 'Cloud Sales Executive',
+      company: 'Google',
+      location: 'Gurugram, India',
+      type: 'Hybrid',
+      salary: '₹18L – ₹28L per annum',
       match: 90,
-      skills: ['Lead Generation', 'Client Outreach', 'Negotiation'],
-      url: 'https://www.linkedin.com/jobs/search/?keywords=Business+Development+Executive&location=Noida',
-      companyUrl: 'https://www.linkedin.com/company/growthbridge-consulting',
+      skills: ['B2B Sales', 'Cloud Computing', 'Client Relations'],
+      url: 'https://careers.google.com/',
+      companyUrl: 'https://google.com',
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
     },
     {
       id: 'local-0b',
-      title: 'Business Development Associate',
-      company: 'ScaleAxis Technologies',
-      location: 'Gurugram, India',
+      title: 'Account Executive',
+      company: 'Microsoft',
+      location: 'Hyderabad, India',
       type: 'Hybrid',
-      salary: '₹7L – ₹10L per annum',
+      salary: '₹15L – ₹24L per annum',
       match: 86,
-      skills: ['Sales Pipeline', 'B2B', 'Communication'],
-      url: 'https://www.linkedin.com/jobs/search/?keywords=Business+Development+Associate&location=Gurugram',
-      companyUrl: 'https://www.naukri.com/scaleaxis-technologies-jobs',
+      skills: ['Enterprise Sales', 'Negotiation', 'SaaS'],
+      url: 'https://careers.microsoft.com/',
+      companyUrl: 'https://microsoft.com',
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 15).toISOString(),
     },
     {
       id: 'local-1',
       title: 'Senior Frontend Engineer',
-      company: 'ArcScale Labs',
-      location: 'Bengaluru, India',
+      company: 'Vercel',
+      location: 'Remote',
       type: 'Remote',
-      salary: '₹18L – ₹26L per annum',
+      salary: '$140k – $180k per annum',
       match: 92,
-      skills: ['React', 'TypeScript', 'Design Systems'],
-      url: 'https://www.linkedin.com/jobs/search/?keywords=Senior+Frontend+Engineer&location=Bengaluru',
-      companyUrl: 'https://www.linkedin.com/company/arcscale-labs',
+      skills: ['React', 'Next.js', 'TypeScript', 'Performance'],
+      url: 'https://vercel.com/careers',
+      companyUrl: 'https://vercel.com',
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 6).toISOString(),
     },
     {
       id: 'local-2',
       title: 'Product Designer',
-      company: 'VelocityOS',
-      location: 'Mumbai, India',
+      company: 'Stripe',
+      location: 'Bengaluru, India',
       type: 'Hybrid',
-      salary: '₹12L – ₹18L per annum',
+      salary: '₹30L – ₹45L per annum',
       match: 88,
-      skills: ['Figma', 'UX Research', 'Prototyping'],
-      url: 'https://www.linkedin.com/jobs/search/?keywords=Product+Designer&location=Mumbai',
-      companyUrl: 'https://www.linkedin.com/company/velocityos',
+      skills: ['Figma', 'UX Research', 'Design Systems'],
+      url: 'https://stripe.com/jobs',
+      companyUrl: 'https://stripe.com',
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 20).toISOString(),
     },
     {
       id: 'local-3',
       title: 'Growth Marketing Manager',
-      company: 'Northline Commerce',
-      location: 'Delhi, India',
-      type: 'Onsite',
-      salary: '₹14L – ₹20L per annum',
+      company: 'Notion',
+      location: 'Remote',
+      type: 'Remote',
+      salary: '$120k – $160k per annum',
       match: 81,
       skills: ['SEO', 'Lifecycle Marketing', 'Performance Ads'],
-      url: 'https://www.linkedin.com/jobs/search/?keywords=Growth+Marketing+Manager&location=Delhi',
-      companyUrl: 'https://www.naukri.com/northline-commerce-jobs',
+      url: 'https://www.notion.so/careers',
+      companyUrl: 'https://notion.so',
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 38).toISOString(),
     },
     {
       id: 'local-4',
       title: 'Data Analyst',
-      company: 'Quorix Health',
-      location: 'Hyderabad, India',
+      company: 'Spotify',
+      location: 'Remote',
       type: 'Remote',
-      salary: '₹9L – ₹14L per annum',
+      salary: '$100k – $140k per annum',
       match: 79,
-      skills: ['SQL', 'Power BI', 'Python'],
-      url: 'https://www.linkedin.com/jobs/search/?keywords=Data+Analyst&location=Hyderabad',
-      companyUrl: 'https://www.linkedin.com/company/quorix-health',
+      skills: ['SQL', 'A/B Testing', 'Python', 'Tableau'],
+      url: 'https://www.lifeatspotify.com/',
+      companyUrl: 'https://spotify.com',
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 52).toISOString(),
     },
     {
       id: 'local-5',
       title: 'Backend Software Engineer',
-      company: 'Clarixion Systems',
-      location: 'Pune, India',
-      type: 'Hybrid',
-      salary: '₹15L – ₹22L per annum',
+      company: 'Netflix',
+      location: 'Remote',
+      type: 'Remote',
+      salary: '$200k – $350k per annum',
       match: 85,
-      skills: ['Node.js', 'PostgreSQL', 'REST APIs'],
-      url: 'https://www.linkedin.com/jobs/search/?keywords=Backend+Software+Engineer&location=Pune',
-      companyUrl: 'https://www.naukri.com/clarixion-systems-jobs',
+      skills: ['Java', 'Distributed Systems', 'Microservices'],
+      url: 'https://jobs.netflix.com/',
+      companyUrl: 'https://netflix.com',
       postedAt: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
     },
     {
       id: 'local-6',
       title: 'UI/UX Designer',
-      company: 'Prism Digital Studio',
+      company: 'Airbnb',
       location: 'Bengaluru, India',
-      type: 'Remote',
-      salary: '₹10L – ₹16L per annum',
+      type: 'Hybrid',
+      salary: '₹25L – ₹40L per annum',
       match: 83,
-      skills: ['Figma', 'Motion Design', 'Wireframing'],
-      url: 'https://www.linkedin.com/jobs/search/?keywords=UI+UX+Designer&location=Bengaluru',
-      companyUrl: 'https://www.linkedin.com/company/prism-digital-studio',
+      skills: ['Figma', 'Motion Design', 'Prototyping'],
+      url: 'https://careers.airbnb.com/',
+      companyUrl: 'https://airbnb.com',
       postedAt: new Date(Date.now() - 1000 * 60 * 40).toISOString(),
     },
   ];
@@ -391,6 +381,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
   const [appliedJobs, setAppliedJobs] = useState<Record<string, 'applied' | 'interview'>>({});
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [totalJobs, setTotalJobs] = useState(0);
   const JOBS_PER_PAGE = 6;
 
   const savedJobsStorageKey = buildUserScopedStorageKey(SAVED_JOBS_STORAGE_KEY, currentUser?.id);
@@ -443,32 +434,40 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
   };
 
   /* ── Search ── */
-  const searchJobs = async () => {
+  const searchJobs = async (page = 1) => {
     setIsLoading(true);
     setApiError(null);
-    setCurrentPage(1);
+    setCurrentPage(page);
     try {
       const filters: JobFilters = {
         keyword: query.trim() || undefined,
         location: location.trim() || undefined,
         remoteType: remoteOnly ? 'remote' : undefined,
-        page: 1,
-        limit: 24,
+        page,
+        limit: JOBS_PER_PAGE,
       };
       const resp = await backendApi.listJobs(filters);
+      
       const live = Array.isArray(resp.items) ? resp.items.map(mapBackendJobToUiJob) : [];
-      const blended = mergeById([...live, ...fallbackJobs]).filter(jobMatchesFilters).slice(0, 24);
-      setJobs(blended.length > 0 ? blended : fallbackJobs);
+      // Combine live jobs with fallback jobs, then apply local filters to the whole set
+      const blended = mergeById([...live, ...fallbackJobs]).filter(jobMatchesFilters);
+      
+      setJobs(blended.slice((page - 1) * JOBS_PER_PAGE, page * JOBS_PER_PAGE));
+      
+      // If the backend has a massive amount of jobs, we should ideally use resp.total,
+      // but since we are blending with local fallback mock jobs, we use the blended length for now.
+      setTotalJobs(Math.max(resp.total, blended.length));
     } catch {
       const filtered = fallbackJobs.filter(jobMatchesFilters);
-      setJobs(filtered.length > 0 ? filtered : fallbackJobs);
+      setJobs(filtered.slice((page - 1) * JOBS_PER_PAGE, page * JOBS_PER_PAGE));
+      setTotalJobs(filtered.length);
     } finally {
       setIsLoading(false);
     }
   };
 
-  useEffect(() => { void searchJobs(); }, []);
-  useEffect(() => { void searchJobs(); }, [activeFilters]);
+  useEffect(() => { void searchJobs(1); }, []);
+  useEffect(() => { void searchJobs(1); }, [activeFilters]);
 
   /* ── Actions ── */
   const toggleSaveJob = async (jobId: string) => {
@@ -490,8 +489,8 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
   };
 
   /* ── Pagination ── */
-  const totalPages = Math.ceil(jobs.length / JOBS_PER_PAGE);
-  const paginatedJobs = jobs.slice((currentPage - 1) * JOBS_PER_PAGE, currentPage * JOBS_PER_PAGE);
+  const totalPages = Math.ceil(totalJobs / JOBS_PER_PAGE);
+  const paginatedJobs = jobs;
 
   /* ── Stats ── */
   const interviewCount = Object.values(appliedJobs).filter((s) => s === 'interview').length;
@@ -519,7 +518,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
                 placeholder="Job title, keyword, or company"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && searchJobs()}
+                onKeyDown={(e) => e.key === 'Enter' && searchJobs(1)}
               />
             </div>
             <div className="relative">
@@ -530,7 +529,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
                 placeholder="City, state, or remote"
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && searchJobs()}
+                onKeyDown={(e) => e.key === 'Enter' && searchJobs(1)}
               />
             </div>
             <div className="relative">
@@ -541,12 +540,12 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
                 placeholder="Experience level"
                 value={level}
                 onChange={(e) => setLevel(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && searchJobs()}
+                onKeyDown={(e) => e.key === 'Enter' && searchJobs(1)}
               />
             </div>
             <button
               id="job-search-btn"
-              onClick={searchJobs}
+              onClick={() => searchJobs(1)}
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-700"
             >
               {isLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
@@ -621,7 +620,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
             {!isLoading && totalPages > 1 && (
               <div className="mt-6 flex items-center justify-center gap-2">
                 <button
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  onClick={() => searchJobs(Math.max(1, currentPage - 1))}
                   disabled={currentPage === 1}
                   className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:border-zinc-400 disabled:opacity-40"
                 >
@@ -630,7 +629,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
                 {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
                   <button
                     key={p}
-                    onClick={() => setCurrentPage(p)}
+                    onClick={() => searchJobs(p)}
                     className={`h-9 w-9 rounded-xl text-sm font-bold transition ${
                       p === currentPage
                         ? 'bg-primary text-white'
@@ -641,7 +640,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
                   </button>
                 ))}
                 <button
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  onClick={() => searchJobs(Math.min(totalPages, currentPage + 1))}
                   disabled={currentPage === totalPages}
                   className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:border-zinc-400 disabled:opacity-40"
                 >
@@ -653,12 +652,6 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
 
           {/* Right: Sidebar */}
           <aside className="space-y-4">
-            <QuickStats
-              saved={savedJobs.length}
-              applied={appliedCount}
-              interview={interviewCount}
-              offers={0}
-            />
 
             {/* Application Tips */}
             <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-[0_2px_12px_rgba(15,23,42,0.05)]">

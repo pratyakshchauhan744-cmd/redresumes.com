@@ -25,7 +25,7 @@ export interface TemplateItem {
   fullPreviewImage?: string;
 }
 
-export interface JobItem {
+export type JobItem = {
   id: string;
   title: string;
   company: string;
@@ -36,8 +36,11 @@ export interface JobItem {
   match: number;
   skills: string[];
   url?: string;
+  originalJobUrl?: string;
+  source?: string;
+  isNew?: boolean;
   postedAt?: string;
-}
+};
 
 export interface BlogArticle {
   slug: string;

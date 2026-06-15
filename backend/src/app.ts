@@ -85,6 +85,8 @@ if (env.NODE_ENV !== "production") {
   app.use("/api/dev", devRoutes);
 }
 
+import supportRoutes from "./modules/support/routes.js";
+
 app.use("/api/auth", authRoutes);
 app.use("/api/jobs", jobsRoutes);
 app.use("/api/companies", companiesRoutes);
@@ -98,6 +100,7 @@ app.use("/api/ai", aiRoutes);
 app.use("/api/public-resumes", publicResumeRoutes);
 app.use("/api/interview", interviewRoutes);
 app.use("/api/credits", creditsRoutes);
+app.use("/api/support", supportRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

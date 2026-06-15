@@ -9,8 +9,10 @@ export type ExternalJob = {
   state?: string;
   country?: string;
   applyUrl?: string;
+  originalJobUrl?: string;
   externalId?: string;
   sourceType: "api";
+  source?: string;
 };
 
 export async function fetchAdzunaJobs(): Promise<ExternalJob[]> {
@@ -27,8 +29,10 @@ export async function fetchAdzunaJobs(): Promise<ExternalJob[]> {
     state: item.location?.area?.[2],
     country: "US",
     applyUrl: item.redirect_url,
+    originalJobUrl: item.redirect_url,
     externalId: String(item.id),
-    sourceType: "api"
+    sourceType: "api",
+    source: "Adzuna"
   }));
 }
 
@@ -51,7 +55,9 @@ export async function fetchJoobleJobs(): Promise<ExternalJob[]> {
     city: item.location,
     country: "US",
     applyUrl: item.link,
+    originalJobUrl: item.link,
     externalId: item.id,
-    sourceType: "api"
+    sourceType: "api",
+    source: "Jooble"
   }));
 }

@@ -40,6 +40,9 @@ function mapExternalJobsToResponseItems(items: ExternalJob[]) {
       salaryMax: null,
       currency: "USD",
       applyUrl: item.applyUrl ?? null,
+      originalJobUrl: item.originalJobUrl ?? item.applyUrl ?? null,
+      source: item.source ?? "api",
+      isNew: true,
       postedAt: new Date().toISOString(),
       company: {
         id: `ext-company-${item.company}`.toLowerCase().replace(/[^a-z0-9_-]/g, "-"),
@@ -64,7 +67,8 @@ router.get("/", async (req, res, next) => {
             if (externalJobs.length > 0) {
               await normalizeAndStoreJobs(env.JOOBLE_API_KEY ? "jooble" : "adzuna", externalJobs);
             }
-          } catch {
+          } catch (error) {
+            console.error("Job ingestion failed:", error);
             // Ignore ingestion bootstrap errors and continue with normal query path.
           }
         }
@@ -90,11 +94,17 @@ router.get("/", async (req, res, next) => {
           sort: ["postedAt:desc"]
         });
 
+        const now = Date.now();
+        const itemsWithIsNew = result.hits.map(hit => ({
+          ...hit,
+          isNew: hit.postedAt ? now - new Date(hit.postedAt).getTime() <= 864e5 : false
+        }));
+
         res.json({
           total: result.estimatedTotalHits ?? result.hits.length,
           page: query.page,
           limit: query.limit,
-          items: result.hits
+          items: itemsWithIsNew
         });
         return;
       } catch {
@@ -130,7 +140,13 @@ router.get("/", async (req, res, next) => {
         prisma.job.count({ where })
       ]);
 
-      res.json({ total, page: query.page, limit: query.limit, items });
+      const now = Date.now();
+      const itemsWithIsNew = items.map(job => ({
+        ...job,
+        isNew: now - new Date(job.postedAt).getTime() <= 864e5
+      }));
+
+      res.json({ total, page: query.page, limit: query.limit, items: itemsWithIsNew });
       return;
     } catch {
       // Fallback mode: serve live jobs directly from provider when DB is unavailable.
@@ -181,7 +197,8 @@ router.get("/:id", async (req, res, next) => {
       return;
     }
 
-    res.json(job);
+    const isNew = Date.now() - new Date(job.postedAt).getTime() <= 864e5;
+    res.json({ ...job, isNew });
   } catch (error) {
     next(error);
   }

@@ -110,6 +110,8 @@ model Job {
   sourceType     JobSourceType   @default(direct)
   externalId     String?
   applyUrl       String?
+  originalJobUrl String?
+  source         String?
   postedAt       DateTime        @default(now())
   dedupeHash     String
   createdAt      DateTime        @default(now())

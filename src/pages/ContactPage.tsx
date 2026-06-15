@@ -3,6 +3,7 @@ import { LifeBuoy, FileText, Sparkles } from 'lucide-react';
 import { Section } from '../components/Section';
 import { PrimaryButton } from '../components/Buttons';
 import { Seo } from '../components/Seo';
+import { backendApi } from '../lib/backendApi';
 
 export const ContactPage = () => {
   const [name, setName] = useState('');
@@ -10,8 +11,9 @@ export const ContactPage = () => {
   const [message, setMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     setError(null);
     setSuccess(null);
     if (!name.trim()) {
@@ -27,10 +29,22 @@ export const ContactPage = () => {
       return;
     }
 
-    const subject = encodeURIComponent(`RedResumes Support Request from ${name.trim()}`);
-    const body = encodeURIComponent(`Name: ${name.trim()}\nEmail: ${email.trim()}\n\nMessage:\n${message.trim()}`);
-    window.open(`mailto:support@redresumes.com?subject=${subject}&body=${body}`, '_self');
-    setSuccess('Your email draft was opened. Please send it to complete your support request.');
+    try {
+      setIsSubmitting(true);
+      const res = await backendApi.contactSupport({
+        name: name.trim(),
+        email: email.trim(),
+        message: message.trim()
+      });
+      setSuccess(res.message || 'Your message has been sent successfully.');
+      setName('');
+      setEmail('');
+      setMessage('');
+    } catch (err: any) {
+      setError(err.message || 'Failed to send message. Please try again later.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -69,10 +83,15 @@ export const ContactPage = () => {
                 placeholder="How can we help?"
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
+                disabled={isSubmitting}
               />
               {error && <p className="text-sm font-medium text-rose-700">{error}</p>}
               {success && <p className="text-sm font-medium text-emerald-700">{success}</p>}
-              <PrimaryButton label="Send" onClick={handleSend} />
+              <PrimaryButton 
+                label={isSubmitting ? "Sending..." : "Send"} 
+                onClick={handleSend} 
+                disabled={isSubmitting} 
+              />
             </div>
           </div>
         </div>

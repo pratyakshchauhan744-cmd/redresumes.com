@@ -213,6 +213,9 @@ export type BackendJob = {
   salaryMax?: number | null;
   currency?: string | null;
   applyUrl?: string | null;
+  originalJobUrl?: string | null;
+  source?: string | null;
+  isNew?: boolean;
   postedAt?: string;
   company?:
     | {
@@ -598,6 +601,12 @@ export const backendApi = {
       method: "POST",
       token,
       body: { amount }
+    }),
+
+  contactSupport: (body: { name: string; email: string; message: string }) =>
+    request<{ success: boolean; message: string }>("/api/support/contact", {
+      method: "POST",
+      body
     })
 };
 
@@ -612,6 +621,9 @@ export function mapBackendJobToUiJob(job: BackendJob): {
   match: number;
   skills: string[];
   url?: string;
+  originalJobUrl?: string;
+  source?: string;
+  isNew?: boolean;
   postedAt?: string;
 } {
   const formatSalaryAmount = (amount: number, currency: string) => {
@@ -649,6 +661,9 @@ export function mapBackendJobToUiJob(job: BackendJob): {
     match: 82,
     skills: [job.employmentType, job.experienceLevel].map((value) => value.replace("_", " ")),
     url: job.applyUrl ?? undefined,
+    originalJobUrl: job.originalJobUrl ?? undefined,
+    source: job.source ?? undefined,
+    isNew: job.isNew,
     postedAt: job.postedAt
   };
 }

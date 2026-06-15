@@ -48,7 +48,18 @@ const envSchema = z.object({
     .transform((value) => value === "true"),
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
-  RAZORPAY_WEBHOOK_SECRET: z.string().optional()
+  RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
+  EMAIL_PROVIDER: z.string().optional(),
+  EMAIL_FROM: z.string().optional(),
+  SENDGRID_API_KEY: z.string().optional(),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().optional().default(587),
+  SMTP_SECURE: z
+    .string()
+    .optional()
+    .transform((value) => value === "true"),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

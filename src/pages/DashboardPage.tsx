@@ -426,7 +426,7 @@ export const DashboardPage = ({
                   onClick={() => handleBuyCredits('starter')}
                   className="mt-6 w-full rounded-xl bg-zinc-905 hover:bg-zinc-800 text-white font-bold py-2.5 text-sm transition-all disabled:opacity-50"
                 >
-                  {purchaseLoading === 'starter' ? 'Loading...' : 'Buy for $4.99'}
+                  {purchaseLoading === 'starter' ? 'Loading...' : 'Buy for ₹399'}
                 </button>
               </div>
 
@@ -445,7 +445,7 @@ export const DashboardPage = ({
                   onClick={() => handleBuyCredits('pro')}
                   className="mt-6 w-full rounded-xl bg-primary hover:bg-primary-container text-white font-bold py-2.5 text-sm transition-all disabled:opacity-50"
                 >
-                  {purchaseLoading === 'pro' ? 'Loading...' : 'Buy for $9.99'}
+                  {purchaseLoading === 'pro' ? 'Loading...' : 'Buy for ₹799'}
                 </button>
               </div>
             </div>
@@ -464,7 +464,7 @@ export const DashboardPage = ({
                       </div>
                       <div className="text-right">
                         <p className="font-black text-emerald-600">+{tx.creditsAdded} Credits</p>
-                        <p className="text-[10px] text-zinc-400 mt-0.5">${tx.paymentAmount.toFixed(2)}</p>
+                        <p className="text-[10px] text-zinc-400 mt-0.5">₹{tx.paymentAmount}</p>
                       </div>
                     </div>
                   ))}

@@ -624,7 +624,7 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
                   onClick={() => handleBuyCredits('starter')}
                   className="mt-5 w-full rounded-xl bg-zinc-950 hover:bg-zinc-850 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-white font-bold py-2 text-xs transition-colors disabled:opacity-50"
                 >
-                  {purchaseLoading === 'starter' ? 'Loading...' : 'Buy for ₹399'}
+                  {purchaseLoading === 'starter' ? 'Loading...' : 'Buy for ₹499'}
                 </button>
               </div>
 
@@ -643,7 +643,7 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
                   onClick={() => handleBuyCredits('pro')}
                   className="mt-5 w-full rounded-xl bg-primary hover:bg-primary-container text-white font-bold py-2 text-xs transition-colors disabled:opacity-50"
                 >
-                  {purchaseLoading === 'pro' ? 'Loading...' : 'Buy for ₹799'}
+                  {purchaseLoading === 'pro' ? 'Loading...' : 'Buy for ₹999'}
                 </button>
               </div>
             </div>

@@ -7,12 +7,12 @@ export interface PackageDetails {
 export const PACKAGES: Record<string, PackageDetails> = {
   starter: {
     name: "Starter Pack",
-    price: 399,
+    price: 499,
     credits: 5,
   },
   pro: {
     name: "Pro Pack",
-    price: 799,
+    price: 999,
     credits: 15,
   },
 };

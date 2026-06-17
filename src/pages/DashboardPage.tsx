@@ -426,7 +426,7 @@ export const DashboardPage = ({
                   onClick={() => handleBuyCredits('starter')}
                   className="mt-6 w-full rounded-xl bg-zinc-905 hover:bg-zinc-800 text-white font-bold py-2.5 text-sm transition-all disabled:opacity-50"
                 >
-                  {purchaseLoading === 'starter' ? 'Loading...' : 'Buy for ₹399'}
+                  {purchaseLoading === 'starter' ? 'Loading...' : 'Buy for ₹499'}
                 </button>
               </div>
 
@@ -445,7 +445,7 @@ export const DashboardPage = ({
                   onClick={() => handleBuyCredits('pro')}
                   className="mt-6 w-full rounded-xl bg-primary hover:bg-primary-container text-white font-bold py-2.5 text-sm transition-all disabled:opacity-50"
                 >
-                  {purchaseLoading === 'pro' ? 'Loading...' : 'Buy for ₹799'}
+                  {purchaseLoading === 'pro' ? 'Loading...' : 'Buy for ₹999'}
                 </button>
               </div>
             </div>

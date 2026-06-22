@@ -39,7 +39,7 @@ export const Header = ({
         </Link>
 
         {/* Desktop Nav */}
-        <nav className="hidden md:flex items-center gap-6 text-sm font-semibold text-zinc-600 dark:text-zinc-300">
+        <nav className="hidden lg:flex items-center gap-6 text-sm font-semibold text-zinc-600 dark:text-zinc-300">
           {navLinks.map((item) => (
             <Link
               key={item.path}
@@ -52,7 +52,7 @@ export const Header = ({
         </nav>
 
         {/* Desktop Actions */}
-        <div className="hidden md:flex items-center gap-3">
+        <div className="hidden lg:flex items-center gap-3">
           <button
             type="button"
             onClick={onToggleDarkMode}
@@ -97,7 +97,7 @@ export const Header = ({
         {/* Mobile Toggle */}
         <button 
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="rounded-full border border-zinc-200 p-2 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900 md:hidden"
+          className="rounded-full border border-zinc-200 p-2 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900 lg:hidden"
           aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
         >
           {mobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
@@ -106,7 +106,7 @@ export const Header = ({
 
       {/* Mobile Menu */}
       {mobileMenuOpen && (
-        <div className="absolute left-0 right-0 top-full flex max-h-[80vh] flex-col gap-3 overflow-y-auto border-b border-zinc-100 bg-white px-4 py-4 shadow-lg dark:border-zinc-800 dark:bg-zinc-950 md:hidden">
+        <div className="absolute left-0 right-0 top-full flex max-h-[80vh] flex-col gap-3 overflow-y-auto border-b border-zinc-100 bg-white px-4 py-4 shadow-lg dark:border-zinc-800 dark:bg-zinc-950 lg:hidden">
           <button
             type="button"
             onClick={onToggleDarkMode}

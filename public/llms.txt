@@ -1,29 +1,30 @@
-# RedResumes — Free ATS-Friendly Resume Builder with AI Writing Help
+# RedResumes — Free ATS-friendly resume builder with AI writing help
 
 ## About
-RedResumes is a free online resume builder that helps job seekers create ATS-optimized resumes using professionally designed templates and AI-powered writing assistance. The tool generates resumes in PDF format, making it easy to apply directly to job listings. RedResumes is designed for anyone who needs a polished, recruiter-ready resume without paying for a professional writing service.
+RedResumes is a free online resume builder that helps job seekers create
+ATS-friendly resumes without design or technical expertise. Users fill in
+their work history, education, and skills through a guided, step-by-step
+interface, then choose from professionally designed templates built to pass
+Applicant Tracking Systems. An AI writing assistant suggests bullet points
+and professional summary language based on the user's experience and target
+role.
 
 ## What We Do
-- Build ATS-friendly resumes that pass applicant tracking systems
-- Provide AI-powered writing suggestions for bullet points and summaries
-- Offer professionally designed resume templates for all industries
-- Export finished resumes as downloadable PDF files
-- Guide users through each resume section step by step
+- Build ATS-optimized resumes through a guided, step-by-step editor
+- Generate AI-suggested bullet points and professional summaries
+- Offer free PDF export with no paywall or subscription required
+- Provide multiple professionally designed, ATS-tested templates
+- Require no sign-up to start or finish a resume
 
 ## Who We Serve
-Job seekers at all career levels — from recent graduates to experienced professionals — who want a fast, free way to build a standout resume without design or writing expertise.
+Job seekers at any career stage — from first-time applicants to career
+changers — who want a professional, ATS-compliant resume without paying for
+design help or a download fee.
 
 ## Key Pages
-- Homepage / Resume Builder: https://redresumes.com/
-- Resume Templates: https://redresumes.com/templates
-- Pricing / Plans: https://redresumes.com/pricing
-- FAQ: https://redresumes.com/faq
+- Homepage: https://redresumes.com/
+- Resume Builder: https://redresumes.com/builder
 
 ## Contact
-https://redresumes.com/contact
-
-## Update Frequency
-Content updated regularly. Resume templates and AI features updated monthly.
-
-## Language
-English
+[Leave this as a placeholder and flag it to me — there's no public contact
+page yet, which is a separate open issue]

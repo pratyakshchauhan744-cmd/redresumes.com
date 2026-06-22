@@ -14,6 +14,7 @@ import ingestionRoutes from "./modules/ingestion/routes.js";
 import adminRoutes from "./modules/admin/routes.js";
 import aiRoutes from "./modules/ai/routes.js";
 import publicResumeRoutes from "./modules/public-resumes/routes.js";
+import resumePdfRoutes from "./modules/resume-pdf/routes.js";
 import devRoutes from "./modules/dev/routes.js";
 import interviewRoutes from "./modules/interview/routes.js";
 import creditsRoutes from "./modules/credits/routes.js";
@@ -70,7 +71,7 @@ app.use(
 app.use(helmet());
 app.use(morgan("dev"));
 app.use("/api/credits/webhook", express.raw({ type: "application/json" }));
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "12mb" }));
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 
@@ -98,6 +99,7 @@ app.use("/api/ingestion", ingestionRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/public-resumes", publicResumeRoutes);
+app.use("/api/resume", resumePdfRoutes);
 app.use("/api/interview", interviewRoutes);
 app.use("/api/credits", creditsRoutes);
 app.use("/api/support", supportRoutes);

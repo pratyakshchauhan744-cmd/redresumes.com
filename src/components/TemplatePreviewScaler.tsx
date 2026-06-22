@@ -11,13 +11,27 @@ export const TemplatePreviewScaler = ({
 }) => {
   const shellRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ width: 0, height: 0 });
+  const frameRef = useRef<number | null>(null);
+  const [size, setSize] = useState({ width: pageWidth, height: 0 });
 
   useLayoutEffect(() => {
     const updateSize = () => {
-      setSize({
-        width: shellRef.current?.getBoundingClientRect().width || 0,
-        height: pageRef.current?.scrollHeight || 0,
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current);
+      }
+
+      frameRef.current = window.requestAnimationFrame(() => {
+        frameRef.current = null;
+        const width = shellRef.current?.clientWidth || shellRef.current?.getBoundingClientRect().width || pageWidth;
+        const height = pageRef.current?.scrollHeight || 0;
+
+        setSize((current) => {
+          if (Math.abs(current.width - width) < 0.5 && Math.abs(current.height - height) < 0.5) {
+            return current;
+          }
+
+          return { width, height };
+        });
       });
     };
 
@@ -26,9 +40,16 @@ export const TemplatePreviewScaler = ({
     const resizeObserver = new ResizeObserver(updateSize);
     if (shellRef.current) resizeObserver.observe(shellRef.current);
     if (pageRef.current) resizeObserver.observe(pageRef.current);
+    window.addEventListener('resize', updateSize);
 
-    return () => resizeObserver.disconnect();
-  }, [pageWidth, children]);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateSize);
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current);
+      }
+    };
+  }, [pageWidth]);
 
   const scale = (size.width ? Math.min(1, size.width / pageWidth) : 0) * zoom;
   const scaledHeight = size.height * scale;

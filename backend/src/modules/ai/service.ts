@@ -36,7 +36,47 @@ const STOP_WORDS = new Set([
   "must",
   "should",
   "can",
-  "not"
+  "not",
+  "looking",
+  "look",
+  "seeking",
+  "hiring",
+  "need",
+  "needs",
+  "required",
+  "requires",
+  "experience",
+  "experienced",
+  "expertise",
+  "knowledge",
+  "skills",
+  "candidate",
+  "role",
+  "job",
+  "senior",
+  "manager"
+]);
+
+const ALLOWED_SINGLE_KEYWORDS = new Set([
+  "sql",
+  "python",
+  "java",
+  "react",
+  "node.js",
+  "node",
+  "aws",
+  "azure",
+  "gcp",
+  "figma",
+  "jira",
+  "crm",
+  "erp",
+  "saas",
+  "kpi",
+  "apis",
+  "api",
+  "experimentation",
+  "analytics"
 ]);
 
 const ACTION_VERBS = new Set([
@@ -111,6 +151,11 @@ function tokenize(text: string): string[] {
 }
 
 function extractKeywords(text: string, maxKeywords = 20): string[] {
+  const phraseKeywords = extractKeywordPhrases(text, maxKeywords);
+  if (phraseKeywords.length >= Math.min(maxKeywords, 6)) {
+    return phraseKeywords;
+  }
+
   const counts = new Map<string, number>();
   for (const token of tokenize(text)) {
     counts.set(token, (counts.get(token) ?? 0) + 1);
@@ -127,6 +172,70 @@ function extractKeywords(text: string, maxKeywords = 20): string[] {
     .map(([word]) => word);
 }
 
+function normalizeKeywordPhrase(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^\w+#.\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function toDisplayKeyword(value: string): string {
+  return value
+    .split(/\s+/)
+    .map((part) => {
+      const lower = part.toLowerCase();
+      if (["sql", "api", "apis", "aws", "gcp", "crm", "erp", "saas", "kpi"].includes(lower)) {
+        return lower.toUpperCase();
+      }
+      if (lower === "node.js") return "Node.js";
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(" ");
+}
+
+function cleanKeywordWord(word: string): string {
+  return word.replace(/^[^a-z0-9+#]+|[^a-z0-9+#]+$/gi, "");
+}
+
+function extractKeywordPhrases(text: string, maxKeywords = 20): string[] {
+  const results: string[] = [];
+  const seen = new Set<string>();
+  const addKeyword = (rawValue: string) => {
+    const cleaned = normalizeKeywordPhrase(rawValue)
+      .replace(/^.*\b(?:experience|experienced|expertise|knowledge|skills?)\s+(?:in|with|of)\s+/i, "")
+      .replace(/^(?:looking|seeking|hiring|need|needs|required|requires)\s+(?:for\s+)?/i, "")
+      .replace(/^(?:a|an|the)\s+/i, "")
+      .trim();
+    const meaningfulWords = cleaned
+      .split(/\s+/)
+      .map(cleanKeywordWord)
+      .filter((word) => word && !STOP_WORDS.has(word));
+
+    if (meaningfulWords.length === 0 || meaningfulWords.length > 4) return;
+    if (meaningfulWords.length === 1) {
+      const [single] = meaningfulWords;
+      if (!ALLOWED_SINGLE_KEYWORDS.has(single) && !/^[a-z+#.]*\d[a-z0-9+#.]*$/.test(single)) return;
+    }
+
+    const normalized = meaningfulWords.join(" ");
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    results.push(toDisplayKeyword(normalized));
+  };
+
+  text.split(/[,;•\n]+|(?:\s+and\s+)/i).forEach(addKeyword);
+
+  if (results.length < maxKeywords) {
+    for (const token of normalizeKeywordPhrase(text).split(/\s+/)) {
+      addKeyword(token);
+      if (results.length >= maxKeywords) break;
+    }
+  }
+
+  return results.slice(0, maxKeywords);
+}
+
 function hasSection(resumeText: string, aliases: string[]): boolean {
   return aliases.some((alias) => new RegExp(`\\b${alias}\\b`, "i").test(resumeText));
 }
@@ -141,9 +250,17 @@ export function analyzeAtsScore(resumeText: string, jobDescription: string): Ats
   const resumeFreq = new Map<string, number>();
   resumeTokens.forEach((token) => resumeFreq.set(token, (resumeFreq.get(token) ?? 0) + 1));
 
-  const jdKeywordSet = new Set(jdKeywords.map((token) => normalizeToken(token)));
-  const matchedKeywords = jdKeywords.filter((keyword) => resumeFreq.has(normalizeToken(keyword)));
-  const missingKeywords = jdKeywords.filter((keyword) => !resumeFreq.has(normalizeToken(keyword)));
+  const resumeSearchText = normalizeKeywordPhrase(resumeText);
+  const phraseMatchesResume = (keyword: string): boolean => {
+    const normalizedKeyword = normalizeKeywordPhrase(keyword);
+    const words = normalizedKeyword.split(/\s+/).filter(Boolean).map(normalizeToken);
+    return resumeSearchText.includes(normalizedKeyword) || words.every((word) => resumeFreq.has(word));
+  };
+  const jdKeywordSet = new Set(
+    jdKeywords.flatMap((keyword) => normalizeKeywordPhrase(keyword).split(/\s+/).map(normalizeToken))
+  );
+  const matchedKeywords = jdKeywords.filter(phraseMatchesResume);
+  const missingKeywords = jdKeywords.filter((keyword) => !phraseMatchesResume(keyword));
 
   const weightedKeywords = [...jdFreq.entries()]
     .sort((a, b) => b[1] - a[1])

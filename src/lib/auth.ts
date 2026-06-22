@@ -35,6 +35,9 @@ export const setStoredAuthTokens = (accessToken: string) => {
   window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
 };
 
+export const isLocalAccessToken = (accessToken?: string | null): boolean =>
+  Boolean(accessToken && (accessToken.startsWith('offline-') || accessToken.startsWith('local-')));
+
 export const clearStoredAuthTokens = () => {
   AUTH_TOKEN_STORAGE.removeItem(ACCESS_TOKEN_STORAGE_KEY);
   window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);

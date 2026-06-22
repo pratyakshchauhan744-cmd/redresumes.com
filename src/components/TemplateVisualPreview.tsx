@@ -1,7 +1,8 @@
 import { User } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { memo, type ReactNode } from 'react';
 import type { TemplateItem, TemplateResumeData } from '../types';
 import { templatePreviewThemeById } from '../data/templates';
+import { getEmailHref, getWebsiteHref } from '../lib/resumeLinks';
 
 const getEffectiveListStyle = (text: string, globalStyle: string): 'bullet' | 'number' | 'paragraph' => {
   if (!text) return 'paragraph';
@@ -24,7 +25,7 @@ const getEffectiveListStyle = (text: string, globalStyle: string): 'bullet' | 'n
   return (globalStyle === 'number' || globalStyle === 'bullet') ? (globalStyle as 'number' | 'bullet') : 'bullet';
 };
 
-export const TemplateVisualPreview = ({
+export const TemplateVisualPreview = memo(({
   template,
   data,
   sectionOrder,
@@ -59,7 +60,7 @@ export const TemplateVisualPreview = ({
   const listStyle = data?.listStyle === 'number' ? 'number' : data?.listStyle === 'paragraph' ? 'paragraph' : 'bullet';
   const ListTag: 'ol' | 'ul' = listStyle === 'number' ? 'ol' : 'ul';
   const listClassName = listStyle === 'number' ? 'list-decimal' : 'list-disc';
-  const isTwoColumn = template.id === 'two-column' || template.id === 'finance';
+  const isTwoColumn = theme.twoColumn;
   const orderedSectionIds = [
     ...(sectionOrder ?? []),
     'summary',
@@ -86,20 +87,14 @@ export const TemplateVisualPreview = ({
   }]).filter((item) => item.degree || item.school || item.year);
   const customColumns = data?.customColumns?.filter((item) => item.title.trim() || item.content.trim()) ?? [];
   const cleanListLine = (line: string) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim();
-  const gmailComposeUrl = (email: string) =>
-    `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}`;
-  const websiteUrl = (url: string) => {
-    if (/^https?:\/\//i.test(url)) return url;
-    return `https://${url}`;
-  };
   type ContactLinkItem = { text: string; href?: string; ariaLabel?: string };
   const linkClassName = 'break-words underline-offset-4 hover:underline';
   const rawContactLinkItems: Array<ContactLinkItem | null> = [
     emailText
       ? {
           text: emailText,
-          href: gmailComposeUrl(emailText),
-          ariaLabel: `Email ${emailText} in Gmail`,
+          href: getEmailHref(emailText),
+          ariaLabel: `Email ${emailText}`,
         }
       : null,
     phoneText ? { text: phoneText } : null,
@@ -109,7 +104,7 @@ export const TemplateVisualPreview = ({
   const profileLinkItem = profileText
     ? {
         text: profileText,
-        href: websiteUrl(profileText),
+        href: getWebsiteHref(profileText),
         ariaLabel: `Open ${profileText}`,
       }
     : null;
@@ -321,4 +316,6 @@ export const TemplateVisualPreview = ({
       </main>
     </div>
   );
-};
+});
+
+TemplateVisualPreview.displayName = 'TemplateVisualPreview';

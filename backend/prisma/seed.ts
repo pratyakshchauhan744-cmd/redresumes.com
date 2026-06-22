@@ -1,18 +1,12 @@
 import bcrypt from "bcryptjs";
-import { PrismaClient, UserRole, JobSourceType, RemoteType, EmploymentType, ExperienceLevel } from "@prisma/client";
-import { createHash } from "crypto";
+import { PrismaClient, UserRole } from "@prisma/client";
 
 const prisma = new PrismaClient();
-
-function createJobDedupeHash(input: { title: string; company: string; city?: string | null; description: string }): string {
-  const value = `${input.title}|${input.company}|${input.city ?? ""}|${input.description}`.toLowerCase();
-  return createHash("sha256").update(value).digest("hex");
-}
 
 async function main() {
   const passwordHash = await bcrypt.hash("Password@123", 10);
 
-  const [candidate, employer] = await Promise.all([
+  await Promise.all([
     prisma.user.upsert({
       where: { email: "candidate@example.com" },
       update: {},
@@ -46,61 +40,23 @@ async function main() {
     }
   });
 
-  const company = await prisma.company.upsert({
-    where: { id: "demo-company-id" },
-    update: {},
-    create: {
-      id: "demo-company-id",
-      name: "RedResumes Labs",
-      website: "https://redresumes.com",
-      description: "Career platform company",
-      location: "Bengaluru, India"
-    }
-  });
-
-  const dedupeHash = createJobDedupeHash({
-    title: "Backend Engineer",
-    company: company.name,
-    city: "Bengaluru",
-    description: "Build APIs and distributed systems"
-  });
-
-  await prisma.job.upsert({
-    where: { dedupeHash },
-    update: {},
-    create: {
-      title: "Backend Engineer",
-      description: "Build APIs and distributed systems",
-      companyId: company.id,
-      postedById: employer.id,
-      city: "Bengaluru",
-      state: "Karnataka",
-      country: "India",
-      remoteType: RemoteType.hybrid,
-      employmentType: EmploymentType.full_time,
-      experienceLevel: ExperienceLevel.mid,
-      salaryMin: 100000,
-      salaryMax: 180000,
-      currency: "INR",
-      sourceType: JobSourceType.direct,
-      applyUrl: "https://redresumes.com/careers/backend-engineer",
-      dedupeHash
-    }
-  });
-
-  await prisma.savedJob.upsert({
+  const internalJobs = await prisma.job.findMany({
     where: {
-      userId_jobId: {
-        userId: candidate.id,
-        jobId: (await prisma.job.findFirstOrThrow({ where: { dedupeHash } })).id
-      }
+      OR: [
+        { applyUrl: { startsWith: "https://redresumes.com" } },
+        { applyUrl: { startsWith: "https://www.redresumes.com" } },
+        { company: { name: "RedResumes Labs" } }
+      ]
     },
-    update: {},
-    create: {
-      userId: candidate.id,
-      jobId: (await prisma.job.findFirstOrThrow({ where: { dedupeHash } })).id
-    }
+    select: { id: true }
   });
+
+  if (internalJobs.length > 0) {
+    const internalJobIds = internalJobs.map((job) => job.id);
+    await prisma.savedJob.deleteMany({ where: { jobId: { in: internalJobIds } } });
+    await prisma.application.deleteMany({ where: { jobId: { in: internalJobIds } } });
+    await prisma.job.deleteMany({ where: { id: { in: internalJobIds } } });
+  }
 }
 
 main()

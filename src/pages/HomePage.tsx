@@ -1,5 +1,4 @@
 import { Fragment, useState } from 'react';
-import { Helmet } from 'react-helmet-async';
 import { Check, ClipboardCheck, Layers, Search, SlidersHorizontal, Sparkles, Star, Wand2, X, Video, Mic, Volume2, Bot, Cpu, Zap, BarChart3 } from 'lucide-react';
 import { Section } from '../components/Section';
 import { PrimaryButton, SecondaryButton } from '../components/Buttons';
@@ -63,9 +62,6 @@ export const HomePage = ({
 
   return (
     <div>
-      <Helmet>
-        <title>RedResumes — Free ATS Resume Builder</title>
-      </Helmet>
     <section className="bg-white">
       <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 md:grid-cols-2 md:gap-12 md:py-20 md:items-center">
         <div>

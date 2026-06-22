@@ -403,9 +403,9 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
   }, [appliedJobs, appliedJobsStorageKey]);
 
   /* ── Filter helpers ── */
-  const remoteOnly = activeFilters.has('Remote');
-  const salaryListedOnly = activeFilters.has('Recently Posted');
-  const postedIn24hOnly = activeFilters.has('Easy Apply');
+  const postedIn24hOnly = activeFilters.has('Recently Posted');
+  const workModeFilters = ['Remote', 'Hybrid', 'Onsite'];
+  const employmentFilters = ['Full Time', 'Part Time', 'Contract', 'Internship'];
 
   const isWithinLast24Hours = (v?: string) => {
     if (!v) return false;
@@ -416,21 +416,35 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
     const role = query.toLowerCase().trim();
     if (role && !`${job.title} ${job.company} ${job.skills.join(' ')}`.toLowerCase().includes(role)) return false;
     if (location && !job.location.toLowerCase().includes(location.toLowerCase().trim())) return false;
-    if (remoteOnly && !job.type.toLowerCase().includes('remote')) return false;
+    if (activeFilters.has('Remote') && !job.type.toLowerCase().includes('remote')) return false;
     if (activeFilters.has('Hybrid') && !job.type.toLowerCase().includes('hybrid')) return false;
     if (activeFilters.has('Onsite') && !job.type.toLowerCase().includes('onsite')) return false;
     if (postedIn24hOnly && !isWithinLast24Hours(job.postedAt)) return false;
     return true;
   };
 
-  const mergeById = (list: JobItem[]) => {
-    const seen = new Set<string>();
-    return list.filter((j) => {
-      const k = `${j.title.toLowerCase()}-${j.company.toLowerCase()}`;
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    });
+  const normalizeLevelFilter = (value: string): JobFilters['experienceLevel'] => {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return undefined;
+    if (['entry', 'fresher', 'junior', 'intern'].some((word) => normalized.includes(word))) return 'entry';
+    if (['senior', 'sr'].some((word) => normalized.includes(word))) return 'senior';
+    if (['lead', 'principal', 'manager'].some((word) => normalized.includes(word))) return 'lead';
+    return 'mid';
+  };
+
+  const getEmploymentTypeFilter = (): JobFilters['employmentType'] => {
+    if (activeFilters.has('Full Time')) return 'full_time';
+    if (activeFilters.has('Part Time')) return 'part_time';
+    if (activeFilters.has('Contract')) return 'contract';
+    if (activeFilters.has('Internship')) return 'internship';
+    return undefined;
+  };
+
+  const getRemoteTypeFilter = (): JobFilters['remoteType'] => {
+    if (activeFilters.has('Remote')) return 'remote';
+    if (activeFilters.has('Hybrid')) return 'hybrid';
+    if (activeFilters.has('Onsite')) return 'onsite';
+    return undefined;
   };
 
   /* ── Search ── */
@@ -442,25 +456,26 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
       const filters: JobFilters = {
         keyword: query.trim() || undefined,
         location: location.trim() || undefined,
-        remoteType: remoteOnly ? 'remote' : undefined,
+        remoteType: getRemoteTypeFilter(),
+        employmentType: getEmploymentTypeFilter(),
+        experienceLevel: normalizeLevelFilter(level),
         page,
         limit: JOBS_PER_PAGE,
       };
       const resp = await backendApi.listJobs(filters);
       
       const live = Array.isArray(resp.items) ? resp.items.map(mapBackendJobToUiJob) : [];
-      // Combine live jobs with fallback jobs, then apply local filters to the whole set
-      const blended = mergeById([...live, ...fallbackJobs]).filter(jobMatchesFilters);
-      
-      setJobs(blended.slice((page - 1) * JOBS_PER_PAGE, page * JOBS_PER_PAGE));
-      
-      // If the backend has a massive amount of jobs, we should ideally use resp.total,
-      // but since we are blending with local fallback mock jobs, we use the blended length for now.
-      setTotalJobs(Math.max(resp.total, blended.length));
-    } catch {
+      setJobs(live.filter(jobMatchesFilters));
+      setTotalJobs(resp.total);
+    } catch (error) {
       const filtered = fallbackJobs.filter(jobMatchesFilters);
       setJobs(filtered.slice((page - 1) * JOBS_PER_PAGE, page * JOBS_PER_PAGE));
       setTotalJobs(filtered.length);
+      setApiError(
+        error instanceof Error
+          ? `${error.message} Showing sample jobs instead.`
+          : 'Unable to fetch live jobs. Showing sample jobs instead.'
+      );
     } finally {
       setIsLoading(false);
     }
@@ -483,7 +498,17 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
   const toggleFilter = (label: string) => {
     setActiveFilters((prev) => {
       const next = new Set(prev);
-      next.has(label) ? next.delete(label) : next.add(label);
+      if (next.has(label)) {
+        next.delete(label);
+      } else {
+        if (workModeFilters.includes(label)) {
+          workModeFilters.forEach((filter) => next.delete(filter));
+        }
+        if (employmentFilters.includes(label)) {
+          employmentFilters.forEach((filter) => next.delete(filter));
+        }
+        next.add(label);
+      }
       return next;
     });
   };
@@ -614,6 +639,12 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
                     />
                   ))
               }
+              {!isLoading && paginatedJobs.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-zinc-200 bg-white p-8 text-center">
+                  <p className="text-base font-bold text-zinc-900">No matching jobs found</p>
+                  <p className="mt-1 text-sm text-zinc-500">Try clearing one filter or searching a broader keyword.</p>
+                </div>
+              )}
             </div>
 
             {/* Pagination */}

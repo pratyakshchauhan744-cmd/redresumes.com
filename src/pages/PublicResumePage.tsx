@@ -5,6 +5,7 @@ import { TemplatePreviewScaler } from '../components/TemplatePreviewScaler';
 import { TemplateVisualPreview } from '../components/TemplateVisualPreview';
 import { backendApi, type PublicResumeResponse } from '../lib/backendApi';
 import { readStoredUser } from '../lib/auth';
+import { buildResumePdfHtmlFromElement, downloadResumePdfFromHtml } from '../lib/resumePdfDownload';
 import { templates } from '../data/templates';
 import type { TemplateResumeData } from '../types';
 import { Seo } from '../components/Seo';
@@ -97,6 +98,8 @@ export const PublicResumePage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [pdfDownloadLoading, setPdfDownloadLoading] = useState(false);
+  const [pdfDownloadError, setPdfDownloadError] = useState<string | null>(null);
   const isLoggedIn = Boolean(readStoredUser());
 
   useEffect(() => {
@@ -131,12 +134,35 @@ export const PublicResumePage = () => {
   const resumeData = useMemo(() => toResumeData(resume?.resumeData), [resume?.resumeData]);
   const template = templates.find((item) => item.id === resume?.templateId) ?? templates[0];
 
-  const handlePrintClick = () => {
+  const handlePrintClick = async () => {
     if (!isLoggedIn) {
       setShowLoginModal(true);
       return;
     }
-    window.print();
+    if (pdfDownloadLoading) return;
+
+    const resumeElement = document.querySelector<HTMLElement>('.public-resume-print-area .template-visual-preview');
+    if (!resumeElement) {
+      setPdfDownloadError('Unable to find resume preview. Please refresh and try again.');
+      return;
+    }
+
+    const fileSlug = (resumeData?.fullName || resume?.slug || 'resume')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'resume';
+    const fileName = `${fileSlug}-${template.id}-resume.pdf`;
+
+    setPdfDownloadLoading(true);
+    setPdfDownloadError(null);
+    try {
+      await downloadResumePdfFromHtml(buildResumePdfHtmlFromElement(resumeElement, fileName), fileName);
+    } catch (err) {
+      setPdfDownloadError(err instanceof Error ? err.message : 'Unable to generate PDF. Please try again.');
+    } finally {
+      setPdfDownloadLoading(false);
+    }
   };
 
   if (loading) {
@@ -182,12 +208,14 @@ export const PublicResumePage = () => {
           <button
             type="button"
             onClick={handlePrintClick}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-200 px-4 py-2 text-sm font-bold text-zinc-700 hover:border-primary hover:text-primary"
+            disabled={pdfDownloadLoading}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-200 px-4 py-2 text-sm font-bold text-zinc-700 hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <Download className="h-4 w-4" />
-            Print / save PDF
+            {pdfDownloadLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            {pdfDownloadLoading ? 'Downloading' : 'Download PDF'}
           </button>
         </div>
+        {pdfDownloadError && <p className="no-print mb-4 text-sm font-semibold text-red-600">{pdfDownloadError}</p>}
 
         <div className="public-resume-print-shell overflow-auto rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
           <div className="public-resume-print-area">

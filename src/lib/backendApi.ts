@@ -1,4 +1,4 @@
-import { setStoredAuthTokens, clearStoredAuthTokens, getStoredAccessToken } from "./auth";
+import { setStoredAuthTokens, clearStoredAuthTokens, getStoredAccessToken, isLocalAccessToken } from "./auth";
 
 const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
 const isBrowser = typeof window !== "undefined";
@@ -123,6 +123,10 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   // Silent automatic token refresh on 401
   if (response.status === 401 && path !== "/api/auth/refresh" && path !== "/api/auth/login" && path !== "/api/auth/register") {
+    if (isLocalAccessToken(token)) {
+      throw new Error("This action needs a live backend session. Please sign in with a server-backed account.");
+    }
+
     try {
       const refreshResponse = await fetch(`${baseUrl}/api/auth/refresh`, {
         method: "POST",
@@ -369,6 +373,9 @@ function parseBackendJob(value: unknown): BackendJob {
     salaryMax: optionalNumberOrNull(obj.salaryMax),
     currency: optionalStringOrNull(obj.currency),
     applyUrl: optionalStringOrNull(obj.applyUrl),
+    originalJobUrl: optionalStringOrNull(obj.originalJobUrl),
+    source: optionalStringOrNull(obj.source),
+    isNew: typeof obj.isNew === "boolean" ? obj.isNew : undefined,
     postedAt: typeof obj.postedAt === "string" ? obj.postedAt : undefined,
     company: typeof obj.company === "string" || isObject(obj.company) ? (obj.company as BackendJob["company"]) : undefined
   };

@@ -3,7 +3,7 @@ import { FileText, Clock, Settings, User, Trash2, Edit3, Save, ExternalLink, QrC
 import { Section } from '../components/Section';
 import { Seo } from '../components/Seo';
 import { PrimaryButton, SecondaryButton } from '../components/Buttons';
-import { APPLIED_JOBS_STORAGE_KEY, LOCAL_ACCOUNTS_STORAGE_KEY, RESUME_HISTORY_STORAGE_KEY, SAVED_JOBS_STORAGE_KEY, USER_STORAGE_KEY, buildUserScopedStorageKey, getStoredAccessToken, readStoredUser } from '../lib/auth';
+import { APPLIED_JOBS_STORAGE_KEY, LOCAL_ACCOUNTS_STORAGE_KEY, RESUME_HISTORY_STORAGE_KEY, SAVED_JOBS_STORAGE_KEY, USER_STORAGE_KEY, buildUserScopedStorageKey, getStoredAccessToken, isLocalAccessToken, readStoredUser } from '../lib/auth';
 import { backendApi, type AuthUser } from '../lib/backendApi';
 import type { LocalAccount } from '../types';
 import type { Page } from '../types';
@@ -23,6 +23,8 @@ const loadRazorpayScript = () => {
   });
 };
 
+const sanitizeProfilePhone = (value: string): string => value.replace(/\D/g, '').slice(0, 10);
+
 export const DashboardPage = ({
   currentUser,
   onLogout,
@@ -38,7 +40,7 @@ export const DashboardPage = ({
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const [profileName, setProfileName] = useState(currentUser?.name ?? '');
-  const [profilePhone, setProfilePhone] = useState(currentUser?.phone ?? '');
+  const [profilePhone, setProfilePhone] = useState(sanitizeProfilePhone(currentUser?.phone ?? ''));
   const [profileLocation, setProfileLocation] = useState(currentUser?.location ?? '');
   const [profileBio, setProfileBio] = useState(currentUser?.bio ?? '');
   const [interviewHistory, setInterviewHistory] = useState<any[]>([]);
@@ -180,12 +182,12 @@ export const DashboardPage = ({
     if (storedUser) {
       setUser(storedUser);
       setProfileName(storedUser.name ?? '');
-      setProfilePhone(storedUser.phone ?? '');
+      setProfilePhone(sanitizeProfilePhone(storedUser.phone ?? ''));
       setProfileLocation(storedUser.location ?? '');
       setProfileBio(storedUser.bio ?? '');
     }
 
-    if (!accessToken || accessToken.startsWith('offline-')) {
+    if (!accessToken || isLocalAccessToken(accessToken)) {
       return;
     }
 
@@ -204,7 +206,7 @@ export const DashboardPage = ({
         };
         setUser(mergedUser);
         setProfileName(mergedUser.name ?? '');
-        setProfilePhone(mergedUser.phone ?? '');
+        setProfilePhone(sanitizeProfilePhone(mergedUser.phone ?? ''));
         setProfileLocation(mergedUser.location ?? '');
         setProfileBio(mergedUser.bio ?? '');
         if (typeof mergedUser.credits === 'number') {
@@ -253,11 +255,10 @@ export const DashboardPage = ({
   const handleProfileSave = () => {
     if (!user) return;
     
-    const phoneTrimmed = profilePhone.trim();
+    const phoneTrimmed = sanitizeProfilePhone(profilePhone);
     if (phoneTrimmed !== '') {
-      const digitsOnly = phoneTrimmed.replace(/[^0-9]/g, '');
-      if (digitsOnly.length < 7 || digitsOnly.length > 15 || !/^\+?[0-9\s\-()]+$/.test(phoneTrimmed)) {
-        setProfileError('Please enter a valid phone number (7 to 15 digits).');
+      if (phoneTrimmed.length !== 10) {
+        setProfileError('Please enter exactly 10 digits for the phone number.');
         setProfileMessage(null);
         return;
       }
@@ -495,7 +496,16 @@ export const DashboardPage = ({
             </div>
             <div className="mt-6 grid gap-4 md:grid-cols-2">
               <input value={profileName} onChange={(event) => setProfileName(event.target.value)} className="rounded-xl border border-zinc-200 px-4 py-3 text-sm" placeholder="Full name" />
-              <input value={profilePhone} onChange={(event) => setProfilePhone(event.target.value)} className="rounded-xl border border-zinc-200 px-4 py-3 text-sm" placeholder="Phone number" />
+              <input
+                type="tel"
+                inputMode="numeric"
+                pattern="[0-9]{10}"
+                value={profilePhone}
+                onChange={(event) => setProfilePhone(sanitizeProfilePhone(event.target.value))}
+                className="rounded-xl border border-zinc-200 px-4 py-3 text-sm"
+                placeholder="Phone number"
+                aria-label="Profile phone number"
+              />
               <input value={profileLocation} onChange={(event) => setProfileLocation(event.target.value)} className="rounded-xl border border-zinc-200 px-4 py-3 text-sm md:col-span-2" placeholder="Location" />
               <textarea value={profileBio} onChange={(event) => setProfileBio(event.target.value)} className="rounded-xl border border-zinc-200 px-4 py-3 text-sm md:col-span-2 h-28" placeholder="Short profile bio" />
             </div>
@@ -509,24 +519,7 @@ export const DashboardPage = ({
         </div>
 
         <div className="space-y-6">
-          <div className="rounded-2xl border border-zinc-200 bg-white p-6">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-zinc-900">Resume history</h2>
-              <button onClick={() => navigate('/builder')} className="text-sm font-semibold text-primary">Created resume</button>
-            </div>
-            <div className="mt-4 space-y-3 text-sm">
-              {resumeHistory.length === 0 ? (
-                <p className="text-zinc-500">No saved resume versions yet.</p>
-              ) : (
-                resumeHistory.slice(0, 4).map((entry) => (
-                  <div key={entry.id} className="flex items-center justify-between rounded-xl border border-zinc-100 px-4 py-3">
-                    <span className="text-zinc-700">{entry.snapshot.jobTitle || 'Untitled resume'}</span>
-                    <span className="text-xs text-zinc-400">{new Date(entry.savedAt).toLocaleDateString()}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
+
 
           <div className="rounded-2xl border border-zinc-200 bg-white p-6">
             <div className="flex items-center justify-between">

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UploadCloud, Briefcase, FileText, Settings, Loader2, Building, Sparkles, AlertCircle, ArrowRight } from 'lucide-react';
 import { backendApi } from '../lib/backendApi';
-import { getStoredAccessToken, USER_STORAGE_KEY } from '../lib/auth';
+import { getStoredAccessToken, isLocalAccessToken, USER_STORAGE_KEY } from '../lib/auth';
 import { Seo } from '../components/Seo';
 
 const loadRazorpayScript = () => {
@@ -42,7 +42,7 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
 
   useEffect(() => {
     const token = getStoredAccessToken();
-    if (token && !token.startsWith('offline-')) {
+    if (token && !isLocalAccessToken(token)) {
       backendApi.getCreditTransactions(token)
         .then(data => {
           setCredits(data.balance);

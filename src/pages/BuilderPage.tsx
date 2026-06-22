@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, type ChangeEvent } from 'react';
 import { Download, Layout, Sparkles, User, FileText, CheckCircle, Save, HelpCircle, Briefcase, ChevronRight, PenTool, Type, Move, Plus, X, ArrowUp, ArrowDown, GripVertical, Check, MessageSquare, AlertCircle, Copy, Code, ArrowLeft, LoaderCircle, ClipboardCheck, List, ListOrdered, Lock, AlignLeft } from 'lucide-react';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
 import { Section } from '../components/Section';
 import { PrimaryButton, SecondaryButton } from '../components/Buttons';
@@ -9,17 +7,20 @@ import { TemplatePreviewScaler } from '../components/TemplatePreviewScaler';
 import { TemplateVisualPreview } from '../components/TemplateVisualPreview';
 import { backendApi, type AtsScoreResponse, type AuthUser, type ImproveResumeResponse } from '../lib/backendApi';
 import { RESUME_DRAFT_STORAGE_KEY, RESUME_HISTORY_STORAGE_KEY, buildUserScopedStorageKey, getStoredAccessToken } from '../lib/auth';
-import { templates } from '../data/templates';
+import { templates, templatePreviewThemeById } from '../data/templates';
 import { resumeExamplePresets } from '../data/resumeExamples';
 import { premiumFeatures } from '../data/premiumFeatures';
 import { generateResumeDocx } from '../lib/docxExport';
+import { downloadResumePdfFromHtml } from '../lib/resumePdfDownload';
+import { getEmailHref, getWebsiteHref } from '../lib/resumeLinks';
 import type { PremiumFeatureItem, TemplateItem, TemplateResumeData, ExperienceItem, CustomColumnItem, EducationItem, ResumeListStyle } from '../types';
 import { useLocation, Link } from 'react-router-dom';
-import { Seo } from '../components/Seo';
 
 const MAX_RESUME_HISTORY_ITEMS = 50;
 const LOCAL_PUBLIC_RESUMES_STORAGE_KEY = 'redresumes_local_public_resumes';
+const DEFAULT_JOB_DESCRIPTION = 'Looking for a Senior Product Manager with experience in product analytics, SQL, roadmap ownership, stakeholder management, and experimentation.';
 const cleanListLine = (line: string) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim();
+const sanitizePhoneNumber = (value: string): string => value.replace(/\D/g, '').slice(0, 10);
 
 const getEffectiveListStyle = (text: string, globalStyle: string): 'bullet' | 'number' | 'paragraph' => {
   if (!text) return 'paragraph';
@@ -42,6 +43,134 @@ const getEffectiveListStyle = (text: string, globalStyle: string): 'bullet' | 'n
   return (globalStyle === 'number' || globalStyle === 'bullet') ? (globalStyle as 'number' | 'bullet') : 'bullet';
 };
 
+const ATS_STOP_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'by',
+  'can',
+  'for',
+  'from',
+  'has',
+  'have',
+  'in',
+  'is',
+  'it',
+  'of',
+  'on',
+  'or',
+  'our',
+  'senior',
+  'should',
+  'that',
+  'the',
+  'their',
+  'this',
+  'to',
+  'with',
+  'you',
+  'your',
+  'looking',
+  'look',
+  'experience',
+  'experienced',
+  'role',
+  'job',
+  'work',
+  'candidate',
+  'manager',
+]);
+
+const ATS_ALLOWED_SINGLE_KEYWORDS = new Set([
+  'sql',
+  'python',
+  'java',
+  'react',
+  'node.js',
+  'node',
+  'aws',
+  'azure',
+  'gcp',
+  'figma',
+  'jira',
+  'crm',
+  'erp',
+  'saas',
+  'kpi',
+  'apis',
+  'api',
+  'experimentation',
+  'analytics',
+]);
+
+const normalizeAtsKeyword = (value: string): string =>
+  value
+    .toLowerCase()
+    .replace(/[^\w+#.\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const toSkillLabel = (keyword: string): string =>
+  keyword
+    .split(/\s+/)
+    .map((part) => {
+      const lower = part.toLowerCase();
+      if (['sql', 'api', 'apis', 'aws', 'gcp', 'crm', 'erp', 'saas', 'kpi'].includes(lower)) {
+        return lower.toUpperCase();
+      }
+      if (lower === 'node.js') return 'Node.js';
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(' ');
+
+const cleanAtsKeywordWord = (word: string): string =>
+  word.replace(/^[^a-z0-9+#]+|[^a-z0-9+#]+$/gi, '');
+
+const extractAtsKeywords = (text: string, maxKeywords = 14): string[] => {
+  const seen = new Set<string>();
+  const addKeyword = (rawValue: string, results: string[]) => {
+    const cleaned = normalizeAtsKeyword(rawValue)
+      .replace(/^.*\b(?:experience|experienced|expertise|knowledge|skills?)\s+(?:in|with|of)\s+/i, '')
+      .replace(/^(?:looking|seeking|hiring|need|needs|required|requires)\s+(?:for\s+)?/i, '')
+      .replace(/^(?:a|an|the)\s+/i, '')
+      .trim();
+    const words = cleaned.split(/\s+/).map(cleanAtsKeywordWord).filter(Boolean);
+    const meaningfulWords = words.filter((word) => !ATS_STOP_WORDS.has(word));
+
+    if (meaningfulWords.length === 0 || meaningfulWords.length > 4) return;
+    if (meaningfulWords.length === 1) {
+      const [single] = meaningfulWords;
+      if (!ATS_ALLOWED_SINGLE_KEYWORDS.has(single) && !/^[a-z+#.]*\d[a-z0-9+#.]*$/.test(single)) return;
+    }
+
+    const normalized = meaningfulWords.join(' ');
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    results.push(toSkillLabel(normalized));
+  };
+
+  const results: string[] = [];
+  text
+    .split(/[,;•\n]+|(?:\s+and\s+)/i)
+    .forEach((chunk) => addKeyword(chunk, results));
+
+  if (results.length < maxKeywords) {
+    const tokens = normalizeAtsKeyword(text)
+      .split(/\s+/)
+      .filter((token) => token && !ATS_STOP_WORDS.has(token));
+    for (const token of tokens) {
+      addKeyword(token, results);
+      if (results.length >= maxKeywords) break;
+    }
+  }
+
+  return results.slice(0, maxKeywords);
+};
+
 export const ResumeBuilderPage = ({
   selectedTemplate,
   selectedExample,
@@ -54,6 +183,7 @@ export const ResumeBuilderPage = ({
   currentUser: AuthUser | null;
 }) => {
   const locationRoute = useLocation();
+  const routeTemplateId = useMemo(() => new URLSearchParams(locationRoute.search).get('template'), [locationRoute.search]);
   interface ExperienceItem {
     title: string;
     dates: string;
@@ -89,6 +219,7 @@ export const ResumeBuilderPage = ({
     achievementsInput: string;
     volunteerInput: string;
     customColumns: CustomColumnItem[];
+    jobDescriptionInput?: string;
     selectedTemplateId: string;
     selectedTemplateName: string;
     listStyle?: ResumeListStyle;
@@ -137,7 +268,7 @@ export const ResumeBuilderPage = ({
   const [fullName, setFullName] = useState('Alex Morgan');
   const [jobTitle, setJobTitle] = useState(selectedExample || 'Senior Product Manager');
   const [email, setEmail] = useState('alexmorgan@email.com');
-  const [phone, setPhone] = useState('+1 (555) 123-4567');
+  const [phone, setPhone] = useState('5551234567');
   const [location, setLocation] = useState('New York, NY');
   const [profileLink, setProfileLink] = useState('linkedin.com/in/alexmorgan');
   const [photoDataUrl, setPhotoDataUrl] = useState('');
@@ -168,9 +299,7 @@ export const ResumeBuilderPage = ({
   const [customColumns, setCustomColumns] = useState<CustomColumnItem[]>([]);
   const [newCustomColumnTitle, setNewCustomColumnTitle] = useState('');
   const [newCustomColumnContent, setNewCustomColumnContent] = useState('');
-  const [jobDescriptionInput, setJobDescriptionInput] = useState(
-    'Looking for a Senior Product Manager with experience in product analytics, SQL, roadmap ownership, stakeholder management, and experimentation.'
-  );
+  const [jobDescriptionInput, setJobDescriptionInput] = useState(DEFAULT_JOB_DESCRIPTION);
   const [atsResult, setAtsResult] = useState<AtsScoreResponse | null>(null);
   const [atsLoading, setAtsLoading] = useState(false);
   const [atsError, setAtsError] = useState<string | null>(null);
@@ -190,6 +319,7 @@ export const ResumeBuilderPage = ({
   const [premiumActionMessage, setPremiumActionMessage] = useState<string | null>(null);
   const [publishedResumeUrl, setPublishedResumeUrl] = useState('');
   const [premiumActionLoading, setPremiumActionLoading] = useState<PremiumFeatureItem['id'] | null>(null);
+  const [pdfDownloadLoading, setPdfDownloadLoading] = useState(false);
   const [highlightedOrderSectionId, setHighlightedOrderSectionId] = useState<SectionId | null>(null);
   const [pendingOrderScrollSectionId, setPendingOrderScrollSectionId] = useState<SectionId | null>(null);
   const [saveStatus, setSaveStatus] = useState<'saving' | 'saved'>('saved');
@@ -202,9 +332,26 @@ export const ResumeBuilderPage = ({
   const sectionOrderItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const lastAutoSaveAtRef = useRef<number>(0);
   const applyFromHistoryRef = useRef(false);
+  const selectedTemplateRef = useRef(selectedTemplate);
   const canSaveResumeHistory = Boolean(currentUser);
   const resumeDraftStorageKey = buildUserScopedStorageKey(RESUME_DRAFT_STORAGE_KEY, currentUser?.id);
   const resumeHistoryStorageKey = buildUserScopedStorageKey(RESUME_HISTORY_STORAGE_KEY, currentUser?.id);
+  const selectTemplateImmediately = (template: TemplateItem) => {
+    selectedTemplateRef.current = template;
+    onSelectTemplate(template);
+  };
+  const getTemplateForDownload = () => {
+    const selectedValue = typeof document !== 'undefined'
+      ? (document.getElementById('builder-template-select') as HTMLSelectElement | null)?.value
+      : undefined;
+    const selectedFromDom = selectedValue ? templates.find((template) => template.id === selectedValue) : undefined;
+    return selectedFromDom || selectedTemplateRef.current;
+  };
+
+  useEffect(() => {
+    selectedTemplateRef.current = selectedTemplate;
+  }, [selectedTemplate]);
+
   const normalizeEducationItems = (data: Partial<ResumeHistorySnapshot> | Partial<TemplateResumeData>): EducationItem[] => {
     const items = Array.isArray(data.educationItems) ? data.educationItems : [];
     const normalized = items
@@ -243,13 +390,13 @@ export const ResumeBuilderPage = ({
 
     const presetTemplate = templates.find((item) => item.id === preset.templateId);
     if (presetTemplate) {
-      onSelectTemplate(presetTemplate);
+      selectTemplateImmediately(presetTemplate);
     }
 
     setFullName(preset.fullName);
     setJobTitle(preset.jobTitle);
     setEmail(preset.email);
-    setPhone(preset.phone);
+    setPhone(sanitizePhoneNumber(preset.phone));
     setLocation(preset.location);
     setProfileLink(preset.profileLink);
     setSummary(preset.summary);
@@ -277,42 +424,45 @@ export const ResumeBuilderPage = ({
   }, [selectedExample]);
 
   useEffect(() => {
-    const params = new URLSearchParams(locationRoute.search);
-    const templateId = params.get('template');
-    if (!templateId) return;
-    const matchedTemplate = templates.find((item) => item.id === templateId);
-    if (matchedTemplate && matchedTemplate.id !== selectedTemplate.id) {
-      onSelectTemplate(matchedTemplate);
+    if (!routeTemplateId) return;
+    const matchedTemplate = templates.find((item) => item.id === routeTemplateId);
+    if (matchedTemplate && matchedTemplate.id !== selectedTemplateRef.current.id) {
+      selectTemplateImmediately(matchedTemplate);
     }
-  }, [locationRoute.search, onSelectTemplate, selectedTemplate.id]);
+  }, [routeTemplateId]);
 
-  const buildResumeHistorySnapshot = (): ResumeHistorySnapshot => ({
-    fullName,
-    jobTitle,
-    email,
-    phone,
-    location,
-    profileLink,
-    importantDate,
-    importantPlace,
-    summary,
-    experiences,
-    skillsInput,
-    educationItems,
-    educationDegree,
-    educationSchool,
-    educationYear,
-    projectsInput,
-    certificationsInput,
-    languagesInput,
-    hobbiesInput,
-    achievementsInput,
-    volunteerInput,
-    customColumns,
-    selectedTemplateId: selectedTemplate.id,
-    selectedTemplateName: selectedTemplate.name,
-    listStyle,
-  });
+  const buildResumeHistorySnapshot = (): ResumeHistorySnapshot => {
+    const snapshotTemplate = selectedTemplateRef.current;
+
+    return {
+      fullName,
+      jobTitle,
+      email,
+      phone,
+      location,
+      profileLink,
+      importantDate,
+      importantPlace,
+      summary,
+      experiences,
+      skillsInput,
+      educationItems,
+      educationDegree,
+      educationSchool,
+      educationYear,
+      projectsInput,
+      certificationsInput,
+      languagesInput,
+      hobbiesInput,
+      achievementsInput,
+      volunteerInput,
+      customColumns,
+      jobDescriptionInput,
+      selectedTemplateId: snapshotTemplate.id,
+      selectedTemplateName: snapshotTemplate.name,
+      listStyle,
+    };
+  };
 
   const persistResumeHistory = (items: ResumeHistoryEntry[]) => {
     if (!canSaveResumeHistory) return;
@@ -356,17 +506,17 @@ export const ResumeBuilderPage = ({
 
   const applySnapshotToBuilder = (data: ResumeHistorySnapshot) => {
     applyFromHistoryRef.current = true;
-    if (data.selectedTemplateId && data.selectedTemplateId !== selectedTemplate.id) {
+    if (data.selectedTemplateId && data.selectedTemplateId !== selectedTemplateRef.current.id) {
       const templateToRestore = templates.find((tpl) => tpl.id === data.selectedTemplateId);
       if (templateToRestore) {
-        onSelectTemplate(templateToRestore);
+        selectTemplateImmediately(templateToRestore);
       }
     }
 
     setFullName(data.fullName);
     setJobTitle(data.jobTitle);
     setEmail(data.email);
-    setPhone(data.phone);
+    setPhone(sanitizePhoneNumber(data.phone));
     setLocation(data.location);
     setProfileLink(data.profileLink);
     setImportantDate(data.importantDate);
@@ -382,6 +532,7 @@ export const ResumeBuilderPage = ({
     setAchievementsInput(data.achievementsInput);
     setVolunteerInput(data.volunteerInput);
     setCustomColumns(Array.isArray(data.customColumns) ? data.customColumns : []);
+    setJobDescriptionInput(data.jobDescriptionInput ?? DEFAULT_JOB_DESCRIPTION);
     setListStyle(data.listStyle === 'number' ? 'number' : data.listStyle === 'paragraph' ? 'paragraph' : 'bullet');
   };
 
@@ -559,35 +710,33 @@ export const ResumeBuilderPage = ({
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'candidate';
-  const resumePdfFileName = `${resumeSlug}-${selectedTemplate.id}-resume.pdf`;
+  const getResumePdfFileName = (template: TemplateItem) => `${resumeSlug}-${template.id}-resume.pdf`;
   const appOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://redresumescom.vercel.app';
   const [showLoginModal, setShowLoginModal] = useState(false);
   const isLoggedIn = Boolean(currentUser);
 
-  const templateThemeById: Record<string, { accent: string; headingBg: string; font: string; layout: 'single' | 'two-column' }> = {
-    professional: { accent: '#991b1b', headingBg: '#f8fafc', font: 'Inter, Arial, sans-serif', layout: 'single' },
-    modern: { accent: '#2563eb', headingBg: '#eff6ff', font: 'Inter, Arial, sans-serif', layout: 'single' },
-    minimal: { accent: '#111827', headingBg: '#fafafa', font: 'Georgia, serif', layout: 'single' },
-    creative: { accent: '#ea580c', headingBg: '#fff7ed', font: 'Inter, Arial, sans-serif', layout: 'two-column' },
-    fresher: { accent: '#16a34a', headingBg: '#f0fdf4', font: 'Inter, Arial, sans-serif', layout: 'single' },
-    executive: { accent: '#0f172a', headingBg: '#f1f5f9', font: 'Inter, Arial, sans-serif', layout: 'single' },
-    technical: { accent: '#1d4ed8', headingBg: '#eff6ff', font: 'Inter, Arial, sans-serif', layout: 'two-column' },
-    'two-column': { accent: '#0f172a', headingBg: '#f8fafc', font: 'Inter, Arial, sans-serif', layout: 'two-column' },
-    consulting: { accent: '#b45309', headingBg: '#fffbeb', font: 'Inter, Arial, sans-serif', layout: 'single' },
-    startup: { accent: '#0f766e', headingBg: '#ecfeff', font: 'Inter, Arial, sans-serif', layout: 'single' },
-    corporate: { accent: '#1e3a8a', headingBg: '#eff6ff', font: 'Inter, Arial, sans-serif', layout: 'single' },
-    academic: { accent: '#334155', headingBg: '#f8fafc', font: 'Georgia, serif', layout: 'single' },
-    sales: { accent: '#be123c', headingBg: '#fff1f2', font: 'Inter, Arial, sans-serif', layout: 'single' },
-    designer: { accent: '#c2410c', headingBg: '#fff7ed', font: 'Inter, Arial, sans-serif', layout: 'two-column' },
-    product: { accent: '#4338ca', headingBg: '#eef2ff', font: 'Inter, Arial, sans-serif', layout: 'single' },
-    operations: { accent: '#0f172a', headingBg: '#f8fafc', font: 'Inter, Arial, sans-serif', layout: 'two-column' },
-    finance: { accent: '#0f766e', headingBg: '#f0fdfa', font: 'Georgia, serif', layout: 'single' },
+  const templateFontById: Record<string, string> = {
+    minimal: 'Georgia, serif',
+    academic: 'Georgia, serif',
+    finance: 'Georgia, serif',
   };
-  const currentTheme = templateThemeById[selectedTemplate.id] || templateThemeById.professional;
-  const orderedPrintableSections = [
-    ...sectionSelectionOrder.filter((id) => printableSectionIds.includes(id)),
-    ...printableSectionIds.filter((id) => !sectionSelectionOrder.includes(id)),
-  ];
+  const getTemplateTheme = (templateId: string) => {
+    const previewTheme = templatePreviewThemeById[templateId] || templatePreviewThemeById.professional;
+    return {
+      accent: previewTheme.accent,
+      headingBg: previewTheme.headerBg,
+      font: templateFontById[templateId] || 'Inter, Arial, sans-serif',
+      layout: previewTheme.twoColumn ? 'two-column' as const : 'single' as const,
+    };
+  };
+  const currentTheme = getTemplateTheme(selectedTemplate.id);
+  const orderedPrintableSections = useMemo(
+    () => [
+      ...sectionSelectionOrder.filter((id) => printableSectionIds.includes(id)),
+      ...printableSectionIds.filter((id) => !sectionSelectionOrder.includes(id)),
+    ],
+    [sectionSelectionOrder],
+  );
   const printableSectionLabel: Record<SectionId, string> = {
     contact: 'Contact',
     photo: 'Photo',
@@ -625,6 +774,16 @@ export const ResumeBuilderPage = ({
 
     return matchesSearch && matchesRole && matchesDate;
   });
+  const isHistoryErrorMessage = (message: string): boolean => {
+    const lower = message.toLowerCase();
+    return (
+      lower.includes('unable') ||
+      lower.includes('could not') ||
+      lower.includes('failed') ||
+      lower.includes('error') ||
+      lower.includes('please sign in')
+    );
+  };
 
   const currentBuilderSnapshot = useMemo(
     () => buildResumeHistorySnapshot(),
@@ -651,6 +810,7 @@ export const ResumeBuilderPage = ({
       achievementsInput,
       volunteerInput,
       customColumns,
+      jobDescriptionInput,
       listStyle,
       selectedTemplate.id,
       selectedTemplate.name,
@@ -672,10 +832,13 @@ export const ResumeBuilderPage = ({
       if (rawDraft) {
         const parsed = JSON.parse(rawDraft) as ResumeHistorySnapshot;
         if (parsed && typeof parsed === 'object') {
+          const routeTemplate = routeTemplateId ? templates.find((template) => template.id === routeTemplateId) : undefined;
           applySnapshotToBuilder({
             ...parsed,
             experiences: Array.isArray(parsed.experiences) ? parsed.experiences : [],
             customColumns: Array.isArray(parsed.customColumns) ? parsed.customColumns : [],
+            selectedTemplateId: routeTemplate?.id ?? parsed.selectedTemplateId,
+            selectedTemplateName: routeTemplate?.name ?? parsed.selectedTemplateName,
           });
           setHistoryMessage('Restored your locally saved draft.');
         }
@@ -871,6 +1034,13 @@ export const ResumeBuilderPage = ({
     });
   };
 
+  const removeExperience = (index: number) => {
+    setExperiences((prev) => {
+      const next = prev.filter((_, idx) => idx !== index);
+      return next.length > 0 ? next : [{ title: '', dates: '', bullets: '' }];
+    });
+  };
+
   const addAnotherEducation = () => {
     setEducationItems((prev) => [...prev, { degree: '', school: '', year: '' }]);
   };
@@ -928,10 +1098,6 @@ export const ResumeBuilderPage = ({
 
   const removeCustomColumn = (index: number) => {
     setCustomColumns((prev) => prev.filter((_, idx) => idx !== index));
-  };
-
-  const openPreviewPanel = () => {
-    document.getElementById('builder-live-preview')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const generatePortfolioHtml = () => {
@@ -1523,7 +1689,6 @@ export const ResumeBuilderPage = ({
                   <img src="${qrCodeSrc}" alt="Resume QR code" width="280" height="280" />
                   <p style="margin-top: 14px; word-break: break-all;">${url}</p>
                   <a class="button" href="${qrCodeSrc}" download="${resumeSlug}-resume-qr.png">Download QR PNG</a>
-                  <button onclick="window.print()">Print QR</button>
                 </div>
               </div>
             </body>
@@ -1543,7 +1708,8 @@ export const ResumeBuilderPage = ({
     setPremiumActionMessage('This premium action is not available right now.');
   };
 
-  const generateResumePdfHtml = (previewMode = false) => {
+  const generateResumePdfHtml = (previewMode = false, template = selectedTemplateRef.current) => {
+    const pdfTheme = getTemplateTheme(template.id);
     const escapeHtml = (value: string) =>
       value
         .replace(/&/g, '&amp;')
@@ -1551,6 +1717,19 @@ export const ResumeBuilderPage = ({
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+    const escapeAttribute = escapeHtml;
+    const contactEmail = email.trim();
+    const contactPhone = phone.trim();
+    const contactLocation = location.trim();
+    const contactProfile = profileLink.trim();
+    const contactItems = [
+      contactEmail ? `<a href="${escapeAttribute(getEmailHref(contactEmail))}">${escapeHtml(contactEmail)}</a>` : '',
+      contactPhone ? `<span>${escapeHtml(contactPhone)}</span>` : '',
+      contactLocation ? `<span>${escapeHtml(contactLocation)}</span>` : '',
+    ].filter(Boolean).join(' • ');
+    const profileMarkup = contactProfile
+      ? `<a href="${escapeAttribute(getWebsiteHref(contactProfile))}">${escapeHtml(contactProfile)}</a>`
+      : '';
 
     const skillsMarkup = parsedSkills.map((skill) => `<span class="tag">${escapeHtml(skill)}</span>`).join('');
     const experienceMarkup = experiences
@@ -1715,7 +1894,7 @@ export const ResumeBuilderPage = ({
       .filter(Boolean)
       .join('');
 
-    const safePdfFileName = escapeHtml(resumePdfFileName);
+    const safePdfFileName = escapeHtml(getResumePdfFileName(template));
 
     return `
       <html>
@@ -1733,7 +1912,7 @@ export const ResumeBuilderPage = ({
               margin: 0;
               color: #111827;
               background: #f8fafc;
-              font-family: ${currentTheme.font};
+              font-family: ${pdfTheme.font};
               line-height: 1.45;
               -webkit-print-color-adjust: exact;
               print-color-adjust: exact;
@@ -1753,26 +1932,28 @@ export const ResumeBuilderPage = ({
             ${previewMode ? '@media (min-width: 420px) { .resume { transform: scale(0.42); } }' : ''}
             ${previewMode ? '@media (min-width: 560px) { .resume { transform: scale(0.5); } }' : ''}
             ${previewMode ? '@media (min-width: 720px) { .resume { transform: scale(0.58); } }' : ''}
-            .header { background: ${currentTheme.headingBg}; border-bottom: 1px solid #e5e7eb; padding: 20px; }
-            .top { display: flex; gap: 12px; align-items: center; }
+            .header { background: ${pdfTheme.headingBg}; border-bottom: 1px solid #e5e7eb; padding: 18px 20px; }
+            .top { display: flex; gap: 11px; align-items: center; }
             .top > div { min-width: 0; }
-            .avatar { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; border: 1px solid #d4d4d8; }
-            h1 { margin: 0; font-size: 28pt; line-height: 1.05; letter-spacing: -0.02em; overflow-wrap: anywhere; }
-            .role { margin: 5px 0 0; font-size: 16pt; font-weight: 700; color: #3f3f46; overflow-wrap: anywhere; }
-            .meta { margin: 8px 0 0; color: #52525b; font-size: 10pt; overflow-wrap: anywhere; word-break: break-word; }
-            .content { padding: 20px; }
+            .avatar { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; border: 1px solid #d4d4d8; }
+            h1 { margin: 0; font-size: 28pt; line-height: 1.02; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+            .role { margin: 4px 0 0; font-size: 15pt; font-weight: 700; color: #3f3f46; overflow-wrap: anywhere; }
+            .meta { margin: 6px 0 0; color: #52525b; font-size: 10pt; line-height: 1.38; overflow-wrap: anywhere; word-break: break-word; }
+            .content { padding: 18px 20px; }
             .content.single { display: block; }
-            .content.two { display: grid; grid-template-columns: 0.86fr 1.35fr; gap: 18px; }
-            .side { background: ${currentTheme.headingBg}; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; height: fit-content; }
+            .content.two { display: grid; grid-template-columns: 0.82fr 1.42fr; gap: 16px; }
+            .side { background: ${pdfTheme.headingBg}; border: 1px solid #e5e7eb; border-radius: 8px; padding: 13px; height: fit-content; }
             .main { min-width: 0; }
-            .section { margin-bottom: 16px; break-inside: avoid; page-break-inside: avoid; }
-            .section h2 { margin: 0 0 8px; font-size: 16px; text-transform: uppercase; letter-spacing: 0.12em; color: ${currentTheme.accent}; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; }
-            .section p { margin: 4px 0; font-size: 14px; color: #374151; overflow-wrap: anywhere; }
+            .section { margin-bottom: 13px; break-inside: avoid; page-break-inside: avoid; }
+            .section h2 { margin: 0 0 7px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.18em; color: ${pdfTheme.accent}; border-bottom: 1px solid #e5e7eb; padding-bottom: 5px; }
+            .section p { margin: 4px 0; font-size: 12px; line-height: 1.48; color: #374151; overflow-wrap: anywhere; }
+            a { color: inherit; text-decoration: none; }
+            .meta a { overflow-wrap: anywhere; word-break: break-word; }
             .exp-item { margin-bottom: 10px; break-inside: avoid; page-break-inside: avoid; }
-            .exp-item h3 { margin: 0; font-size: 14px; color: #111827; }
-            ul { margin: 5px 0 0; padding-left: 18px; }
-            li { font-size: 13px; color: #374151; margin-bottom: 2px; overflow-wrap: anywhere; }
-            .tag { display: inline-block; border: 1px solid #d4d4d8; border-radius: 999px; padding: 2px 8px; margin: 0 6px 6px 0; font-size: 12px; color: #1f2937; }
+            .exp-item h3 { margin: 0; font-size: 12.5px; line-height: 1.28; color: #111827; }
+            ul, ol { margin: 5px 0 0; padding-left: 16px; }
+            li { font-size: 11.4px; line-height: 1.43; color: #374151; margin-bottom: 1px; overflow-wrap: anywhere; }
+            .tag { display: inline-block; border: 1px solid #d4d4d8; border-radius: 999px; padding: 2px 7px; margin: 0 5px 5px 0; font-size: 10.8px; line-height: 1.35; color: #1f2937; }
             @media print {
               body { background: #fff; }
               .resume { max-width: none; border: none; border-radius: 0; box-shadow: none; }
@@ -1785,7 +1966,7 @@ export const ResumeBuilderPage = ({
         </head>
         <body>
           <div class="${previewMode ? 'preview-shell' : ''}">
-          <div class="resume">
+          <div class="resume" data-template-id="${escapeAttribute(template.id)}">
             <header class="header">
               <div class="top">
                 ${photoDataUrl ? `<img class="avatar" src="${escapeHtml(photoDataUrl)}" alt="Profile photo" />` : ''}
@@ -1794,12 +1975,12 @@ export const ResumeBuilderPage = ({
                   <p class="role">${escapeHtml(jobTitle || 'Target role')}</p>
                 </div>
               </div>
-              <p class="meta">${escapeHtml(email || 'email@example.com')} • ${escapeHtml(phone || 'phone')} • ${escapeHtml(location || 'location')}</p>
-              <p class="meta">${escapeHtml(profileLink || 'linkedin.com/in/yourprofile')}</p>
+              ${contactItems ? `<p class="meta">${contactItems}</p>` : ''}
+              ${profileMarkup ? `<p class="meta">${profileMarkup}</p>` : ''}
               ${datePlaceText ? `<p class="meta">${escapeHtml(datePlaceText)}</p>` : ''}
             </header>
             ${
-              currentTheme.layout === 'two-column'
+              pdfTheme.layout === 'two-column'
                 ? `<div class="content two"><aside class="side">${twoColumnSideMarkup}</aside><main class="main">${twoColumnMainMarkup}</main></div>`
                 : `<div class="content single">${singleColumnMarkup}</div>`
             }
@@ -1810,29 +1991,25 @@ export const ResumeBuilderPage = ({
     `;
   };
 
-  const downloadResumePdf = () => {
+  const downloadResumePdf = async () => {
     if (!isLoggedIn) {
       setShowLoginModal(true);
       return;
     }
-    saveCurrentResumeToHistory('Saved from PDF download');
-    const popup = window.open('', '_blank', 'width=1000,height=900');
-    if (!popup) return;
+    if (pdfDownloadLoading) return;
 
-    popup.document.open();
-    popup.document.write(generateResumePdfHtml(false));
-    popup.document.close();
-
-    const printPdf = () => {
-      popup.focus();
-      popup.print();
-    };
-    const fontsReady = popup.document.fonts?.ready;
-    if (fontsReady) {
-      fontsReady.then(() => window.setTimeout(printPdf, 100)).catch(printPdf);
-      return;
+    setPdfDownloadLoading(true);
+    setHistoryMessage(null);
+    try {
+      const templateForDownload = getTemplateForDownload();
+      saveCurrentResumeToHistory('Saved from PDF download');
+      await downloadResumePdfFromHtml(generateResumePdfHtml(false, templateForDownload), getResumePdfFileName(templateForDownload));
+      setHistoryMessage('Resume PDF downloaded.');
+    } catch (error) {
+      setHistoryMessage(error instanceof Error ? error.message : 'Unable to generate PDF. Please try again.');
+    } finally {
+      setPdfDownloadLoading(false);
     }
-    window.setTimeout(printPdf, 250);
   };
 
   const handleDownloadDocx = () => {
@@ -1939,37 +2116,14 @@ export const ResumeBuilderPage = ({
   };
 
   const buildLocalAtsScore = (resumeText: string, jobDescription: string): AtsScoreResponse => {
-    const tokenize = (value: string) =>
-      value
-        .toLowerCase()
-        .split(/[^a-z0-9+#.]+/i)
-        .map((token) => token.trim())
-        .filter((token) => token.length > 2);
-
-    const ignoredTerms = new Set([
-      'with',
-      'that',
-      'this',
-      'from',
-      'have',
-      'your',
-      'role',
-      'year',
-      'years',
-      'looking',
-      'experience',
-      'manager',
-      'management',
-      'work',
-      'skills',
-      'using',
-    ]);
-
-    const resumeTokens = new Set(tokenize(resumeText));
-    const jdTokens = tokenize(jobDescription).filter((token) => !ignoredTerms.has(token));
-    const rankedKeywords = Array.from(new Set(jdTokens)).slice(0, 12);
-    const matchedKeywords = rankedKeywords.filter((keyword) => resumeTokens.has(keyword));
-    const missingKeywords = rankedKeywords.filter((keyword) => !resumeTokens.has(keyword));
+    const resumeSearchText = normalizeAtsKeyword(resumeText);
+    const rankedKeywords = extractAtsKeywords(jobDescription, 12);
+    const matchedKeywords = rankedKeywords.filter((keyword) => {
+      const normalizedKeyword = normalizeAtsKeyword(keyword);
+      const words = normalizedKeyword.split(/\s+/).filter(Boolean);
+      return resumeSearchText.includes(normalizedKeyword) || words.every((word) => resumeSearchText.includes(word));
+    });
+    const missingKeywords = rankedKeywords.filter((keyword) => !matchedKeywords.includes(keyword));
     const total = Math.max(rankedKeywords.length, 1);
     const score = Math.max(48, Math.min(98, Math.round((matchedKeywords.length / total) * 100)));
 
@@ -2070,27 +2224,40 @@ export const ResumeBuilderPage = ({
     }
   };
 
+  const addMissingAtsKeywordsToSkills = (): number => {
+    if (!atsResult?.missingKeywords?.length) return 0;
+
+    const toAdd = atsResult.missingKeywords
+      .slice(0, 8)
+      .map((item) => toSkillLabel(normalizeAtsKeyword(item)))
+      .filter(Boolean);
+
+    const existing = new Set(parsedSkills.map((item) => item.toLowerCase()));
+    const merged = [...parsedSkills];
+    let addedCount = 0;
+    toAdd.forEach((kw) => {
+      if (!existing.has(kw.toLowerCase())) {
+        merged.push(kw);
+        existing.add(kw.toLowerCase());
+        addedCount += 1;
+      }
+    });
+
+    if (addedCount > 0) {
+      setSkillsInput(merged.join(', '));
+    }
+
+    return addedCount;
+  };
+
   const applyAtsMissingKeywords = () => {
     if (!atsResult?.missingKeywords?.length) {
       setAtsApplyMessage('No missing keywords to add.');
       return;
     }
 
-    const toAdd = atsResult.missingKeywords
-      .slice(0, 8)
-      .map((item) => item.trim().replace(/[^\w+#.-]/g, ''))
-      .filter(Boolean);
-
-    const existing = new Set(parsedSkills.map((item) => item.toLowerCase()));
-    const merged = [...parsedSkills];
-    toAdd.forEach((kw) => {
-      if (!existing.has(kw.toLowerCase())) {
-        merged.push(kw);
-      }
-    });
-
-    setSkillsInput(merged.join(', '));
-    setAtsApplyMessage(`Added ${toAdd.length} missing keywords to Skills.`);
+    const addedCount = addMissingAtsKeywordsToSkills();
+    setAtsApplyMessage(addedCount ? `Added ${addedCount} missing keyword(s) to Skills.` : 'No new keywords to add.');
     focusSection('skills');
   };
 
@@ -2104,23 +2271,9 @@ export const ResumeBuilderPage = ({
     setAtsError(null);
     setAtsApplyMessage(null);
     try {
+      const addedCount = addMissingAtsKeywordsToSkills();
       const token = getStoredAccessToken();
       if (!token) throw new Error('Sign in required');
-      const toAdd = atsResult.missingKeywords
-        .slice(0, 8)
-        .map((item) => item.trim().replace(/[^\w+#.-]/g, ''))
-        .filter(Boolean);
-
-      const existing = new Set(parsedSkills.map((item) => item.toLowerCase()));
-      const merged = [...parsedSkills];
-      let addedCount = 0;
-      toAdd.forEach((kw) => {
-        if (!existing.has(kw.toLowerCase())) {
-          merged.push(kw);
-          addedCount += 1;
-        }
-      });
-      setSkillsInput(merged.join(', '));
 
       const result = await backendApi.improveResume({
         resumeText: buildResumeTextForAi(),
@@ -2153,6 +2306,7 @@ export const ResumeBuilderPage = ({
       );
       focusSection('summary');
     } catch (error) {
+      const addedCount = addMissingAtsKeywordsToSkills();
       const result = buildLocalImproveResume('full');
       setAiImproveResult(result);
       if (result.improvedSummary?.trim()) {
@@ -2172,7 +2326,7 @@ export const ResumeBuilderPage = ({
         });
       }
       setAtsError(null);
-      setAtsApplyMessage('Applied all ATS fixes locally in your browser.');
+      setAtsApplyMessage(`Applied all ATS fixes locally: ${addedCount} keyword(s) added.`);
     } finally {
       setAtsApplyLoading(false);
     }
@@ -2285,7 +2439,7 @@ export const ResumeBuilderPage = ({
       if (data.fullName) setFullName(data.fullName);
       if (data.jobTitle) setJobTitle(data.jobTitle);
       if (data.email) setEmail(data.email);
-      if (data.phone) setPhone(data.phone);
+      if (data.phone) setPhone(sanitizePhoneNumber(data.phone));
       if (data.location) setLocation(data.location);
       if (data.profileLink) setProfileLink(data.profileLink);
       if (data.summary) setSummary(data.summary);
@@ -2320,12 +2474,8 @@ export const ResumeBuilderPage = ({
 
   return (
     <>
-      <Seo
-        title="Resume Builder | Design Your Resume Online | Red Resumes"
-        description="Create and customize your resume section by section with real-time preview, professional suggestions, and easy PDF export."
-      />
-      <div className="bg-white">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:py-12">
+      <div className="overflow-x-clip bg-white">
+      <div className="mx-auto w-full max-w-7xl min-w-0 px-4 py-8 sm:px-6 md:py-12">
         <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-zinc-400 md:text-xs md:tracking-[0.2em]">Resume Builder</p>
@@ -2337,18 +2487,14 @@ export const ResumeBuilderPage = ({
             )}
           </div>
           <div className="grid gap-2 sm:hidden">
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={openPreviewPanel}
-                className="rounded-full border border-zinc-300 px-4 py-2.5 text-sm font-semibold text-zinc-900 transition hover:border-zinc-900"
-              >
-                Preview
-              </button>
+            <div className="grid grid-cols-1 gap-2">
               <button
                 onClick={downloadResumePdf}
-                className="rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+                disabled={pdfDownloadLoading}
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Download PDF
+                {pdfDownloadLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+                {pdfDownloadLoading ? 'Downloading' : 'Download PDF'}
               </button>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -2393,7 +2539,7 @@ export const ResumeBuilderPage = ({
               </div>
             </details>
           </div>
-          <div className="hidden w-full grid-cols-2 gap-2 sm:grid sm:grid-cols-6 md:w-auto">
+          <div className="hidden w-full grid-cols-2 gap-2 sm:grid sm:grid-cols-5 md:w-auto">
             <button
               onClick={handleUndo}
               disabled={undoStack.length <= 1}
@@ -2410,11 +2556,12 @@ export const ResumeBuilderPage = ({
             </button>
 
             <button
-              onClick={openPreviewPanel}
+              onClick={() => saveCurrentResumeToHistory('Manual save')}
               className="w-full rounded-full border border-zinc-300 px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:border-zinc-900"
             >
-              Preview
+              Save version
             </button>
+
             <button
               onClick={handleDownloadDocx}
               className="w-full rounded-full bg-zinc-900 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800"
@@ -2423,9 +2570,11 @@ export const ResumeBuilderPage = ({
             </button>
             <button
               onClick={downloadResumePdf}
-              className="w-full rounded-full bg-primary px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+              disabled={pdfDownloadLoading}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Download PDF
+              {pdfDownloadLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+              {pdfDownloadLoading ? 'Downloading' : 'Download PDF'}
             </button>
           </div>
         </div>
@@ -2466,15 +2615,15 @@ export const ResumeBuilderPage = ({
           </div>
         </div>
 
-        <div className="mt-6 grid gap-5 lg:mt-10 lg:grid-cols-[220px_1fr_380px] lg:gap-6">
-          <aside className="h-fit rounded-2xl border border-zinc-100 bg-zinc-50 p-3 md:p-4">
+        <div className="mt-6 grid min-w-0 gap-5 lg:mt-10 lg:grid-cols-[minmax(0,200px)_minmax(0,1fr)_minmax(0,320px)] lg:gap-5 xl:grid-cols-[220px_minmax(0,1fr)_380px] xl:gap-6">
+          <aside className="h-fit min-w-0 overflow-hidden rounded-2xl border border-zinc-100 bg-zinc-50 p-3 md:p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-zinc-400 font-semibold">Sections</p>
             <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3 lg:mt-4 lg:block lg:space-y-2">
               {sectionItems.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => focusSection(item.id)}
-                  className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left transition ${
+                  className={`flex w-full min-w-0 items-center justify-between rounded-lg border px-3 py-2 text-left transition ${
                     activeSection === item.id
                       ? 'border-primary bg-primary/5 text-primary'
                       : 'border-zinc-100 bg-white text-zinc-900 hover:border-zinc-300'
@@ -2492,7 +2641,7 @@ export const ResumeBuilderPage = ({
                   Reset
                 </button>
               </div>
-              <div ref={sectionOrderListRef} className="mt-3 max-h-[28rem] space-y-2 overflow-auto pr-1">
+              <div ref={sectionOrderListRef} className="mt-3 max-h-[28rem] space-y-2 overflow-y-auto overflow-x-hidden pr-1">
                 {orderedPrintableSections.map((sectionId, index) => (
                   <div
                     key={`order-${sectionId}`}
@@ -2500,7 +2649,7 @@ export const ResumeBuilderPage = ({
                     ref={(el) => {
                       sectionOrderItemRefs.current[sectionId] = el;
                     }}
-                    className={`rounded-lg border bg-white px-2 py-2 ${
+                    className={`min-w-0 rounded-lg border bg-white px-2 py-2 ${
                       highlightedOrderSectionId === sectionId
                         ? 'border-primary bg-primary/10 ring-2 ring-primary/30'
                         : activeSection === sectionId
@@ -2535,14 +2684,23 @@ export const ResumeBuilderPage = ({
             </div>
           </aside>
 
-          <div className="space-y-6">
+          <div className="min-w-0 space-y-6">
             <div id="builder-section-contact" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Contact Information</h2>
               <div className="mt-4 grid md:grid-cols-2 gap-4 text-sm">
                 <input value={fullName} onChange={(e) => setFullName(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Full name" />
                 <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Job title" />
                 <input value={email} onChange={(e) => setEmail(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Email" />
-                <input value={phone} onChange={(e) => setPhone(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Phone" />
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  pattern="[0-9]{10}"
+                  value={phone}
+                  onChange={(e) => setPhone(sanitizePhoneNumber(e.target.value))}
+                  className="border border-zinc-200 rounded-lg px-3 py-2"
+                  placeholder="Phone"
+                  aria-label="Phone number"
+                />
                 <input value={location} onChange={(e) => setLocation(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Location" />
                 <input value={profileLink} onChange={(e) => setProfileLink(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="LinkedIn / Portfolio" />
               </div>
@@ -2659,7 +2817,7 @@ export const ResumeBuilderPage = ({
             <div id="builder-section-experience" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <h2 className="font-semibold text-zinc-900">Work Experience</h2>
-                <div className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-1">
+                <div className="flex flex-wrap items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-1">
                   <button
                     type="button"
                     onClick={() => setListStyle('bullet')}
@@ -2692,7 +2850,20 @@ export const ResumeBuilderPage = ({
               <div className="mt-4 space-y-4 text-sm">
                 {experiences.map((exp, index) => (
                   <div key={index} className="rounded-xl border border-zinc-200 p-4 bg-zinc-50/40">
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">Experience {index + 1}</p>
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">Experience {index + 1}</p>
+                      {experiences.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeExperience(index)}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-500 transition hover:border-red-200 hover:bg-red-50 hover:text-primary"
+                          aria-label={`Remove experience ${index + 1}`}
+                          title={`Remove experience ${index + 1}`}
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
                     <div className="mt-3 space-y-3">
                       <input value={exp.title} onChange={(e) => updateExperience(index, 'title', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 w-full bg-white" placeholder="Company and role" />
                       <input value={exp.dates} onChange={(e) => updateExperience(index, 'dates', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 w-full bg-white" placeholder="Dates" />
@@ -2880,17 +3051,18 @@ export const ResumeBuilderPage = ({
             </div>
           </div>
 
-          <div className="space-y-6">
+          <div className="min-w-0 space-y-6">
             <div id="builder-live-preview" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold text-zinc-900">Live Preview</h2>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-zinc-400 font-medium">Template</span>
                   <select
+                    id="builder-template-select"
                     value={selectedTemplate.id}
                     onChange={(e) => {
                       const tpl = templates.find((t) => t.id === e.target.value);
-                      if (tpl) onSelectTemplate(tpl);
+                      if (tpl) selectTemplateImmediately(tpl);
                     }}
                     className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-900 shadow-sm transition focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none cursor-pointer"
                   >
@@ -2910,7 +3082,7 @@ export const ResumeBuilderPage = ({
                   <span className="font-bold text-zinc-900">{selectedTemplate.name}</span>
                 </div>
 
-                <div className="mx-3 mb-4 max-h-[700px] overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-2">
+                <div className="mx-3 mb-4 max-h-[700px] overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-2 [scrollbar-gutter:stable]">
                   <div data-testid="builder-template-preview" className="mx-auto w-full min-w-0 max-w-[960px]">
                     <TemplatePreviewScaler pageWidth={760}>
                       <TemplateVisualPreview template={selectedTemplate} data={liveTemplateResumeData} sectionOrder={orderedPrintableSections} />
@@ -2919,14 +3091,7 @@ export const ResumeBuilderPage = ({
                 </div>
               </div>
 
-              <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-zinc-500">
-                <div className="border border-zinc-200 rounded-lg p-3">Font: {currentTheme.font.split(',')[0]}</div>
-                <div className="border border-zinc-200 rounded-lg p-3">Layout: {currentTheme.layout === 'two-column' ? 'Two-column' : 'Single column'}</div>
-                <div className="border border-zinc-200 rounded-lg p-3">Spacing: Normal</div>
-                <div className="flex items-center gap-2 border border-zinc-200 rounded-lg p-3">
-                  Color: <span className="inline-block h-3 w-3 rounded-full border border-zinc-200" style={{ background: currentTheme.accent }} />
-                </div>
-              </div>
+
             </div>
 
           <div className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
@@ -2971,7 +3136,17 @@ export const ResumeBuilderPage = ({
                 </div>
               </div>
             )}
-            {historyMessage && <p className="mt-3 text-xs text-primary">{historyMessage}</p>}
+            {historyMessage && (
+              <p
+                className={`mt-3 rounded-xl border px-3 py-2 text-xs font-medium ${
+                  isHistoryErrorMessage(historyMessage)
+                    ? 'border-red-200 bg-red-50 text-red-700'
+                    : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                }`}
+              >
+                {historyMessage}
+              </p>
+            )}
             <div className="mt-4 space-y-2 max-h-56 overflow-auto pr-1">
               {!canSaveResumeHistory ? (
                 <p className="rounded-xl border border-primary/15 bg-primary/5 px-3 py-3 text-xs font-medium leading-5 text-primary">

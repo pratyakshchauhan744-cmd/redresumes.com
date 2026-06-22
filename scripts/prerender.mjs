@@ -5,6 +5,7 @@ import puppeteer from 'puppeteer';
 
 const distDir = path.resolve('dist');
 const port = 4173;
+const spaShellHtml = await fs.readFile(path.join(distDir, 'index.html'));
 const routes = [
   '/',
   '/templates',
@@ -54,10 +55,10 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // SPA fallback
-    const indexHtml = await fs.readFile(path.join(distDir, 'index.html'));
+    // SPA fallback: always use the original Vite shell, not a route that was
+    // already prerendered earlier in this script.
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(indexHtml);
+    res.end(spaShellHtml);
   } catch {
     res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Server error');

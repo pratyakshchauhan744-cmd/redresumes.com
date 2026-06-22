@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { __internal, mapBackendJobToUiJob, resolveApiBaseUrl } from './backendApi';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { __internal, backendApi, mapBackendJobToUiJob, resolveApiBaseUrl } from './backendApi';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('backendApi runtime parsers', () => {
   it('parses valid auth response', () => {
@@ -52,5 +56,19 @@ describe('resolveApiBaseUrl', () => {
 
   it('keeps localhost API during local development', () => {
     expect(resolveApiBaseUrl('http://localhost:4001', 'localhost')).toBe('http://localhost:4001');
+  });
+});
+
+describe('local access tokens', () => {
+  it('does not try to refresh or clear auth when a local token hits a protected endpoint', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ message: 'Invalid or expired token' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      }));
+
+    await expect(backendApi.getMe('local-demo-token')).rejects.toThrow('live backend session');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

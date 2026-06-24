@@ -49,6 +49,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
   const [isEndingSession, setIsEndingSession] = useState(false);
   const [timerString, setTimerString] = useState('15:00');
   const [sessionDurationSecs, setSessionDurationSecs] = useState(900); // 15 mins default
+  const [totalQuestions, setTotalQuestions] = useState(5); // derived from durationMins
   
   // Simulated video feed assets / visualizer
   const [interviewerName, setInterviewerName] = useState('HR Recruiter');
@@ -77,6 +78,8 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
   
   // Auto-submit voice timeout ref
   const autoSubmitTimeoutRef = useRef<any>(null);
+  // Track the last transcript value that armed the timer so isListening flickers don't re-arm it
+  const lastArmedTranscriptRef = useRef<string>('');
   
   // Refs to hold latest values so callbacks never capture stale closures
   const isMicMutedRef = useRef(false);
@@ -180,22 +183,40 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
     }
   }, [screenStream]);
 
-  // Auto-submit silence detection (3.5 seconds)
-  // Use submitAnswerRef so we always call the latest version without adding it as a dep
+  // Auto-submit silence detection:
+  // - 6 second silence window (gives room for natural pauses mid-answer)
+  // - Minimum 8 words required before submitting (prevents cutting short interim results)
+  // - Only re-arms when *new transcript content* arrives (ignores isListening flickers
+  //   that occur every ~200ms during the continuous=false recognition restart cycle)
   const submitAnswerRef = useRef<(ans: string) => void>(() => {});
+  const MIN_WORDS_TO_SUBMIT = 8;
+  const SILENCE_TIMEOUT_MS = 6000;
+
   useEffect(() => {
-    if (isListening && !isMicMuted && transcript.trim()) {
-      if (autoSubmitTimeoutRef.current) {
-        clearTimeout(autoSubmitTimeoutRef.current);
-      }
-      autoSubmitTimeoutRef.current = setTimeout(() => {
-        const ans = transcriptRef.current;
-        if (ans.trim()) {
-          stopListening();
-          submitAnswerRef.current(ans);
-        }
-      }, 3500);
+    if (!isListening || isMicMuted) return;
+
+    const trimmed = transcript.trim();
+    if (!trimmed) return;
+
+    // Only re-arm the timer when transcript has actually grown (new words spoken)
+    if (trimmed === lastArmedTranscriptRef.current) return;
+    lastArmedTranscriptRef.current = trimmed;
+
+    if (autoSubmitTimeoutRef.current) {
+      clearTimeout(autoSubmitTimeoutRef.current);
     }
+
+    autoSubmitTimeoutRef.current = setTimeout(() => {
+      const ans = transcriptRef.current.trim();
+      const wordCount = ans.split(/\s+/).filter(Boolean).length;
+      // Guard: require at least MIN_WORDS before treating silence as "done answering"
+      if (ans && wordCount >= MIN_WORDS_TO_SUBMIT) {
+        stopListening();
+        submitAnswerRef.current(ans);
+      }
+      // If too short, just let user keep speaking — don't submit
+    }, SILENCE_TIMEOUT_MS);
+
     return () => {
       if (autoSubmitTimeoutRef.current) {
         clearTimeout(autoSubmitTimeoutRef.current);
@@ -229,6 +250,8 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
         const now = Date.now();
         setSpeakingStartTime(now);
         speakingStartTimeRef.current = now;
+        // Reset the deduplication guard so the next answer starts fresh
+        lastArmedTranscriptRef.current = '';
         startListening();
       }
     });
@@ -253,6 +276,8 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
         setCompanyName(data.companyType || 'Google');
         setDifficulty(data.difficulty || 'Medium');
         setSessionDurationSecs(data.durationMins * 60);
+        // Derive total questions from duration: 15 min → 5 Qs, 30 min → 10 Qs, 45 min → 15 Qs
+        setTotalQuestions(Math.round((data.durationMins / 15) * 5));
 
         // Reconstruct history
         const history: Message[] = [];
@@ -666,7 +691,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
             <Building className="w-3.5 h-3.5 text-red-400" /> {companyName} Session
           </div>
           <div className="text-sm font-bold text-zinc-400">
-            Question {activeQuestionIndex}/5
+            Question {activeQuestionIndex}/{totalQuestions}
           </div>
         </div>
 
@@ -904,7 +929,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
         </div>
         {isListening && !isMicMuted && (
           <div className="mt-3 pt-2.5 border-t border-zinc-800/60 flex justify-between items-center gap-2">
-            <span className="text-[10px] text-zinc-500 font-medium">Silent auto-submit in progress...</span>
+            <span className="text-[10px] text-zinc-500 font-medium">Auto-submits after 6s silence...</span>
             <button 
               onClick={() => { stopListening(); submitAnswer(transcript); }}
               className="bg-primary hover:bg-primary-container text-white font-bold py-1 px-3 rounded-lg text-[10px] shadow transition-colors"

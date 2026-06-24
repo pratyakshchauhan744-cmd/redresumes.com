@@ -92,6 +92,8 @@ export type TemplateResumeData = {
   phone: string;
   location: string;
   profileLink: string;
+  importantDate?: string;
+  importantPlace?: string;
   summary: string;
   skills: string[];
   educationItems?: EducationItem[];

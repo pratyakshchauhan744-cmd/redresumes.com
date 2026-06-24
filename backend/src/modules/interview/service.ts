@@ -113,8 +113,8 @@ export async function answerInterviewQuestion(
     }
   });
 
-  // Calculate if we reached the duration limit or a fixed number of questions (e.g. 5)
-  const maxQuestions = 5; 
+  // Derive question count from session duration: 15 min → 5 Qs, 30 min → 10 Qs, 45 min → 15 Qs
+  const maxQuestions = Math.round((session.durationMins / 15) * 5);
   const answeredCount = session.questions.filter(q => q.answer).length + 1;
 
   if (answeredCount >= maxQuestions) {

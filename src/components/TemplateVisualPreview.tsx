@@ -60,6 +60,9 @@ export const TemplateVisualPreview = memo(({
   const listStyle = data?.listStyle === 'number' ? 'number' : data?.listStyle === 'paragraph' ? 'paragraph' : 'bullet';
   const ListTag: 'ol' | 'ul' = listStyle === 'number' ? 'ol' : 'ul';
   const listClassName = listStyle === 'number' ? 'list-decimal' : 'list-disc';
+  const importantDate = data?.importantDate?.trim() || '';
+  const importantPlace = data?.importantPlace?.trim() || '';
+  const datePlaceText = [importantDate ? `Date: ${importantDate}` : '', importantPlace ? `Place: ${importantPlace}` : ''].filter(Boolean).join(' | ');
   const isTwoColumn = theme.twoColumn;
   const orderedSectionIds = [
     ...(sectionOrder ?? []),
@@ -206,6 +209,12 @@ export const TemplateVisualPreview = memo(({
   };
 
   const sectionById: Record<string, ReactNode> = {
+    'date-place': datePlaceText ? (
+      <section key="date-place">
+        {sectionTitle('Date & Place')}
+        <p className="mt-4 text-xl leading-8 text-zinc-600">{datePlaceText}</p>
+      </section>
+    ) : null,
     summary: summary ? (
       <section key="summary">
         {sectionTitle(template.id === 'finance' ? 'Professional Summary' : 'Summary')}
@@ -279,6 +288,7 @@ export const TemplateVisualPreview = memo(({
             <div className="mt-5 space-y-1 text-sm leading-6 text-slate-700">
               {contactLinkItems.map((item) => <p key={item.text}>{renderContactItem(item)}</p>)}
               {profileLinkItem && <p>{renderContactItem(profileLinkItem)}</p>}
+              {datePlaceText && <p className="text-sm text-slate-600 mt-1">{datePlaceText}</p>}
             </div>
             {sideSections.length > 0 && <div className="mt-6 space-y-6">{sideSections}</div>}
           </aside>
@@ -308,6 +318,7 @@ export const TemplateVisualPreview = memo(({
             <p className="mt-1 text-3xl font-extrabold leading-tight text-zinc-600">{roleTitle}</p>
             {contactLinkItems.length > 0 && <p className="mt-6 text-2xl leading-9 text-zinc-500">{renderInlineContactItems(contactLinkItems)}</p>}
             {profileLinkItem && <p className="text-2xl leading-9 text-zinc-500">{renderContactItem(profileLinkItem)}</p>}
+            {datePlaceText && <p className="text-xl leading-8 text-zinc-500">{datePlaceText}</p>}
           </div>
         </div>
       </div>

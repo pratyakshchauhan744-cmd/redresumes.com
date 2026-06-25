@@ -27,6 +27,11 @@ export async function createCheckoutSession(req: Request, res: Response, next: N
 
     // Dev mode / Mock Checkout bypass if Razorpay keys are missing
     if (!razorpay) {
+      if (env.NODE_ENV === "production") {
+        console.error("CRITICAL: Razorpay keys are missing in production environment!");
+        return res.status(500).json({ message: "Payment gateway configuration error. Please contact support." });
+      }
+
       console.warn("Razorpay keys are missing. Simulating sandbox checkout redirect.");
       
       // Simulate webhook flow by directly adding credits in dev
@@ -243,6 +248,11 @@ export async function verifyPayment(req: Request, res: Response, next: NextFunct
 
     // If Razorpay keys are not configured, simulate sandbox success
     if (!razorpay || !env.RAZORPAY_KEY_SECRET) {
+      if (env.NODE_ENV === "production") {
+        console.error("CRITICAL: Razorpay keys are missing in production environment during verification!");
+        return res.status(500).json({ message: "Payment gateway configuration error. Please contact support." });
+      }
+
       console.warn("Razorpay configuration missing during verification. Simulating success.");
       const balance = await prisma.$transaction(async (tx) => {
         const credit = await tx.userCredit.upsert({

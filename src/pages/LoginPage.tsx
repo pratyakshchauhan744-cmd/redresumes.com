@@ -528,7 +528,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       />
       <section className="py-10 md:py-16">
       <div className="mx-auto grid max-w-6xl gap-6 px-4 sm:px-6 md:grid-cols-[1.05fr_0.95fr] md:gap-10 md:items-stretch">
-        <div className="rounded-2xl border border-zinc-200 bg-[linear-gradient(145deg,#ffffff_0%,#fff9f9_50%,#f8fafc_100%)] p-4 shadow-[0_12px_34px_rgba(15,23,42,0.06)] md:rounded-[32px] md:p-10 md:shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_12px_34px_rgba(15,23,42,0.06)] dark:border-zinc-800 dark:bg-zinc-900 md:rounded-[32px] md:p-10 md:shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
           <p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-primary md:text-xs md:tracking-[0.24em]">Account Access</p>
           <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap md:mt-4">
             {[
@@ -550,7 +550,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                 className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
                   authMode === item.id
                     ? 'bg-primary text-white shadow-[0_10px_22px_rgba(177,18,23,0.22)]'
-                    : 'border border-zinc-200 bg-white text-zinc-600 hover:border-zinc-400 hover:text-zinc-900'
+                    : 'border border-zinc-200 bg-white text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:border-zinc-500'
                 }`}
               >
                 {item.label}
@@ -568,23 +568,24 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
 
           <div className="mt-6 space-y-4 md:mt-8">
             {authMode !== 'forgot-password' && !(authMode === 'signup' && signupStep === 'otp') && (
-              <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+              <div className="rounded-2xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
                 {googleClientId ? (
                   <div ref={googleButtonRef} className="flex min-h-11 justify-center" />
                 ) : (
                   <p className="text-sm text-zinc-500">Google login is not configured yet.</p>
                 )}
                 <div className="my-4 flex items-center gap-3">
-                  <span className="h-px flex-1 bg-zinc-200" />
+                  <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
                   <span className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">or</span>
-                  <span className="h-px flex-1 bg-zinc-200" />
+                  <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
                 </div>
               </div>
             )}
             {authMode === 'signup' && signupStep === 'otp' && (
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 md:rounded-3xl md:p-6">
-                <label className="mb-2 block text-sm font-semibold text-zinc-700">Enter OTP</label>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950 md:rounded-3xl md:p-6">
+                <label htmlFor="signup-otp" className="mb-2 block text-sm font-semibold text-zinc-700">Enter OTP</label>
                 <input
+                  id="signup-otp"
                   className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
                   placeholder="6-digit OTP"
                   value={enteredOtp}
@@ -642,8 +643,9 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
               <>
             {authMode === 'signup' && (
               <div>
-                <label className="mb-2 block text-sm font-semibold text-zinc-700">Full name</label>
+                <label htmlFor="auth-full-name" className="mb-2 block text-sm font-semibold text-zinc-700">Full name</label>
                 <input
+                  id="auth-full-name"
                   className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 shadow-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
                   placeholder="Enter your full name"
                   value={fullName}
@@ -652,8 +654,9 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
               </div>
             )}
             <div>
-              <label className="mb-2 block text-sm font-semibold text-zinc-700">Email</label>
+              <label htmlFor="auth-email" className="mb-2 block text-sm font-semibold text-zinc-700">Email</label>
               <input
+                id="auth-email"
                 className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 shadow-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
                 placeholder="Enter your email"
                 value={email}
@@ -667,7 +670,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
             </div>
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <label className="block text-sm font-semibold text-zinc-700">Password</label>
+                <label htmlFor="auth-password" className="block text-sm font-semibold text-zinc-700">Password</label>
                 {authMode === 'login' && (
                   <button
                     type="button"
@@ -685,6 +688,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
               </div>
               <div className="relative">
                 <input
+                  id="auth-password"
                   className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-12 text-sm text-zinc-900 shadow-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
                   placeholder="Enter your password"
                   type={showPassword ? 'text' : 'password'}
@@ -709,9 +713,10 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
             {authMode === 'signup' && (
               <>
                 <div>
-                  <label className="mb-2 block text-sm font-semibold text-zinc-700">Confirm password</label>
+                  <label htmlFor="auth-confirm-password" className="mb-2 block text-sm font-semibold text-zinc-700">Confirm password</label>
                   <div className="relative">
                     <input
+                      id="auth-confirm-password"
                       className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-12 text-sm text-zinc-900 shadow-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
                       placeholder="Re-enter your password"
                       type={showConfirmPassword ? 'text' : 'password'}
@@ -750,8 +755,9 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 md:rounded-3xl md:p-6">
                 {forgotPasswordStep === 'email' && (
                   <>
-                    <label className="mb-2 block text-sm font-semibold text-zinc-700">Account Email</label>
+                    <label htmlFor="forgot-email" className="mb-2 block text-sm font-semibold text-zinc-700">Account Email</label>
                     <input
+                      id="forgot-email"
                       className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 shadow-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
                       placeholder="Enter your email"
                       value={email}
@@ -783,8 +789,9 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                 )}
                 {forgotPasswordStep === 'otp' && (
                   <>
-                    <label className="mb-2 block text-sm font-semibold text-zinc-700">Enter OTP</label>
+                    <label htmlFor="forgot-otp" className="mb-2 block text-sm font-semibold text-zinc-700">Enter OTP</label>
                     <input
+                      id="forgot-otp"
                       className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 shadow-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
                       placeholder="6-digit OTP"
                       value={enteredOtp}
@@ -812,9 +819,10 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                 )}
                 {forgotPasswordStep === 'new-password' && (
                   <>
-                    <label className="mb-2 block text-sm font-semibold text-zinc-700">New Password</label>
+                    <label htmlFor="forgot-new-password" className="mb-2 block text-sm font-semibold text-zinc-700">New Password</label>
                     <div className="relative mb-4">
                       <input
+                        id="forgot-new-password"
                         className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-12 text-sm text-zinc-900 shadow-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
                         placeholder="Enter your new password"
                         type={showPassword ? 'text' : 'password'}
@@ -825,13 +833,15 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                         type="button"
                         onClick={() => setShowPassword((value) => !value)}
                         className="absolute inset-y-0 right-3 inline-flex items-center text-zinc-500 hover:text-zinc-900"
+                        aria-label={showPassword ? 'Hide new password' : 'Show new password'}
                       >
                         {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                       </button>
                     </div>
-                    <label className="mb-2 block text-sm font-semibold text-zinc-700">Confirm New Password</label>
+                    <label htmlFor="forgot-confirm-password" className="mb-2 block text-sm font-semibold text-zinc-700">Confirm New Password</label>
                     <div className="relative mb-4">
                       <input
+                        id="forgot-confirm-password"
                         className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-12 text-sm text-zinc-900 shadow-sm outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
                         placeholder="Re-enter your new password"
                         type={showConfirmPassword ? 'text' : 'password'}
@@ -842,6 +852,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                         type="button"
                         onClick={() => setShowConfirmPassword((value) => !value)}
                         className="absolute inset-y-0 right-3 inline-flex items-center text-zinc-500 hover:text-zinc-900"
+                        aria-label={showConfirmPassword ? 'Hide confirm new password' : 'Show confirm new password'}
                       >
                         {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                       </button>

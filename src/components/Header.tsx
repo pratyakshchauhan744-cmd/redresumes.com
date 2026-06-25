@@ -32,14 +32,14 @@ export const Header = ({
   ];
 
   return (
-    <header className="sticky top-0 z-50 border-b border-zinc-100 bg-white/90 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
+    <header className="sticky top-0 z-50 border-b border-zinc-100 bg-white backdrop-blur dark:border-zinc-800 dark:bg-zinc-950">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 md:py-4">
         <Link to="/" className="text-lg font-extrabold tracking-tight text-zinc-900 dark:text-zinc-100 md:text-xl">
           RedResumes
         </Link>
 
         {/* Desktop Nav */}
-        <nav className="hidden lg:flex items-center gap-6 text-sm font-semibold text-zinc-600 dark:text-zinc-300">
+        <nav className="hidden xl:flex items-center gap-5 text-sm font-semibold text-zinc-600 dark:text-zinc-300">
           {navLinks.map((item) => (
             <Link
               key={item.path}
@@ -52,7 +52,7 @@ export const Header = ({
         </nav>
 
         {/* Desktop Actions */}
-        <div className="hidden lg:flex items-center gap-3">
+        <div className="hidden xl:flex items-center gap-3">
           <button
             type="button"
             onClick={onToggleDarkMode}
@@ -67,7 +67,7 @@ export const Header = ({
             <>
               <button
                 onClick={() => navigate('/dashboard')}
-                className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:border-zinc-400"
+                className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-500"
               >
                 {currentUser.photoDataUrl ? (
                   <img src={currentUser.photoDataUrl} alt="Profile" className="h-7 w-7 rounded-full object-cover border border-zinc-200" />
@@ -97,7 +97,7 @@ export const Header = ({
         {/* Mobile Toggle */}
         <button 
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="rounded-full border border-zinc-200 p-2 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900 lg:hidden"
+          className="rounded-full border border-zinc-200 p-2 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900 xl:hidden"
           aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
         >
           {mobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
@@ -106,7 +106,7 @@ export const Header = ({
 
       {/* Mobile Menu */}
       {mobileMenuOpen && (
-        <div className="absolute left-0 right-0 top-full flex max-h-[80vh] flex-col gap-3 overflow-y-auto border-b border-zinc-100 bg-white px-4 py-4 shadow-lg dark:border-zinc-800 dark:bg-zinc-950 lg:hidden">
+        <div className="absolute left-0 right-0 top-full flex max-h-[80vh] flex-col gap-3 overflow-y-auto border-b border-zinc-100 bg-white px-4 py-4 shadow-lg dark:border-zinc-800 dark:bg-zinc-950 xl:hidden">
           <button
             type="button"
             onClick={onToggleDarkMode}

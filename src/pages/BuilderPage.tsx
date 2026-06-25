@@ -27,6 +27,10 @@ const getEffectiveListStyle = (text: string, globalStyle: string): 'bullet' | 'n
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   if (lines.length === 0) return 'paragraph';
 
+  if (globalStyle === 'bullet' || globalStyle === 'number') {
+    return globalStyle;
+  }
+
   const listMarkerRegex = /^\s*(?:[-*•]|\d+[.)])/;
   const hasAnyListMarker = lines.some(line => listMarkerRegex.test(line));
   
@@ -40,7 +44,7 @@ const getEffectiveListStyle = (text: string, globalStyle: string): 'bullet' | 'n
     return 'number';
   }
 
-  return (globalStyle === 'number' || globalStyle === 'bullet') ? (globalStyle as 'number' | 'bullet') : 'bullet';
+  return 'bullet';
 };
 
 const ATS_STOP_WORDS = new Set([
@@ -223,6 +227,8 @@ export const ResumeBuilderPage = ({
     selectedTemplateId: string;
     selectedTemplateName: string;
     listStyle?: ResumeListStyle;
+    photoDataUrl?: string;
+    sectionSelectionOrder?: SectionId[];
   }
 
   interface ResumeHistoryEntry {
@@ -461,6 +467,8 @@ export const ResumeBuilderPage = ({
       selectedTemplateId: snapshotTemplate.id,
       selectedTemplateName: snapshotTemplate.name,
       listStyle,
+      photoDataUrl,
+      sectionSelectionOrder,
     };
   };
 
@@ -534,6 +542,8 @@ export const ResumeBuilderPage = ({
     setCustomColumns(Array.isArray(data.customColumns) ? data.customColumns : []);
     setJobDescriptionInput(data.jobDescriptionInput ?? DEFAULT_JOB_DESCRIPTION);
     setListStyle(data.listStyle === 'number' ? 'number' : data.listStyle === 'paragraph' ? 'paragraph' : 'bullet');
+    setPhotoDataUrl(data.photoDataUrl ?? '');
+    setSectionSelectionOrder(Array.isArray(data.sectionSelectionOrder) ? data.sectionSelectionOrder : [...printableSectionIds]);
   };
 
   const restoreResumeFromHistory = (entry: ResumeHistoryEntry) => {
@@ -829,6 +839,10 @@ export const ResumeBuilderPage = ({
     setPublishedResumeUrl('');
     setShareLinkCopied(false);
   }, [currentBuilderSnapshotHash]);
+
+  useEffect(() => {
+    setDraftHydrated(false);
+  }, [resumeDraftStorageKey]);
 
   useEffect(() => {
     try {
@@ -2054,7 +2068,38 @@ export const ResumeBuilderPage = ({
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
-        setPhotoDataUrl(reader.result);
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 240;
+          const MAX_HEIGHT = 240;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressed = canvas.toDataURL('image/jpeg', 0.82);
+            setPhotoDataUrl(compressed);
+          } else {
+            setPhotoDataUrl(reader.result as string);
+          }
+        };
+        img.src = reader.result;
       }
     };
     reader.readAsDataURL(file);
@@ -2448,9 +2493,19 @@ export const ResumeBuilderPage = ({
       if (data.profileLink) setProfileLink(data.profileLink);
       if (data.summary) setSummary(data.summary);
       if (data.skills && Array.isArray(data.skills)) setSkillsInput(data.skills.join(', '));
-      if (data.educationDegree) setEducationDegree(data.educationDegree);
-      if (data.educationSchool) setEducationSchool(data.educationSchool);
-      if (data.educationYear) setEducationYear(data.educationYear);
+      if (data.educationItems && Array.isArray(data.educationItems) && data.educationItems.length > 0) {
+        setEducationItems(data.educationItems.map((edu: any) => ({
+          degree: edu.degree || '',
+          school: edu.school || '',
+          year: edu.year || ''
+        })));
+      } else if (data.educationDegree || data.educationSchool || data.educationYear) {
+        setEducationItems([{
+          degree: data.educationDegree || '',
+          school: data.educationSchool || '',
+          year: data.educationYear || ''
+        }]);
+      }
       
       if (data.experiences && Array.isArray(data.experiences) && data.experiences.length > 0) {
         setExperiences(data.experiences.map((exp: any) => ({
@@ -2600,6 +2655,7 @@ export const ResumeBuilderPage = ({
               className="hidden"
               ref={parseInputRef}
               onChange={handleUploadResume}
+              aria-label="Auto-fill resume from PDF"
             />
             <button
               onClick={() => parseInputRef.current?.click()}
@@ -2692,9 +2748,9 @@ export const ResumeBuilderPage = ({
             <div id="builder-section-contact" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Contact Information</h2>
               <div className="mt-4 grid md:grid-cols-2 gap-4 text-sm">
-                <input value={fullName} onChange={(e) => setFullName(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Full name" />
-                <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Job title" />
-                <input value={email} onChange={(e) => setEmail(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Email" />
+                <input value={fullName} onChange={(e) => setFullName(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Full name" aria-label="Full name" />
+                <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Job title" aria-label="Job title" />
+                <input value={email} onChange={(e) => setEmail(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Email" aria-label="Email" />
                 <input
                   type="tel"
                   inputMode="numeric"
@@ -2705,8 +2761,8 @@ export const ResumeBuilderPage = ({
                   placeholder="Phone"
                   aria-label="Phone number"
                 />
-                <input value={location} onChange={(e) => setLocation(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Location" />
-                <input value={profileLink} onChange={(e) => setProfileLink(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="LinkedIn / Portfolio" />
+                <input value={location} onChange={(e) => setLocation(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Location" aria-label="Location" />
+                <input value={profileLink} onChange={(e) => setProfileLink(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="LinkedIn / Portfolio" aria-label="LinkedIn or portfolio URL" />
               </div>
             </div>
 
@@ -2727,6 +2783,7 @@ export const ResumeBuilderPage = ({
                     accept="image/*"
                     onChange={handlePhotoUpload}
                     className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm"
+                    aria-label="Upload profile photo"
                   />
                   {photoDataUrl && (
                     <button onClick={handleRemovePhoto} className="mt-2 text-xs font-semibold text-primary">
@@ -2746,12 +2803,14 @@ export const ResumeBuilderPage = ({
                   value={importantDate}
                   onChange={(e) => setImportantDate(e.target.value)}
                   className="border border-zinc-200 rounded-lg px-3 py-2"
+                  aria-label="Important date"
                 />
                 <input
                   value={importantPlace}
                   onChange={(e) => setImportantPlace(e.target.value)}
                   className="border border-zinc-200 rounded-lg px-3 py-2"
                   placeholder="Place"
+                  aria-label="Important place"
                 />
               </div>
             </div>
@@ -2763,6 +2822,7 @@ export const ResumeBuilderPage = ({
                 onChange={(e) => setSummary(e.target.value)}
                 className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 h-28"
                 placeholder="Write a short summary about your experience and impact."
+                aria-label="Professional summary"
               />
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
                 {['Professional', 'Confident', 'Simple', 'Executive'].map((tone) => (
@@ -2869,12 +2929,13 @@ export const ResumeBuilderPage = ({
                       )}
                     </div>
                     <div className="mt-3 space-y-3">
-                      <input value={exp.title} onChange={(e) => updateExperience(index, 'title', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 w-full bg-white" placeholder="Company and role" />
-                      <input value={exp.dates} onChange={(e) => updateExperience(index, 'dates', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 w-full bg-white" placeholder="Dates" />
+                      <input value={exp.title} onChange={(e) => updateExperience(index, 'title', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 w-full bg-white" placeholder="Company and role" aria-label={`Experience ${index + 1} company and role`} />
+                      <input value={exp.dates} onChange={(e) => updateExperience(index, 'dates', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 w-full bg-white" placeholder="Dates" aria-label={`Experience ${index + 1} dates`} />
                       <textarea
                         value={exp.bullets}
                         onChange={(e) => updateExperience(index, 'bullets', e.target.value)}
                         className="border border-zinc-200 rounded-lg px-3 py-2 w-full h-24 bg-white"
+                        aria-label={`Experience ${index + 1} details`}
                         placeholder={
                           listStyle === 'number'
                             ? 'Write each numbered point on a new line'
@@ -2900,6 +2961,7 @@ export const ResumeBuilderPage = ({
                 onChange={(e) => setSkillsInput(e.target.value)}
                 className="mt-3 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm"
                 placeholder="Comma-separated skills"
+                aria-label="Skills"
               />
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
                 {parsedSkills.length > 0 ? parsedSkills.map((skill) => (
@@ -2929,9 +2991,9 @@ export const ResumeBuilderPage = ({
                       )}
                     </div>
                     <div className="grid gap-4 md:grid-cols-2">
-                      <input value={education.degree} onChange={(e) => updateEducation(index, 'degree', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 bg-white" placeholder="Degree" />
-                      <input value={education.school} onChange={(e) => updateEducation(index, 'school', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 bg-white" placeholder="School / University" />
-                      <input value={education.year} onChange={(e) => updateEducation(index, 'year', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 bg-white md:col-span-2" placeholder="Years" />
+                      <input value={education.degree} onChange={(e) => updateEducation(index, 'degree', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 bg-white" placeholder="Degree" aria-label={`Education ${index + 1} degree`} />
+                      <input value={education.school} onChange={(e) => updateEducation(index, 'school', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 bg-white" placeholder="School / University" aria-label={`Education ${index + 1} school or university`} />
+                      <input value={education.year} onChange={(e) => updateEducation(index, 'year', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 bg-white md:col-span-2" placeholder="Years" aria-label={`Education ${index + 1} years`} />
                     </div>
                   </div>
                 ))}
@@ -2944,17 +3006,17 @@ export const ResumeBuilderPage = ({
 
             <div id="builder-section-projects" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Projects</h2>
-              <textarea value={projectsInput} onChange={(e) => setProjectsInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 h-24" placeholder="One project per line" />
+              <textarea value={projectsInput} onChange={(e) => setProjectsInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 h-24" placeholder="One project per line" aria-label="Projects" />
             </div>
 
             <div id="builder-section-certifications" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Certifications</h2>
-              <input value={certificationsInput} onChange={(e) => setCertificationsInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm" placeholder="Comma-separated certifications" />
+              <input value={certificationsInput} onChange={(e) => setCertificationsInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm" placeholder="Comma-separated certifications" aria-label="Certifications" />
             </div>
 
             <div id="builder-section-languages" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Languages</h2>
-              <input value={languagesInput} onChange={(e) => setLanguagesInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm" placeholder="Comma-separated languages" />
+              <input value={languagesInput} onChange={(e) => setLanguagesInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm" placeholder="Comma-separated languages" aria-label="Languages" />
             </div>
 
             <div id="builder-section-hobbies" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
@@ -2964,6 +3026,7 @@ export const ResumeBuilderPage = ({
                 onChange={(e) => setHobbiesInput(e.target.value)}
                 className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm"
                 placeholder="Comma-separated hobbies"
+                aria-label="Hobbies"
               />
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
                 {parsedHobbies.length > 0 ? parsedHobbies.map((hobby) => (
@@ -2976,12 +3039,12 @@ export const ResumeBuilderPage = ({
 
             <div id="builder-section-achievements" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Achievements</h2>
-              <textarea value={achievementsInput} onChange={(e) => setAchievementsInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 h-24" placeholder="One achievement per line" />
+              <textarea value={achievementsInput} onChange={(e) => setAchievementsInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 h-24" placeholder="One achievement per line" aria-label="Achievements" />
             </div>
 
             <div id="builder-section-volunteer" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
               <h2 className="font-semibold text-zinc-900">Volunteer</h2>
-              <textarea value={volunteerInput} onChange={(e) => setVolunteerInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 h-24" placeholder="Volunteer work details" />
+              <textarea value={volunteerInput} onChange={(e) => setVolunteerInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 h-24" placeholder="Volunteer work details" aria-label="Volunteer work details" />
             </div>
 
             <div id="builder-section-custom-columns" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
@@ -2993,12 +3056,14 @@ export const ResumeBuilderPage = ({
                   onChange={(e) => setNewCustomColumnTitle(e.target.value)}
                   className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm"
                   placeholder="Column title (e.g., Publications)"
+                  aria-label="New custom column title"
                 />
                 <textarea
                   value={newCustomColumnContent}
                   onChange={(e) => setNewCustomColumnContent(e.target.value)}
                   className="w-full border border-zinc-200 rounded-lg px-3 py-2 h-24 text-sm"
                   placeholder="One line per point"
+                  aria-label="New custom column content"
                 />
                 <button onClick={addCustomColumn} className="text-xs font-semibold text-primary">
                   + Save custom column
@@ -3016,12 +3081,14 @@ export const ResumeBuilderPage = ({
                         onChange={(e) => updateCustomColumn(index, 'title', e.target.value)}
                         className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-white"
                         placeholder="Column title"
+                        aria-label={`Custom column ${index + 1} title`}
                       />
                       <textarea
                         value={column.content}
                         onChange={(e) => updateCustomColumn(index, 'content', e.target.value)}
                         className="mt-2 w-full border border-zinc-200 rounded-lg px-3 py-2 h-20 text-sm bg-white"
                         placeholder="Column content"
+                        aria-label={`Custom column ${index + 1} content`}
                       />
                       <div className="mt-2 flex items-center gap-3">
                         <button
@@ -3063,6 +3130,7 @@ export const ResumeBuilderPage = ({
                   <span className="text-xs text-zinc-400 font-medium">Template</span>
                   <select
                     id="builder-template-select"
+                    aria-label="Resume template"
                     value={selectedTemplate.id}
                     onChange={(e) => {
                       const tpl = templates.find((t) => t.id === e.target.value);
@@ -3115,12 +3183,14 @@ export const ResumeBuilderPage = ({
                   onChange={(e) => setHistorySearchTerm(e.target.value)}
                   className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-xs"
                   placeholder="Search by name, role, or note"
+                  aria-label="Search resume history"
                 />
                 <div className="grid grid-cols-2 gap-2">
                   <select
                     value={historyRoleFilter}
                     onChange={(e) => setHistoryRoleFilter(e.target.value)}
                     className="rounded-lg border border-zinc-200 px-2 py-2 text-xs bg-white"
+                    aria-label="Filter resume history by role"
                   >
                     <option value="all">All roles</option>
                     {historyRoleOptions.map((role) => (
@@ -3131,6 +3201,7 @@ export const ResumeBuilderPage = ({
                     value={historyDateFilter}
                     onChange={(e) => setHistoryDateFilter(e.target.value as 'all' | 'today' | '7d' | '30d')}
                     className="rounded-lg border border-zinc-200 px-2 py-2 text-xs bg-white"
+                    aria-label="Filter resume history by date"
                   >
                     <option value="all">Any date</option>
                     <option value="today">Today</option>
@@ -3222,6 +3293,7 @@ export const ResumeBuilderPage = ({
               onChange={(e) => setJobDescriptionInput(e.target.value)}
               className="mt-3 h-24 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-700"
               placeholder="Paste a target job description here..."
+              aria-label="Target job description"
             />
             <div className="mt-2 text-sm text-zinc-500">Match rate: {atsResult?.score ?? '--'}%</div>
             <div className="mt-3 flex flex-wrap gap-2 text-xs">

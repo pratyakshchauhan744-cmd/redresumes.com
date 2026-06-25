@@ -112,6 +112,7 @@ export type TemplateResumeData = {
   customColumns?: CustomColumnItem[];
   listStyle?: ResumeListStyle;
   photoDataUrl?: string;
+  sectionSelectionOrder?: string[];
 };
 
 export interface ExperienceItem {

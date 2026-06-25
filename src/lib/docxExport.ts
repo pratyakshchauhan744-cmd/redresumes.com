@@ -7,6 +7,10 @@ const getEffectiveListStyle = (text: string, globalStyle: string): 'bullet' | 'n
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   if (lines.length === 0) return 'paragraph';
 
+  if (globalStyle === 'bullet' || globalStyle === 'number') {
+    return globalStyle;
+  }
+
   const listMarkerRegex = /^\s*(?:[-*•]|\d+[.)])/;
   const hasAnyListMarker = lines.some(line => listMarkerRegex.test(line));
   
@@ -20,7 +24,7 @@ const getEffectiveListStyle = (text: string, globalStyle: string): 'bullet' | 'n
     return 'number';
   }
 
-  return (globalStyle === 'number' || globalStyle === 'bullet') ? (globalStyle as 'number' | 'bullet') : 'bullet';
+  return 'bullet';
 };
 
 export const generateResumeDocx = async (data: TemplateResumeData) => {

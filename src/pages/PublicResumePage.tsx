@@ -89,6 +89,10 @@ const toResumeData = (value: unknown): TemplateResumeData | null => {
             content: typeof item.content === 'string' ? item.content : '',
           }))
       : [],
+    photoDataUrl: typeof value.photoDataUrl === 'string' ? value.photoDataUrl : '',
+    sectionSelectionOrder: Array.isArray(value.sectionSelectionOrder)
+      ? value.sectionSelectionOrder.filter((item): item is string => typeof item === 'string')
+      : undefined,
   };
 };
 
@@ -220,7 +224,7 @@ export const PublicResumePage = () => {
         <div className="public-resume-print-shell overflow-auto rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
           <div className="public-resume-print-area">
           <TemplatePreviewScaler pageWidth={760}>
-            <TemplateVisualPreview template={template} data={resumeData} />
+            <TemplateVisualPreview template={template} data={resumeData} sectionOrder={resumeData?.sectionSelectionOrder} />
           </TemplatePreviewScaler>
           </div>
         </div>

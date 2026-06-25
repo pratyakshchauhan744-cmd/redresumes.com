@@ -478,6 +478,9 @@ export const backendApi = {
 
   getMe: (token: string) => request<unknown>(`/api/users/me`, { token }).then(parseAuthUser),
 
+  updateProfile: (body: { name: string; phone?: string; location?: string; bio?: string; photoDataUrl?: string }, token: string) =>
+    request<unknown>("/api/users/profile", { method: "PUT", body, token }).then(parseAuthUser),
+
   getAdminSignIns: (token: string) =>
     request<{ items: AdminSignInActivityItem[] }>(`/api/admin/signins`, { token }),
 

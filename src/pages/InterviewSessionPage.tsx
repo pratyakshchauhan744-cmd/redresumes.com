@@ -18,31 +18,31 @@ function countFillerWords(text: string): { count: number, words: Record<string, 
   const words = text.toLowerCase().match(/\b(\w+(?:\s\w+)?)\b/g) || [];
   const found: Record<string, number> = {};
   let total = 0;
-  
+
   words.forEach(w => {
     if (FILLER_WORDS.includes(w)) {
       found[w] = (found[w] || 0) + 1;
       total++;
     }
   });
-  
+
   return { count: total, words: found };
 }
 
 export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
   const { id: sessionId } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentQuestionId, setCurrentQuestionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  
+
   // Google Meet UI States
   const [hasJoined, setHasJoined] = useState(false);
   const [pendingFirstQuestion, setPendingFirstQuestion] = useState('');
   const [isMicMuted, setIsMicMuted] = useState(false);
-  const [isCameraActive, setIsCameraActive] = useState(true);
+  const [isCameraActive, setIsCameraActive] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [showWhiteboard, setShowWhiteboard] = useState(false);
   const [showExitModal, setShowExitModal] = useState(false);
@@ -50,7 +50,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
   const [timerString, setTimerString] = useState('15:00');
   const [sessionDurationSecs, setSessionDurationSecs] = useState(900); // 15 mins default
   const [totalQuestions, setTotalQuestions] = useState(5); // derived from durationMins
-  
+
   // Simulated video feed assets / visualizer
   // Initial values are empty strings — they are populated from the session API response.
   // Avoid hardcoded defaults like 'HR Recruiter' / 'Google' that would flash on the
@@ -59,7 +59,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
   const [companyName, setCompanyName] = useState('');
   const [difficulty, setDifficulty] = useState('');
   const [speechVisualizerBars, setSpeechVisualizerBars] = useState<number[]>(new Array(20).fill(6));
-  
+
   // Media streams
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
@@ -68,6 +68,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
   // localStreamRef always holds the live MediaStream so cleanup callbacks and
   // useEffect cleanup functions don't read a stale closure of the state value.
   const localStreamRef = useRef<MediaStream | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
 
   // Whiteboard drawing states
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -75,18 +76,18 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
   const [drawColor, setDrawColor] = useState('#ef4444'); // red-500
   const [lineWidth, setLineWidth] = useState(4);
   const [isEraser, setIsEraser] = useState(false);
-  
+
   // Voice & Avatar State
   const [avatarState, setAvatarState] = useState<VoiceState>('idle');
-  const { 
-    isSupported, transcript, isListening, startListening, stopListening, speak, stopSpeaking 
+  const {
+    isSupported, transcript, isListening, startListening, stopListening, speak, stopSpeaking
   } = useWebSpeech();
-  
+
   // Auto-submit voice timeout ref
   const autoSubmitTimeoutRef = useRef<any>(null);
   // Track the last transcript value that armed the timer so isListening flickers don't re-arm it
   const lastArmedTranscriptRef = useRef<string>('');
-  
+
   // Refs to hold latest values so callbacks never capture stale closures
   const isMicMutedRef = useRef(false);
   const hasJoinedRef = useRef(false);
@@ -94,7 +95,10 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
   const currentQuestionIdRef = useRef<string | null>(null);
   const speakingStartTimeRef = useRef<number | null>(null);
   const isCompletedRef = useRef(false);
-  
+
+  // Track metrics for the whole session so we can aggregate
+  const metricsHistoryRef = useRef<{ wpm: number, fillerCount: number, confidence: number }[]>([]);
+
   // Analytics State
   const [speakingStartTime, setSpeakingStartTime] = useState<number | null>(null);
   const [lastSpeechAnalytics, setLastSpeechAnalytics] = useState<{
@@ -170,6 +174,11 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
         localStreamRef.current = null;
+      }
+      const screen = screenStreamRef.current;
+      if (screen) {
+        screen.getTracks().forEach(track => track.stop());
+        screenStreamRef.current = null;
       }
     };
   }, []); // empty deps: runs cleanup only on unmount
@@ -248,7 +257,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
       const canvas = canvasRef.current;
       canvas.width = canvas.parentElement?.clientWidth || 800;
       canvas.height = canvas.parentElement?.clientHeight || 500;
-      
+
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.fillStyle = '#09090b'; // dark zinc bg
@@ -283,7 +292,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
           throw new Error('Your session has expired. Please log in again.');
         }
         const data = await backendApi.getInterviewSession(sessionId!, token);
-        
+
         if (data.status === 'completed') {
           navigate(`/interview/report/${sessionId}`);
           return;
@@ -302,7 +311,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
         let activeQuestionId = null;
         let lastAiMessage = "";
         const sortedQuestions = data.questions.sort((a: any, b: any) => a.orderIndex - b.orderIndex);
-        
+
         sortedQuestions.forEach((q: any) => {
           history.push({ id: `q-${q.id}`, role: 'ai', text: q.questionText });
           if (q.answer) {
@@ -315,7 +324,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
 
         setMessages(history);
         setCurrentQuestionId(activeQuestionId);
-        
+
         if (lastAiMessage) {
           setPendingFirstQuestion(lastAiMessage);
         }
@@ -330,7 +339,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
     if (sessionId) {
       fetchSession();
     }
-    
+
     return () => {
       stopSpeaking();
     };
@@ -382,13 +391,14 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
   const startScreenShare = async () => {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      screenStreamRef.current = stream;
       setScreenStream(stream);
       if (screenVideoRef.current) {
         screenVideoRef.current.srcObject = stream;
       }
       setIsScreenSharing(true);
       setShowWhiteboard(false); // disable whiteboard side-by-side
-      
+
       stream.getVideoTracks()[0].onended = () => {
         stopScreenShare();
       };
@@ -398,8 +408,10 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
   };
 
   const stopScreenShare = () => {
-    if (screenStream) {
-      screenStream.getTracks().forEach(track => track.stop());
+    const stream = screenStreamRef.current || screenStream;
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      screenStreamRef.current = null;
       setScreenStream(null);
     }
     setIsScreenSharing(false);
@@ -489,7 +501,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
     if (autoSubmitTimeoutRef.current) {
       clearTimeout(autoSubmitTimeoutRef.current);
     }
-    
+
     // Calculate Analytics using ref for speakingStartTime (always current)
     let wpm = 0;
     let durationSecs = 0;
@@ -502,14 +514,21 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
       wpm = durationMins > 0 ? Math.round(wordCount / durationMins) : 0;
     }
     const fillerStats = countFillerWords(answerStr);
-    
+
     let confidence = 100;
     if (wpm < 100) confidence -= 10;
     if (wpm > 180) confidence -= 5;
     confidence -= (fillerStats.count * 3);
     confidence = Math.max(0, Math.min(100, confidence));
-    
+
     setLastSpeechAnalytics({ wpm, fillerCount: fillerStats.count, confidence });
+    metricsHistoryRef.current.push({ wpm, fillerCount: fillerStats.count, confidence });
+
+    const totalQuestionsAnswered = metricsHistoryRef.current.length;
+    const avgWpm = totalQuestionsAnswered > 0 ? Math.round(metricsHistoryRef.current.reduce((acc, m) => acc + m.wpm, 0) / totalQuestionsAnswered) : wpm;
+    const totalFiller = metricsHistoryRef.current.reduce((acc, m) => acc + m.fillerCount, 0);
+    const avgConfidence = totalQuestionsAnswered > 0 ? Math.round(metricsHistoryRef.current.reduce((acc, m) => acc + m.confidence, 0) / totalQuestionsAnswered) : confidence;
+
     setMessages(prev => [...prev, { id: `a-temp-${Date.now()}`, role: 'user', text: answerStr }]);
     setError('');
 
@@ -518,14 +537,14 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
       if (!token) {
         throw new Error('Your session has expired. Please sign in again.');
       }
-      
+
       const data = await backendApi.submitInterviewAnswer({
         sessionId: sessionId!,
         questionId: qId,
         answerText: answerStr,
-        wpm,
-        fillerCount: fillerStats.count,
-        confidence,
+        wpm: avgWpm,
+        fillerCount: totalFiller,
+        confidence: avgConfidence,
         durationSecs
       }, token);
 
@@ -577,8 +596,17 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
     if (generateReport) {
       setIsEndingSession(true);
       try {
+        const totalQuestionsAnswered = metricsHistoryRef.current.length;
+        const avgWpm = totalQuestionsAnswered > 0 ? Math.round(metricsHistoryRef.current.reduce((acc, m) => acc + m.wpm, 0) / totalQuestionsAnswered) : 135;
+        const totalFiller = metricsHistoryRef.current.reduce((acc, m) => acc + m.fillerCount, 0);
+        const avgConfidence = totalQuestionsAnswered > 0 ? Math.round(metricsHistoryRef.current.reduce((acc, m) => acc + m.confidence, 0) / totalQuestionsAnswered) : 80;
+
         const token = getStoredAccessToken() || '';
-        await backendApi.completeInterviewSession(sessionId!, {}, token);
+        await backendApi.completeInterviewSession(sessionId!, {
+          wpm: avgWpm,
+          fillerCount: totalFiller,
+          confidence: avgConfidence
+        }, token);
         navigate(`/interview/report/${sessionId}`);
       } catch (err: any) {
         setError(err.message || 'Error generating report');
@@ -612,19 +640,19 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
   // Lobby view
   if (!hasJoined) {
     return (
-      <div className="min-h-screen bg-zinc-950 text-white flex flex-col items-center justify-center p-6 relative select-none">
+      <div className="min-h-[calc(100svh-64px)] bg-zinc-950 text-white flex flex-col items-center justify-center px-4 py-6 lg:p-6 relative select-none">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.08)_0%,transparent_70%)] pointer-events-none" />
-        
-        <div className="max-w-5xl w-full grid grid-cols-1 lg:grid-cols-12 gap-12 items-center relative z-10">
+
+        <div className="max-w-5xl w-full grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center relative z-10">
           {/* Left panel: Camera visual review check */}
           <div className="lg:col-span-7 flex flex-col items-center gap-4">
             <div className="w-full aspect-[4/3] bg-zinc-900 border border-zinc-800 rounded-2xl relative overflow-hidden flex items-center justify-center shadow-2xl">
               {isCameraActive ? (
-                <video 
-                  ref={userVideoRef} 
-                  autoPlay 
-                  playsInline 
-                  muted 
+                <video
+                  ref={userVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
                   className="absolute inset-0 w-full h-full object-cover transform -scale-x-100"
                 />
               ) : (
@@ -640,9 +668,11 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
               <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-3 z-10">
                 <button
                   onClick={toggleMic}
+                  aria-label={isMicMuted ? 'Unmute microphone' : 'Mute microphone'}
+                  title={isMicMuted ? 'Unmute microphone' : 'Mute microphone'}
                   className={`w-10 h-10 rounded-full flex items-center justify-center border transition-all ${
-                    isMicMuted 
-                      ? 'bg-red-500 border-red-500 text-white' 
+                    isMicMuted
+                      ? 'bg-red-500 border-red-500 text-white'
                       : 'bg-zinc-950/80 border-zinc-800 text-zinc-300 hover:bg-zinc-900'
                   }`}
                 >
@@ -651,9 +681,11 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
 
                 <button
                   onClick={toggleCamera}
+                  aria-label={isCameraActive ? 'Turn camera off' : 'Turn camera on'}
+                  title={isCameraActive ? 'Turn camera off' : 'Turn camera on'}
                   className={`w-10 h-10 rounded-full flex items-center justify-center border transition-all ${
-                    !isCameraActive 
-                      ? 'bg-red-500 border-red-500 text-white' 
+                    !isCameraActive
+                      ? 'bg-red-500 border-red-500 text-white'
                       : 'bg-zinc-950/80 border-zinc-800 text-zinc-300 hover:bg-zinc-900'
                   }`}
                 >
@@ -661,7 +693,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
                 </button>
               </div>
             </div>
-            <p className="text-zinc-500 text-xs text-center">Check your lighting and position. Tap camera/mic icons to adjust settings.</p>
+            <p className="text-zinc-500 text-xs text-center">Turn on your camera to check lighting and position. Tap camera/mic icons to adjust settings.</p>
           </div>
 
           {/* Right panel: join options */}
@@ -706,7 +738,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
         description="Participate in an interactive AI mock interview. Practice answering industry-specific questions under realistic constraints."
       />
       <div className="min-h-screen bg-zinc-950 text-white flex flex-col justify-between select-none relative overflow-hidden">
-      
+
       {/* Top Header Bar */}
       <div className="bg-zinc-900/60 border-b border-zinc-800/80 px-6 py-4 flex items-center justify-between backdrop-blur-md z-10">
         <div className="flex items-center gap-3">
@@ -735,16 +767,16 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
 
       {/* Main Classroom/Room Area */}
       <div className="flex-1 p-6 flex flex-col lg:flex-row gap-6 items-stretch overflow-hidden min-h-[calc(100vh-160px)]">
-        
+
         {/* Left Side: Dynamic Grid containing Streams */}
         <div className={`flex-1 flex flex-col gap-6 ${secondaryActive ? 'lg:w-[65%]' : 'w-full'}`}>
           <div className={`flex-1 grid gap-6 ${secondaryActive ? 'grid-rows-2 grid-cols-1' : 'grid-cols-1 md:grid-cols-2'}`}>
-            
+
             {/* 1. AI Interviewer simulated feed */}
             <div className="bg-zinc-900 border border-zinc-800/85 rounded-2xl relative overflow-hidden shadow-2xl flex flex-col justify-between p-6">
               {/* Scanline overlay effect */}
               <div className="absolute inset-0 bg-scanlines pointer-events-none opacity-[0.03]" />
-              
+
               {/* Recording indicator dot */}
               <div className="flex items-center justify-between">
                 <span className="bg-zinc-950/80 border border-zinc-800/60 px-3 py-1 rounded-full text-xs font-semibold text-zinc-300 flex items-center gap-1.5 shadow-sm">
@@ -759,8 +791,8 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
                 {/* Audio wave bars */}
                 <div className="flex items-end justify-center gap-1.5 h-16 mb-6 min-w-[200px]">
                   {speechVisualizerBars.map((val, idx) => (
-                    <div 
-                      key={idx} 
+                    <div
+                      key={idx}
                       className={`w-1.5 rounded-full transition-all duration-75 ${
                         avatarState === 'speaking' ? 'bg-gradient-to-t from-primary to-rose-500' : 'bg-zinc-700'
                       }`}
@@ -768,7 +800,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
                     />
                   ))}
                 </div>
-                
+
                 {avatarState === 'speaking' && (
                   <p className="text-sm font-semibold text-red-400 animate-pulse tracking-wide uppercase text-xs">AI Interviewer Speaking...</p>
                 )}
@@ -802,14 +834,14 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
 
             {/* 2. User camera feed */}
             <div className="bg-zinc-900 border border-zinc-800/85 rounded-2xl relative overflow-hidden shadow-2xl flex flex-col justify-between">
-              
+
               {/* Actual local video feed */}
               {isCameraActive ? (
-                <video 
-                  ref={userVideoRef} 
-                  autoPlay 
-                  playsInline 
-                  muted 
+                <video
+                  ref={userVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
                   className="absolute inset-0 w-full h-full object-cover rounded-2xl transform -scale-x-100"
                 />
               ) : (
@@ -843,7 +875,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
         {/* Right Side / Sidebar: Shared Screen or Whiteboard drawing canvas */}
         {secondaryActive && (
           <div className="lg:w-[35%] flex flex-col bg-zinc-900 border border-zinc-800/85 rounded-2xl shadow-2xl overflow-hidden relative">
-            
+
             {isScreenSharing && (
               <div className="flex-1 flex flex-col">
                 <div className="bg-zinc-950 px-6 py-4 border-b border-zinc-800 flex justify-between items-center">
@@ -853,10 +885,10 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
                   <button onClick={stopScreenShare} className="text-xs font-semibold text-red-400 hover:underline">Stop Sharing</button>
                 </div>
                 <div className="flex-1 bg-zinc-950 relative overflow-hidden">
-                  <video 
-                    ref={screenVideoRef} 
-                    autoPlay 
-                    playsInline 
+                  <video
+                    ref={screenVideoRef}
+                    autoPlay
+                    playsInline
                     className="absolute inset-0 w-full h-full object-contain"
                   />
                 </div>
@@ -870,11 +902,11 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
                   <span className="text-sm font-bold text-zinc-300 flex items-center gap-2">
                     <Edit2 className="w-4 h-4 text-red-400" /> Drawing Whiteboard
                   </span>
-                  
+
                   {/* Tools grid */}
                   <div className="flex items-center gap-2">
                     {/* Eraser */}
-                    <button 
+                    <button
                       onClick={() => setIsEraser(!isEraser)}
                       className={`p-1.5 rounded-lg border ${
                         isEraser ? 'bg-primary border-red-500 text-white' : 'border-zinc-800 text-zinc-400 hover:bg-zinc-850'
@@ -884,7 +916,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
                       <Eraser className="w-4 h-4" />
                     </button>
                     {/* Clear all */}
-                    <button 
+                    <button
                       onClick={handleClearWhiteboard}
                       className="p-1.5 rounded-lg border border-zinc-800 text-zinc-400 hover:bg-zinc-850 hover:text-white"
                       title="Clear canvas"
@@ -953,7 +985,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
         {isListening && !isMicMuted && (
           <div className="mt-3 pt-2.5 border-t border-zinc-800/60 flex justify-between items-center gap-2">
             <span className="text-[10px] text-zinc-500 font-medium">Auto-submits after 6s silence...</span>
-            <button 
+            <button
               onClick={() => { stopListening(); submitAnswer(transcript); }}
               className="bg-primary hover:bg-primary-container text-white font-bold py-1 px-3 rounded-lg text-[10px] shadow transition-colors"
             >
@@ -965,7 +997,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
 
       {/* Control Actions Footer */}
       <div className="bg-zinc-900/80 border-t border-zinc-800/80 px-6 py-6 flex items-center justify-between backdrop-blur-md z-10">
-        
+
         {/* Session details */}
         <div className="text-zinc-400 text-sm font-semibold select-none hidden md:block">
           AI Interviewer Persona: <span className="text-white">{interviewerName}</span>
@@ -973,13 +1005,13 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
 
         {/* Controls grid */}
         <div className="flex items-center gap-4 mx-auto md:mx-0">
-          
+
           {/* Mute/Unmute Mic */}
           <button
             onClick={toggleMic}
             className={`w-12 h-12 rounded-xl flex items-center justify-center border transition-all ${
-              isMicMuted 
-                ? 'bg-red-500/10 border-red-500/30 text-red-500 hover:bg-red-500/20' 
+              isMicMuted
+                ? 'bg-red-500/10 border-red-500/30 text-red-500 hover:bg-red-500/20'
                 : 'bg-zinc-800 border-zinc-700/60 text-zinc-200 hover:bg-zinc-750 hover:text-white'
             }`}
             title={isMicMuted ? "Unmute microphone" : "Mute microphone"}
@@ -991,8 +1023,8 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
           <button
             onClick={toggleCamera}
             className={`w-12 h-12 rounded-xl flex items-center justify-center border transition-all ${
-              !isCameraActive 
-                ? 'bg-red-500/10 border-red-500/30 text-red-500 hover:bg-red-500/20' 
+              !isCameraActive
+                ? 'bg-red-500/10 border-red-500/30 text-red-500 hover:bg-red-500/20'
                 : 'bg-zinc-800 border-zinc-700/60 text-zinc-200 hover:bg-zinc-750 hover:text-white'
             }`}
             title={isCameraActive ? "Deactivate Camera" : "Activate Camera"}
@@ -1004,8 +1036,8 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
           <button
             onClick={toggleScreenShare}
             className={`w-12 h-12 rounded-xl flex items-center justify-center border transition-all ${
-              isScreenSharing 
-                ? 'bg-primary border-red-500 text-white' 
+              isScreenSharing
+                ? 'bg-primary border-red-500 text-white'
                 : 'bg-zinc-800 border-zinc-700/60 text-zinc-200 hover:bg-zinc-750 hover:text-white'
             }`}
             title={isScreenSharing ? "Stop sharing screen" : "Share your screen"}
@@ -1017,8 +1049,8 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
           <button
             onClick={toggleWhiteboard}
             className={`w-12 h-12 rounded-xl flex items-center justify-center border transition-all ${
-              showWhiteboard 
-                ? 'bg-primary border-red-500 text-white' 
+              showWhiteboard
+                ? 'bg-primary border-red-500 text-white'
                 : 'bg-zinc-800 border-zinc-700/60 text-zinc-200 hover:bg-zinc-750 hover:text-white'
             }`}
             title={showWhiteboard ? "Hide whiteboard" : "Show whiteboard drawboard"}
@@ -1085,7 +1117,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
           </div>
         </div>
       )}
-      
+
     </div>
     </>
   );

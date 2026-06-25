@@ -31,8 +31,14 @@ const explicitOrigins = (env.FRONTEND_ORIGIN ?? "")
   .filter(Boolean);
 
 function isAllowedCorsOrigin(origin: string): boolean {
-  if (explicitOrigins.includes(origin) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+  if (explicitOrigins.includes(origin)) {
     return true;
+  }
+
+  if (env.NODE_ENV !== "production") {
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      return true;
+    }
   }
 
   if (env.NODE_ENV !== "production" && origin === "https://accounts.google.com") {

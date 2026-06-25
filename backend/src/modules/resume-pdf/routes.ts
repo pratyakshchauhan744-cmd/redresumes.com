@@ -1,13 +1,24 @@
 import { Router } from "express";
 import { z } from "zod";
+import { requireAuth } from "../../middleware/auth.js";
+import rateLimit from "express-rate-limit";
 
 const router = Router();
+
+const pdfLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30, // Limit each IP to 30 PDF generation requests per window
+  message: { message: "Too many PDF generation requests, please try again later" }
+});
 
 type PdfPage = {
   evaluate<T>(pageFunction: () => T | Promise<T>): Promise<T>;
   setContent(html: string, options?: { waitUntil?: string | string[]; timeout?: number }): Promise<void>;
   emulateMediaType(type: "print"): Promise<void>;
   pdf(options: Record<string, unknown>): Promise<Uint8Array>;
+  setJavaScriptEnabled(enabled: boolean): Promise<void>;
+  setRequestInterception(value: boolean): Promise<void>;
+  on(eventName: string, handler: (request: any) => void): any;
 };
 
 type PdfBrowser = {
@@ -42,7 +53,7 @@ const getPdfScale = async (page: PdfPage): Promise<number> => {
   });
 };
 
-router.post("/pdf", async (req, res, next) => {
+router.post("/pdf", requireAuth, pdfLimiter, async (req, res, next) => {
   let browser: PdfBrowser | undefined;
 
   try {
@@ -89,6 +100,38 @@ router.post("/pdf", async (req, res, next) => {
     }
 
     const page = await browser.newPage();
+
+    // Disable JavaScript to block Server-Side XSS execution (CWE-79 mitigation)
+    await page.setJavaScriptEnabled(false);
+
+    // Intercept requests and block file:// protocols and local network IP addresses (SSRF/LFI mitigation)
+    await page.setRequestInterception(true);
+    page.on("request", (interceptedRequest) => {
+      const url = interceptedRequest.url().toLowerCase();
+      if (url.startsWith("file:") || url.startsWith("chrome:") || url.startsWith("chrome-extension:")) {
+        interceptedRequest.abort();
+        return;
+      }
+      try {
+        const parsedUrl = new URL(interceptedRequest.url());
+        const hostname = parsedUrl.hostname.toLowerCase();
+        if (
+          hostname === "localhost" ||
+          hostname === "127.0.0.1" ||
+          hostname === "[::1]" ||
+          hostname === "::1" ||
+          hostname === "169.254.169.254"
+        ) {
+          interceptedRequest.abort();
+          return;
+        }
+      } catch {
+        interceptedRequest.abort();
+        return;
+      }
+      interceptedRequest.continue();
+    });
+
     await page.setContent(body.html, { waitUntil: ["load", "networkidle0"], timeout: 30_000 });
     await page.emulateMediaType("print");
     const pdfScale = await getPdfScale(page);

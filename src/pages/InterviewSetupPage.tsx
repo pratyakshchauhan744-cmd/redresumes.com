@@ -379,7 +379,7 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
           AI Mock Interview Setup
         </h1>
         <p className="mt-3 text-zinc-600 dark:text-zinc-400 text-lg max-w-3xl">
-          Upload your resume, paste the job description, and customize your mock interview parameters. Our AI will host a Google Meet styled video call testing your background dynamically.
+          Upload your resume, paste the job description, and customize your mock interview parameters. Our AI will host a Google Meet-style video call testing your background dynamically.
         </p>
       </div>
 
@@ -402,7 +402,7 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
             
             {!resumeId ? (
               <div className="space-y-4">
-                <div className="border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-xl p-8 text-center hover:border-primary transition-colors cursor-pointer relative">
+                <label htmlFor="resume-upload" className="block border-2 border-dashed border-zinc-300 dark:border-zinc-700 rounded-xl p-8 text-center hover:border-primary transition-colors cursor-pointer relative">
                   <input 
                     type="file" 
                     accept=".pdf,.txt" 
@@ -417,7 +417,7 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
                     </span>
                     <span className="text-xs text-zinc-400 mt-1">Maximum size 5MB</span>
                   </div>
-                </div>
+                </label>
 
                 <button
                   onClick={handleUpload}
@@ -432,7 +432,7 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
                 <div className="w-12 h-12 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-3 border border-emerald-200/50">
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
                 </div>
-                <h3 className="text-emerald-800 dark:text-emerald-300 font-bold mb-1">Resume Parsed successfully</h3>
+                <h3 className="text-emerald-800 dark:text-emerald-300 font-bold mb-1">Resume parsed successfully</h3>
                 <p className="text-xs text-emerald-600 dark:text-emerald-400">Strategy mapping completed</p>
                 <button onClick={() => setResumeId(null)} className="mt-4 text-xs font-semibold text-primary hover:text-primary-container hover:underline">Upload a different resume</button>
               </div>
@@ -447,6 +447,8 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
             </h2>
             <div>
               <textarea 
+                id="interview-job-description"
+                aria-label="Job description"
                 value={jobDescription} 
                 onChange={(e) => setJobDescription(e.target.value)} 
                 placeholder="Paste the target job description here to generate tailored, hyper-targeted interview scenarios..."
@@ -467,8 +469,9 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2">Target Role</label>
+                <label htmlFor="interview-target-role" className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2">Target Role</label>
                 <input 
+                  id="interview-target-role"
                   type="text" 
                   value={targetRole} 
                   onChange={(e) => setTargetRole(e.target.value)} 
@@ -478,10 +481,11 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 flex items-center gap-1.5">
+                <label htmlFor="interview-company-type" className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2 flex items-center gap-1.5">
                   <Building className="w-3.5 h-3.5" /> Company Simulation
                 </label>
                 <select 
+                  id="interview-company-type"
                   value={companyType} 
                   onChange={(e) => setCompanyType(e.target.value)} 
                   className="w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary dark:text-white"
@@ -500,8 +504,9 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2">Difficulty</label>
+                <label htmlFor="interview-difficulty" className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2">Difficulty</label>
                 <select 
+                  id="interview-difficulty"
                   value={difficulty} 
                   onChange={(e) => setDifficulty(e.target.value)} 
                   className="w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary dark:text-white"
@@ -513,8 +518,9 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2">Interviewer style</label>
+                <label htmlFor="interview-style" className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2">Interviewer style</label>
                 <select 
+                  id="interview-style"
                   value={style} 
                   onChange={(e) => setStyle(e.target.value)} 
                   className="w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary dark:text-white"
@@ -527,8 +533,9 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2">Duration</label>
+                <label htmlFor="interview-duration" className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2">Duration</label>
                 <select 
+                  id="interview-duration"
                   value={durationMins} 
                   onChange={(e) => setDurationMins(Number(e.target.value))} 
                   className="w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary dark:text-white"
@@ -545,8 +552,9 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2">Interviewer Persona</label>
+                  <label htmlFor="interview-persona" className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2">Interviewer Persona</label>
                   <select 
+                    id="interview-persona"
                     value={interviewerPersona} 
                     onChange={(e) => setInterviewerPersona(e.target.value)} 
                     className="w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary dark:text-white"
@@ -589,6 +597,11 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
             >
               <Settings className="w-5 h-5" /> Start Meeting Room <ArrowRight className="w-4 h-4" />
             </button>
+            {!resumeId && (
+              <p className="text-center text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                Upload and analyze a resume before starting the meeting room.
+              </p>
+            )}
           </div>
         </div>
       </div>

@@ -131,6 +131,20 @@ export async function startInterview(req: Request, res: Response, next: NextFunc
 export async function answerQuestion(req: Request, res: Response, next: NextFunction) {
   try {
     const payload = answerSchema.parse(req.body);
+    const userId = req.user?.id;
+
+    // Validate session ownership (anti-IDOR)
+    const session = await prisma.interviewSession.findUnique({
+      where: { id: payload.sessionId }
+    });
+
+    if (!session) {
+      return res.status(404).json({ message: "Session not found" });
+    }
+
+    if (session.userId && session.userId !== userId) {
+      return res.status(403).json({ message: "Forbidden: You do not own this session" });
+    }
 
     const result = await answerInterviewQuestion(
       payload.sessionId,
@@ -256,7 +270,21 @@ export async function getHistory(req: Request, res: Response, next: NextFunction
 export async function completeInterview(req: Request, res: Response, next: NextFunction) {
   try {
     const { id } = req.params;
+    const userId = req.user?.id;
     const { wpm, fillerCount, confidence } = req.body;
+
+    // Validate session ownership (anti-IDOR)
+    const session = await prisma.interviewSession.findUnique({
+      where: { id }
+    });
+
+    if (!session) {
+      return res.status(404).json({ message: "Session not found" });
+    }
+
+    if (session.userId && session.userId !== userId) {
+      return res.status(403).json({ message: "Forbidden: You do not own this session" });
+    }
 
     const report = await completeSessionAndGenerateReport(id, wpm, fillerCount, confidence);
     res.json(report);

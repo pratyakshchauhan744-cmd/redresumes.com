@@ -49,6 +49,18 @@ export const DashboardPage = ({
   const [purchaseLoading, setPurchaseLoading] = useState<string | null>(null);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
   const [devAmount, setDevAmount] = useState<number>(5);
+  const isLocalHost = typeof window !== 'undefined' && ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+
+  useEffect(() => {
+    if (currentUser) {
+      setUser(currentUser);
+      setProfileName(currentUser.name ?? '');
+      setProfilePhone(sanitizeProfilePhone(currentUser.phone ?? ''));
+      setProfileLocation(currentUser.location ?? '');
+      setProfileBio(currentUser.bio ?? '');
+      setCreditsBalance(currentUser.credits ?? 0);
+    }
+  }, [currentUser]);
 
   const savedJobsStorageKey = buildUserScopedStorageKey(SAVED_JOBS_STORAGE_KEY, user?.id ?? currentUser?.id);
   const appliedJobsStorageKey = buildUserScopedStorageKey(APPLIED_JOBS_STORAGE_KEY, user?.id ?? currentUser?.id);
@@ -77,7 +89,7 @@ export const DashboardPage = ({
 
     try {
       const res = await backendApi.createCreditCheckoutSession(packageKey, accessToken);
-      
+
       // Handle mock dev bypass or redirect URL if provided
       if (res.url) {
         window.location.href = res.url;
@@ -160,7 +172,7 @@ export const DashboardPage = ({
     try {
       const res = await backendApi.devAddCredits(devAmount, accessToken);
       setCreditsBalance(res.balance);
-      
+
       if (user) {
         const updatedUser = { ...user, credits: res.balance };
         saveUserLocally(updatedUser);
@@ -218,7 +230,7 @@ export const DashboardPage = ({
       .catch(() => {
         setProfileError('Showing saved profile details because the live account service is unavailable.');
       });
-      
+
     // Fetch interview history
     backendApi.getInterviewHistory(accessToken)
       .then(data => {
@@ -252,9 +264,9 @@ export const DashboardPage = ({
     onUserUpdated(updatedUser);
   };
 
-  const handleProfileSave = () => {
+  const handleProfileSave = async () => {
     if (!user) return;
-    
+
     const phoneTrimmed = sanitizeProfilePhone(profilePhone);
     if (phoneTrimmed !== '') {
       if (phoneTrimmed.length !== 10) {
@@ -271,9 +283,29 @@ export const DashboardPage = ({
       location: profileLocation.trim(),
       bio: profileBio.trim(),
     };
-    saveUserLocally(updatedUser);
-    setProfileMessage('Profile updated successfully.');
+
     setProfileError(null);
+    setProfileMessage('Saving profile...');
+
+    try {
+      const accessToken = getStoredAccessToken();
+      if (accessToken && !isLocalAccessToken(accessToken)) {
+        const saved = await backendApi.updateProfile({
+          name: updatedUser.name,
+          phone: updatedUser.phone,
+          location: updatedUser.location,
+          bio: updatedUser.bio,
+          photoDataUrl: updatedUser.photoDataUrl,
+        }, accessToken);
+        saveUserLocally(saved);
+      } else {
+        saveUserLocally(updatedUser);
+      }
+      setProfileMessage('Profile updated successfully.');
+    } catch (err: any) {
+      setProfileError(err.message || 'Failed to save profile on the server.');
+      setProfileMessage(null);
+    }
   };
 
   const handlePhotoUpload = (event: ChangeEvent<HTMLInputElement>) => {
@@ -282,9 +314,56 @@ export const DashboardPage = ({
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
-        const updatedUser: AuthUser = { ...user, photoDataUrl: reader.result };
-        saveUserLocally(updatedUser);
-        setProfileMessage('Profile photo updated.');
+        const img = new Image();
+        img.onload = async () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 240;
+          const MAX_HEIGHT = 240;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressed = canvas.toDataURL('image/jpeg', 0.82);
+
+            const updatedUser = { ...user, photoDataUrl: compressed };
+
+            try {
+              const accessToken = getStoredAccessToken();
+              if (accessToken && !isLocalAccessToken(accessToken)) {
+                const saved = await backendApi.updateProfile({
+                  name: updatedUser.name,
+                  phone: updatedUser.phone,
+                  location: updatedUser.location,
+                  bio: updatedUser.bio,
+                  photoDataUrl: compressed,
+                }, accessToken);
+                saveUserLocally(saved);
+              } else {
+                saveUserLocally(updatedUser);
+              }
+              setProfileMessage('Profile photo updated.');
+            } catch (err: any) {
+              setProfileError('Failed to save profile photo on the server.');
+            }
+          }
+        };
+        img.src = reader.result;
       }
     };
     reader.readAsDataURL(file);
@@ -495,7 +574,7 @@ export const DashboardPage = ({
               </div>
             </div>
             <div className="mt-6 grid gap-4 md:grid-cols-2">
-              <input value={profileName} onChange={(event) => setProfileName(event.target.value)} className="rounded-xl border border-zinc-200 px-4 py-3 text-sm" placeholder="Full name" />
+              <input value={profileName} onChange={(event) => setProfileName(event.target.value)} className="rounded-xl border border-zinc-200 px-4 py-3 text-sm" placeholder="Full name" aria-label="Profile full name" />
               <input
                 type="tel"
                 inputMode="numeric"
@@ -506,11 +585,11 @@ export const DashboardPage = ({
                 placeholder="Phone number"
                 aria-label="Profile phone number"
               />
-              <input value={profileLocation} onChange={(event) => setProfileLocation(event.target.value)} className="rounded-xl border border-zinc-200 px-4 py-3 text-sm md:col-span-2" placeholder="Location" />
-              <textarea value={profileBio} onChange={(event) => setProfileBio(event.target.value)} className="rounded-xl border border-zinc-200 px-4 py-3 text-sm md:col-span-2 h-28" placeholder="Short profile bio" />
+              <input value={profileLocation} onChange={(event) => setProfileLocation(event.target.value)} className="rounded-xl border border-zinc-200 px-4 py-3 text-sm md:col-span-2" placeholder="Location" aria-label="Profile location" />
+              <textarea value={profileBio} onChange={(event) => setProfileBio(event.target.value)} className="rounded-xl border border-zinc-200 px-4 py-3 text-sm md:col-span-2 h-28" placeholder="Short profile bio" aria-label="Profile bio" />
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <input type="file" accept="image/*" onChange={handlePhotoUpload} className="max-w-xs rounded-xl border border-zinc-200 px-3 py-2 text-sm" />
+              <input type="file" accept="image/*" onChange={handlePhotoUpload} className="max-w-xs rounded-xl border border-zinc-200 px-3 py-2 text-sm" aria-label="Upload profile photo" />
               <button onClick={handleProfileSave} className="rounded-full bg-primary px-5 py-3 text-sm font-semibold text-white">
                 Save profile
               </button>
@@ -519,7 +598,28 @@ export const DashboardPage = ({
         </div>
 
         <div className="space-y-6">
-
+          {isLocalHost && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50/20 p-6 shadow-sm">
+              <h2 className="font-bold text-amber-800 text-sm uppercase tracking-wider">Local Developer Tools</h2>
+              <p className="text-xs text-amber-700 mt-1">Simulate credit balance adjustments for testing on localhost.</p>
+              <div className="mt-4 flex gap-2">
+                <input
+                  type="number"
+                  value={devAmount}
+                  onChange={(e) => setDevAmount(Math.max(1, parseInt(e.target.value, 10) || 0))}
+                  className="w-20 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800"
+                  aria-label="Test credits amount"
+                />
+                <button
+                  type="button"
+                  onClick={handleDevAddCredits}
+                  className="flex-1 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 text-xs transition-all"
+                >
+                  Add Test Credits
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="rounded-2xl border border-zinc-200 bg-white p-6">
             <div className="flex items-center justify-between">
@@ -535,21 +635,26 @@ export const DashboardPage = ({
                   </button>
                 </div>
               ) : (
-                interviewHistory.slice(0, 5).map((session: any) => (
-                  <div key={session.id} onClick={() => navigate(`/interview/report/${session.id}`)} className="flex items-center justify-between rounded-xl border border-zinc-100 hover:border-primary/30 hover:bg-primary/5 cursor-pointer px-4 py-3 transition-colors">
-                    <div>
-                      <p className="text-sm font-semibold text-zinc-900">{session.targetRole}</p>
-                      <p className="text-xs text-zinc-500">{new Date(session.createdAt).toLocaleDateString()} • {session.companyType}</p>
-                    </div>
-                    {session.report && (
-                      <div className="text-right">
-                        <span className={`text-sm font-bold ${session.report.overallScore >= 8 ? 'text-green-600' : session.report.overallScore >= 6 ? 'text-amber-600' : 'text-red-600'}`}>
-                          {session.report.overallScore.toFixed(1)}/10
-                        </span>
+                interviewHistory.slice(0, 5).map((session: any) => {
+                  const overallScore = Number(session.report?.overallScore);
+                  const hasScore = Number.isFinite(overallScore);
+
+                  return (
+                    <div key={session.id} onClick={() => navigate(`/interview/report/${session.id}`)} className="flex items-center justify-between rounded-xl border border-zinc-100 hover:border-primary/30 hover:bg-primary/5 cursor-pointer px-4 py-3 transition-colors">
+                      <div>
+                        <p className="text-sm font-semibold text-zinc-900">{session.targetRole}</p>
+                        <p className="text-xs text-zinc-500">{new Date(session.createdAt).toLocaleDateString()} • {session.companyType}</p>
                       </div>
-                    )}
-                  </div>
-                ))
+                      {hasScore && (
+                        <div className="text-right">
+                          <span className={`text-sm font-bold ${overallScore >= 8 ? 'text-green-600' : overallScore >= 6 ? 'text-amber-600' : 'text-red-600'}`}>
+                            {overallScore.toFixed(1)}/10
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>

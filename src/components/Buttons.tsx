@@ -13,7 +13,7 @@ export const SecondaryButton = ({ label, onClick }: { label: string; onClick?: (
   <button
     type="button"
     onClick={onClick}
-    className="min-h-11 w-full rounded-full border border-zinc-300 px-5 py-2.5 font-semibold text-zinc-900 transition hover:border-zinc-900 sm:w-auto sm:px-6 sm:py-3"
+    className="min-h-11 w-full rounded-full border border-zinc-300 bg-white px-5 py-2.5 font-semibold text-zinc-900 transition hover:border-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-500 sm:w-auto sm:px-6 sm:py-3"
   >
     {label}
   </button>

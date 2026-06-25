@@ -536,6 +536,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
         <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_4px_24px_rgba(15,23,42,0.06)] md:p-6">
           <div className="grid gap-3 sm:grid-cols-[1fr_1fr] lg:grid-cols-[1.5fr_1fr_1fr_auto]">
             <div className="relative">
+              <label htmlFor="job-search-input" className="sr-only">Job title, keyword, or company</label>
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
               <input
                 id="job-search-input"
@@ -547,6 +548,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
               />
             </div>
             <div className="relative">
+              <label htmlFor="job-location-input" className="sr-only">Job location</label>
               <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
               <input
                 id="job-location-input"
@@ -558,6 +560,7 @@ export const JobFinderPage = ({ currentUser }: { currentUser: AuthUser | null })
               />
             </div>
             <div className="relative">
+              <label htmlFor="job-level-input" className="sr-only">Experience level</label>
               <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
               <input
                 id="job-level-input"

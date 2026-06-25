@@ -12,7 +12,7 @@ export const InterviewReportPage = () => {
   const [report, setReport] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  
+
   // Timeline Active state
   const [activeQuestionIdx, setActiveQuestionIdx] = useState<number>(0);
 
@@ -58,7 +58,7 @@ export const InterviewReportPage = () => {
               {error || 'Unable to generate report because insufficient interview data was collected.'}
             </p>
           </div>
-          <button 
+          <button
             onClick={() => navigate('/dashboard')}
             className="w-full bg-primary hover:bg-primary-container text-white font-bold py-3 px-4 rounded-xl transition-all"
           >
@@ -97,7 +97,7 @@ export const InterviewReportPage = () => {
               No interview data available.
             </p>
           </div>
-          <button 
+          <button
             onClick={() => navigate('/dashboard')}
             className="w-full bg-primary hover:bg-primary-container text-white font-bold py-3 px-4 rounded-xl transition-all"
           >
@@ -133,11 +133,6 @@ export const InterviewReportPage = () => {
 
   const timelineChapters = getTimelineChapters(sortedQuestions);
 
-  // Fallback STAR framework responder helper if backend doesn't supply it
-  const getSTARResponse = (questionText: string, originalAnswer: string) => {
-    return `Situation: While analyzing user acquisition trends for our platform...\nTask: I needed to address a 12% drop in weekly active metrics...\nAction: I parsed database telemetry logs using Python pandas, optimized SQL indexes, and visualised KPI outliers...\nResult: Successfully recovered retention rates by 6.4% in the subsequent monthly sprint.`;
-  };
-
   return (
     <>
       <Seo
@@ -145,7 +140,7 @@ export const InterviewReportPage = () => {
         description="Review detailed feedback, grammar suggestions, and AI evaluation of your responses from your mock interview session."
       />
       <div className="max-w-6xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
-      
+
       {/* Top Banner */}
       <div className="mb-10 flex flex-col md:flex-row justify-between items-start md:items-end gap-6 pb-6 border-b border-zinc-200 dark:border-zinc-800">
         <div>
@@ -166,18 +161,18 @@ export const InterviewReportPage = () => {
         {/* Overall Score Circle */}
         <div className="lg:col-span-4 bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800 p-8 flex flex-col items-center justify-center text-center relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-bl-[100px] -z-10" />
-          
+
           <div className="relative mb-6">
             <svg className="w-40 h-40 transform -rotate-90">
               <circle cx="80" cy="80" r="72" stroke="currentColor" strokeWidth="12" fill="transparent" className="text-zinc-100 dark:text-zinc-800" />
-              <circle 
-                cx="80" cy="80" r="72" 
-                stroke="currentColor" 
-                strokeWidth="12" 
-                fill="transparent" 
-                strokeDasharray={452.389} 
+              <circle
+                cx="80" cy="80" r="72"
+                stroke="currentColor"
+                strokeWidth="12"
+                fill="transparent"
+                strokeDasharray={452.389}
                 strokeDashoffset={452.389 - (452.389 * (overallScore / 10))}
-                className={`${overallScore >= 8 ? 'text-emerald-500' : overallScore >= 6 ? 'text-amber-500' : 'text-red-500'} transition-all duration-1000`} 
+                className={`${overallScore >= 8 ? 'text-emerald-500' : overallScore >= 6 ? 'text-amber-500' : 'text-red-500'} transition-all duration-1000`}
               />
             </svg>
             <div className="absolute inset-0 flex items-center justify-center flex-col">
@@ -187,7 +182,7 @@ export const InterviewReportPage = () => {
           </div>
           <h2 className="text-xl font-bold text-zinc-900 dark:text-white">Performance Score</h2>
           <p className="text-sm text-zinc-500 mt-2 max-w-xs">A holistic measurement of your logic flow, technical accuracy, relevance, and presence.</p>
-          
+
           <div className="mt-6 pt-6 border-t border-zinc-100 dark:border-zinc-800 w-full text-left space-y-2.5">
             <div className="flex justify-between text-xs font-semibold text-zinc-500 dark:text-zinc-400">
               <span>Questions Answered:</span>
@@ -216,7 +211,7 @@ export const InterviewReportPage = () => {
                 <PolarGrid stroke="#e4e4e7" />
                 <PolarAngleAxis dataKey="subject" tick={{ fill: '#71717a', fontSize: 12, fontWeight: 700 }} />
                 <PolarRadiusAxis angle={30} domain={[0, 10]} tick={false} axisLine={false} />
-                <Tooltip 
+                <Tooltip
                   contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                   itemStyle={{ color: '#b11217', fontWeight: 'bold' }}
                 />
@@ -231,7 +226,7 @@ export const InterviewReportPage = () => {
               </RadarChart>
             </ResponsiveContainer>
           </div>
-          
+
           <div className="w-full sm:w-1/2">
             <h2 className="text-lg font-bold text-zinc-900 dark:text-white mb-5 flex items-center gap-2">
               <BarChart3 className="w-5 h-5 text-primary" /> Skill Heatmap Details
@@ -244,12 +239,12 @@ export const InterviewReportPage = () => {
                     <span className="text-zinc-900 dark:text-white">{item.A}/10</span>
                   </div>
                   <div className="w-full bg-zinc-100 dark:bg-zinc-800 rounded-full h-2 overflow-hidden">
-                    <div 
+                    <div
                       className={`h-full rounded-full transition-all duration-1000 ${
-                        item.A >= 8 ? 'bg-gradient-to-r from-emerald-400 to-emerald-500' : 
-                        item.A >= 6 ? 'bg-gradient-to-r from-amber-400 to-amber-500' : 
+                        item.A >= 8 ? 'bg-gradient-to-r from-emerald-400 to-emerald-500' :
+                        item.A >= 6 ? 'bg-gradient-to-r from-amber-400 to-amber-500' :
                         'bg-gradient-to-r from-red-400 to-red-500'
-                      }`} 
+                      }`}
                       style={{ width: `${(item.A / 10) * 100}%` }}
                     />
                   </div>
@@ -264,7 +259,7 @@ export const InterviewReportPage = () => {
       <h2 className="text-2xl font-black text-zinc-900 dark:text-white mb-6 flex items-center gap-2">
         <Mic className="w-6 h-6 text-primary" /> Voice & Communication Analytics
       </h2>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
         {/* Speaking Pace */}
         <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800 p-6 relative overflow-hidden">
@@ -274,8 +269,8 @@ export const InterviewReportPage = () => {
               <Activity className="w-5 h-5" />
             </div>
             <span className={`text-xs font-bold px-2 py-1 rounded-full ${
-              (speakingPace || 135) >= 120 && (speakingPace || 135) <= 160 
-                ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20' 
+              (speakingPace || 135) >= 120 && (speakingPace || 135) <= 160
+                ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20'
                 : 'bg-amber-500/10 text-amber-600 border border-amber-500/20'
             }`}>
               {(speakingPace || 135) >= 120 && (speakingPace || 135) <= 160 ? 'Optimal' : 'Needs Work'}
@@ -297,8 +292,8 @@ export const InterviewReportPage = () => {
               <AlertTriangle className="w-5 h-5" />
             </div>
             <span className={`text-xs font-bold px-2 py-1 rounded-full ${
-              (fillerWords || 0) < 5 
-                ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20' 
+              (fillerWords || 0) < 5
+                ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20'
                 : 'bg-red-500/10 text-red-500 border border-red-500/20'
             }`}>
               {(fillerWords || 0) < 5 ? 'Excellent' : 'High Usage'}
@@ -361,7 +356,7 @@ export const InterviewReportPage = () => {
             ))}
           </ul>
         </div>
-        
+
         <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-zinc-200 dark:border-zinc-800 p-6 hover:shadow-md transition-shadow">
           <h3 className="text-lg font-bold text-zinc-900 dark:text-white mb-5 flex items-center gap-2">
             <XCircle className="w-5 h-5 text-red-500" /> Areas for Improvement
@@ -382,15 +377,15 @@ export const InterviewReportPage = () => {
         <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
           <Play className="w-5 h-5 text-red-400" /> Interview Replay Timeline
         </h2>
-        
+
         <div className="flex flex-col md:flex-row items-stretch gap-3">
           {timelineChapters.map((chapter) => (
             <button
               key={chapter.idx}
               onClick={() => setActiveQuestionIdx(chapter.idx)}
               className={`flex-1 text-left p-4 rounded-xl border transition-all ${
-                activeQuestionIdx === chapter.idx 
-                  ? 'bg-primary/10 border-primary text-white shadow-md' 
+                activeQuestionIdx === chapter.idx
+                  ? 'bg-primary/10 border-primary text-white shadow-md'
                   : 'bg-zinc-900/60 border-zinc-850 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
               }`}
             >
@@ -474,7 +469,7 @@ export const InterviewReportPage = () => {
                             STAR Framework Recommended Response
                           </span>
                           <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400 whitespace-pre-line bg-zinc-950 p-4 rounded-lg border border-zinc-850 mt-2">
-                            {sortedQuestions[activeQuestionIdx].answer.feedback.improvedAnswerExample || getSTARResponse(sortedQuestions[activeQuestionIdx].questionText, sortedQuestions[activeQuestionIdx].answer.answerText)}
+                            {sortedQuestions[activeQuestionIdx].answer.feedback.improvedAnswerExample || "No specific example was generated for this question."}
                           </p>
                         </div>
                       </div>
@@ -495,7 +490,7 @@ export const InterviewReportPage = () => {
           </div>
         </div>
       )}
-      
+
     </div>
     </>
   );

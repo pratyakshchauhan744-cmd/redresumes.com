@@ -12,6 +12,18 @@ import { signAccessToken, signRefreshToken, verifyToken } from "../../utils/jwt.
 
 const router = Router();
 
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30, // Limit each IP to 30 logins/attempts per window
+  message: { message: "Too many login attempts, please try again in 15 minutes" }
+});
+
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10, // Limit each IP to 10 registrations per hour
+  message: { message: "Too many accounts created from this IP, please try again in an hour" }
+});
+
 const otpVerifyLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
   max: 5,
@@ -614,7 +626,7 @@ router.post("/register/verify", otpVerifyLimiter, async (req, res, next) => {
   }
 });
 
-router.post("/register", async (req, res, next) => {
+router.post("/register", registerLimiter, async (req, res, next) => {
   try {
     const body = registerSchema.parse(req.body);
     const email = normalizedEmail(body.email);
@@ -642,7 +654,7 @@ router.post("/register", async (req, res, next) => {
   }
 });
 
-router.post("/login", async (req, res, next) => {
+router.post("/login", loginLimiter, async (req, res, next) => {
   try {
     const body = loginSchema.parse(req.body);
     const email = normalizedEmail(body.email);
@@ -665,7 +677,7 @@ router.post("/login", async (req, res, next) => {
   }
 });
 
-router.post("/google", async (req, res, next) => {
+router.post("/google", loginLimiter, async (req, res, next) => {
   try {
     const allowedClientIds = getAllowedGoogleClientIds();
     console.log("[Google Auth] Allowed client IDs:", allowedClientIds);

@@ -11,6 +11,8 @@ router.post("/webhook", handleRazorpayWebhook);
 router.post("/checkout", requireAuth, createCheckoutSession);
 router.post("/verify", requireAuth, verifyPayment);
 router.get("/transactions", requireAuth, getTransactions);
-router.post("/dev-add", requireAuth, devAddCredits);
+if (process.env.NODE_ENV !== "production") {
+  router.post("/dev-add", requireAuth, devAddCredits);
+}
 
 export default router;

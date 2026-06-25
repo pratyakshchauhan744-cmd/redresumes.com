@@ -78,34 +78,19 @@ export async function startInterview(req: Request, res: Response, next: NextFunc
     const payload = startSessionSchema.parse(req.body);
 
     if (userId) {
-      // 1. Prevent duplicate charges: check if an active session already exists
-      const activeSession = await prisma.interviewSession.findFirst({
-        where: {
-          userId,
-          status: "in_progress"
-        },
-        include: {
-          questions: {
-            orderBy: { orderIndex: "asc" }
-          }
-        }
+      // NOTE: We do NOT resume prior "in_progress" sessions here.
+      // That would silently ignore the user's newly selected config (company, difficulty,
+      // persona, duration) and return stale interview data — the root cause of Bug 1 & 2.
+      // Credits are deducted only at session completion, so creating a new session is safe.
+
+      // Mark any lingering in_progress sessions as completed so they don't block
+      // history or report lookups.
+      await prisma.interviewSession.updateMany({
+        where: { userId, status: "in_progress" },
+        data: { status: "completed" }
       });
 
-      if (activeSession) {
-        const lastQuestion = activeSession.questions[activeSession.questions.length - 1];
-        if (lastQuestion) {
-          console.log(`Resuming active session ${activeSession.id} to avoid duplicate credit deduction.`);
-          return res.json({
-            sessionId: activeSession.id,
-            firstQuestion: {
-              id: lastQuestion.id,
-              text: lastQuestion.questionText
-            }
-          });
-        }
-      }
-
-      // 2. Validate credits before starting
+      // Validate credits before starting a new session
       const userCredit = await prisma.userCredit.findUnique({
         where: { userId }
       });

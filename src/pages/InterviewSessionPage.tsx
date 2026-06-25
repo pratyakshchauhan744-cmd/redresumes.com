@@ -52,9 +52,12 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
   const [totalQuestions, setTotalQuestions] = useState(5); // derived from durationMins
   
   // Simulated video feed assets / visualizer
-  const [interviewerName, setInterviewerName] = useState('HR Recruiter');
-  const [companyName, setCompanyName] = useState('Google');
-  const [difficulty, setDifficulty] = useState('Medium');
+  // Initial values are empty strings — they are populated from the session API response.
+  // Avoid hardcoded defaults like 'HR Recruiter' / 'Google' that would flash on the
+  // join screen while the async fetchSession() call is in-flight.
+  const [interviewerName, setInterviewerName] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [difficulty, setDifficulty] = useState('');
   const [speechVisualizerBars, setSpeechVisualizerBars] = useState<number[]>(new Array(20).fill(6));
   
   // Media streams
@@ -62,6 +65,9 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const userVideoRef = useRef<HTMLVideoElement>(null);
   const screenVideoRef = useRef<HTMLVideoElement>(null);
+  // localStreamRef always holds the live MediaStream so cleanup callbacks and
+  // useEffect cleanup functions don't read a stale closure of the state value.
+  const localStreamRef = useRef<MediaStream | null>(null);
 
   // Whiteboard drawing states
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -156,14 +162,26 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
     return () => clearInterval(interval);
   }, [isLoading, hasJoined]);
 
-  // Handle webcam stream initialization
+  // Unconditional camera cleanup on component unmount (route change, refresh, back button).
+  // Uses the ref — not the state — so it always sees the live stream even in stale closures.
+  useEffect(() => {
+    return () => {
+      const stream = localStreamRef.current;
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        localStreamRef.current = null;
+      }
+    };
+  }, []); // empty deps: runs cleanup only on unmount
+
+  // Handle webcam stream initialization during session
   useEffect(() => {
     if (!isLoading && isCameraActive) {
       startCamera();
     } else {
       stopCamera();
     }
-    return () => stopCamera();
+    // Note: unmount cleanup is handled by the effect above (via ref)
   }, [isLoading, isCameraActive]);
 
   // Bind local webcam stream to the active video element (lobby or room)
@@ -321,6 +339,8 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      // Store in both state (for React renders) and ref (for reliable cleanup in closures)
+      localStreamRef.current = stream;
       setLocalStream(stream);
       if (userVideoRef.current) {
         userVideoRef.current.srcObject = stream;
@@ -333,8 +353,11 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
   };
 
   const stopCamera = () => {
-    if (localStream) {
-      localStream.getTracks().forEach(track => track.stop());
+    // Read from ref first — the state value can be stale inside old closures
+    const stream = localStreamRef.current || localStream;
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      localStreamRef.current = null;
       setLocalStream(null);
     }
   };

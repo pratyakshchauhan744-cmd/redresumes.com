@@ -845,9 +845,27 @@ router.post("/logout", async (req, res, next) => {
   try {
     const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
     if (refreshToken && typeof refreshToken === "string") {
+      // Look up the refresh token to get userId before deleting it
+      const storedToken = await prisma.refreshToken.findFirst({
+        where: { tokenHash: tokenHash(refreshToken) },
+        select: { userId: true }
+      });
+
+      // Delete the refresh token to invalidate the session
       await prisma.refreshToken.deleteMany({
         where: { tokenHash: tokenHash(refreshToken) }
       });
+
+      // Record the sign-out event in the database for admin telemetry
+      if (storedToken?.userId) {
+        try {
+          await prisma.signOutEvent.create({
+            data: { userId: storedToken.userId }
+          });
+        } catch (logErr) {
+          console.warn("Sign-out event logging skipped:", logErr instanceof Error ? logErr.message : "unknown error");
+        }
+      }
     }
     clearRefreshCookie(res);
     res.status(204).send();

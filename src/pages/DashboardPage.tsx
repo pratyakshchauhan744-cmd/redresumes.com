@@ -3,7 +3,7 @@ import { FileText, Clock, Settings, User, Trash2, Edit3, Save, ExternalLink, QrC
 import { Section } from '../components/Section';
 import { Seo } from '../components/Seo';
 import { PrimaryButton, SecondaryButton } from '../components/Buttons';
-import { APPLIED_JOBS_STORAGE_KEY, LOCAL_ACCOUNTS_STORAGE_KEY, RESUME_HISTORY_STORAGE_KEY, SAVED_JOBS_STORAGE_KEY, USER_STORAGE_KEY, buildUserScopedStorageKey, getStoredAccessToken, isLocalAccessToken, readStoredUser } from '../lib/auth';
+import { APPLIED_JOBS_STORAGE_KEY, LOCAL_ACCOUNTS_STORAGE_KEY, RESUME_HISTORY_STORAGE_KEY, SAVED_JOBS_STORAGE_KEY, USER_STORAGE_KEY, buildUserScopedStorageKey, clearStoredAuthTokens, getStoredAccessToken, isLocalAccessToken, readStoredUser } from '../lib/auth';
 import { backendApi, type AuthUser } from '../lib/backendApi';
 import type { LocalAccount } from '../types';
 import type { Page } from '../types';
@@ -200,6 +200,15 @@ export const DashboardPage = ({
     }
 
     if (!accessToken || isLocalAccessToken(accessToken)) {
+      // If the user has a stale local/offline token but a real backend is now
+      // available, force them to re-authenticate so their account is properly
+      // created in the production database.
+      if (isLocalAccessToken(accessToken) && import.meta.env.VITE_API_BASE_URL) {
+        clearStoredAuthTokens();
+        window.localStorage.removeItem(USER_STORAGE_KEY);
+        window.location.href = '/login?reason=session_expired';
+        return;
+      }
       return;
     }
 

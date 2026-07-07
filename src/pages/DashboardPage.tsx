@@ -236,7 +236,24 @@ export const DashboardPage = ({
         window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(mergedUser));
         onUserUpdated(mergedUser);
       })
-      .catch(() => {
+      .catch((err: Error) => {
+        // If the server explicitly rejects this session (user not found in DB,
+        // expired token, or JWT signed for a different DB), force a clean logout.
+        // This is the critical case where a user's localStorage session points to
+        // a userId that no longer exists in the production database.
+        const isAuthError =
+          err.message?.includes('401') ||
+          err.message?.toLowerCase().includes('unauthorized') ||
+          err.message?.toLowerCase().includes('sign in again');
+
+        if (isAuthError) {
+          clearStoredAuthTokens();
+          window.localStorage.removeItem(USER_STORAGE_KEY);
+          // Redirect to login — the user will sign up/in fresh against Railway DB
+          window.location.href = '/login?reason=session_expired';
+          return;
+        }
+        // For network errors (backend down, timeout), keep showing cached profile
         setProfileError('Showing saved profile details because the live account service is unavailable.');
       });
 

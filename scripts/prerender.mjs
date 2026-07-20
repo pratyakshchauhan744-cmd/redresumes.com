@@ -16,6 +16,7 @@ const routes = [
   '/job-finder',
   '/blog',
   '/contact',
+  '/about',
   '/privacy',
   '/terms',
   '/login',
@@ -81,7 +82,63 @@ for (const route of routes) {
   const targetUrl = `http://127.0.0.1:${port}${route}`;
   await page.goto(targetUrl, { waitUntil: 'networkidle0' });
   await new Promise((resolve) => setTimeout(resolve, 120));
-  const html = await page.content();
+  let html = await page.content();
+
+  // Deduplicate title tags: keep the first title tag (which has the page-specific title) and remove subsequent ones
+  const titleMatches = html.match(/<title[^>]*>([\s\S]*?)<\/title>/gi);
+  if (titleMatches && titleMatches.length > 1) {
+    const keepTitle = titleMatches[0];
+    html = html.replace(/<title[^>]*>([\s\S]*?)<\/title>/gi, '');
+    html = html.replace('</head>', `${keepTitle}\n</head>`);
+  }
+
+  // Deduplicate meta description tags: keep the last one (injected by React Helmet) and remove others
+  const descMatches = html.match(/<meta[^>]*name="description"[^>]*>/gi);
+  if (descMatches && descMatches.length > 1) {
+    const keepDesc = descMatches[descMatches.length - 1];
+    html = html.replace(/<meta[^>]*name="description"[^>]*>/gi, '');
+    html = html.replace('</head>', `${keepDesc}\n</head>`);
+  }
+
+  // Deduplicate canonical link tags: keep the last one (injected by React Helmet) and remove others
+  const canonicalMatches = html.match(/<link[^>]*rel="canonical"[^>]*>/gi);
+  if (canonicalMatches && canonicalMatches.length > 1) {
+    const keepCanonical = canonicalMatches[canonicalMatches.length - 1];
+    html = html.replace(/<link[^>]*rel="canonical"[^>]*>/gi, '');
+    html = html.replace('</head>', `${keepCanonical}\n</head>`);
+  }
+
+  // Deduplicate og:title tags
+  const ogTitleMatches = html.match(/<meta[^>]*property="og:title"[^>]*>/gi);
+  if (ogTitleMatches && ogTitleMatches.length > 1) {
+    const keepOgTitle = ogTitleMatches[ogTitleMatches.length - 1];
+    html = html.replace(/<meta[^>]*property="og:title"[^>]*>/gi, '');
+    html = html.replace('</head>', `${keepOgTitle}\n</head>`);
+  }
+
+  // Deduplicate og:description tags
+  const ogDescMatches = html.match(/<meta[^>]*property="og:description"[^>]*>/gi);
+  if (ogDescMatches && ogDescMatches.length > 1) {
+    const keepOgDesc = ogDescMatches[ogDescMatches.length - 1];
+    html = html.replace(/<meta[^>]*property="og:description"[^>]*>/gi, '');
+    html = html.replace('</head>', `${keepOgDesc}\n</head>`);
+  }
+
+  // Deduplicate og:image tags
+  const ogImageMatches = html.match(/<meta[^>]*property="og:image"[^>]*>/gi);
+  if (ogImageMatches && ogImageMatches.length > 1) {
+    const keepOgImage = ogImageMatches[ogImageMatches.length - 1];
+    html = html.replace(/<meta[^>]*property="og:image"[^>]*>/gi, '');
+    html = html.replace('</head>', `${keepOgImage}\n</head>`);
+  }
+
+  // Deduplicate og:url tags
+  const ogUrlMatches = html.match(/<meta[^>]*property="og:url"[^>]*>/gi);
+  if (ogUrlMatches && ogUrlMatches.length > 1) {
+    const keepOgUrl = ogUrlMatches[ogUrlMatches.length - 1];
+    html = html.replace(/<meta[^>]*property="og:url"[^>]*>/gi, '');
+    html = html.replace('</head>', `${keepOgUrl}\n</head>`);
+  }
 
   const outputPath =
     route === '/'

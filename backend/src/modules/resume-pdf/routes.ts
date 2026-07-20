@@ -1,6 +1,5 @@
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth } from "../../middleware/auth.js";
 import rateLimit from "express-rate-limit";
 
 const router = Router();
@@ -53,7 +52,7 @@ const getPdfScale = async (page: PdfPage): Promise<number> => {
   });
 };
 
-router.post("/pdf", requireAuth, pdfLimiter, async (req, res, next) => {
+router.post("/pdf", pdfLimiter, async (req, res, next) => {
   let browser: PdfBrowser | undefined;
 
   try {

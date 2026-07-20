@@ -559,13 +559,13 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
                     onChange={(e) => setInterviewerPersona(e.target.value)} 
                     className="w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary dark:text-white"
                   >
-                    <option>HR Recruiter</option>
+                    <option>HR Team</option>
                     <option>Hiring Manager</option>
                     <option>Technical Interviewer</option>
                     <option>Startup Founder</option>
                   </select>
                   <span className="text-[10px] text-zinc-400 block mt-1.5">
-                    {interviewerPersona === 'HR Recruiter' && 'Focuses on background verification, cultural fit, and high-level fit.'}
+                    {interviewerPersona === 'HR Team' && 'Focuses on background verification, cultural fit, and high-level fit.'}
                     {interviewerPersona === 'Hiring Manager' && 'Tests KPI outcomes, system execution, business decisions and ownership.'}
                     {interviewerPersona === 'Technical Interviewer' && 'Asks for algorithms, data modeling, architecture, logic and detail.'}
                     {interviewerPersona === 'Startup Founder' && 'Aggressive speed review, scaling vision, independence and drive.'}

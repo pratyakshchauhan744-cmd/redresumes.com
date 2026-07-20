@@ -456,7 +456,7 @@ export const DashboardPage = ({
       <Section h1 title="Your dashboard" kicker="Account">
       <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="space-y-6">
-          <div className="rounded-[30px] border border-zinc-200 bg-[linear-gradient(145deg,#ffffff_0%,#fff7f7_52%,#f8fafc_100%)] p-7 shadow-[0_18px_54px_rgba(15,23,42,0.08)]">
+          <div className="rounded-[30px] border border-zinc-200 bg-[linear-gradient(145deg,#ffffff_0%,#fff7f7_52%,#f8fafc_100%)] p-7 shadow-[0_18px_54px_rgba(15,23,42,0.08)] dark:border-zinc-800 dark:bg-[linear-gradient(145deg,#18181b_0%,#111217_52%,#09090b_100%)] dark:shadow-[0_18px_54px_rgba(0,0,0,0.24)]">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="flex items-center gap-4">
                 {user.photoDataUrl ? (
@@ -502,48 +502,48 @@ export const DashboardPage = ({
           </div>
 
           {/* Billing & Credits Manager Card */}
-          <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
-            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-150 pb-4 mb-4">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-[0_12px_30px_rgba(15,23,42,0.04)] dark:border-zinc-800 dark:bg-zinc-950/70">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-4 border-b border-zinc-200 pb-4 dark:border-zinc-800">
               <div>
                 <h2 className="font-bold text-zinc-900 text-lg">Interview Credits</h2>
                 <p className="text-sm text-zinc-500 mt-0.5">Use credits to run interactive AI mock interviews. 1 Interview = 1 Credit.</p>
               </div>
               <div className="bg-primary/5 border border-primary/20 rounded-xl px-4 py-2 text-right">
-                <span className="text-xs text-zinc-450 font-bold uppercase tracking-wider block">Remaining Balance</span>
+                <span className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-300">Remaining Balance</span>
                 <span className="text-2xl font-black text-primary">{creditsBalance} Credits</span>
               </div>
             </div>
 
             {purchaseError && (
-              <p className="mb-4 rounded-xl border border-red-250 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{purchaseError}</p>
+              <p className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">{purchaseError}</p>
             )}
 
             <div className="grid gap-4 sm:grid-cols-2 mb-6">
               {/* Starter Pack */}
-              <div className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-5 flex flex-col justify-between hover:border-primary/20 transition-colors relative overflow-hidden">
+              <div className="relative flex flex-col justify-between overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50/50 p-5 transition-colors hover:border-primary/20 dark:border-zinc-800 dark:bg-zinc-900/70">
                 <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 rounded-bl-[50px] -z-10" />
                 <div>
-                  <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Starter Pack</span>
-                  <h3 className="text-2xl font-black text-zinc-950 mt-1">5 Credits</h3>
+                  <span className="text-xs font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-300">Starter Pack</span>
+                  <h3 className="mt-1 text-2xl font-black text-zinc-950 dark:text-zinc-50">5 Credits</h3>
                   <p className="text-xs text-zinc-500 mt-2">Practice up to 5 complete rounds with AI feedback.</p>
                 </div>
                 <button
                   disabled={purchaseLoading !== null}
                   onClick={() => handleBuyCredits('starter')}
-                  className="mt-6 w-full rounded-xl bg-zinc-905 hover:bg-zinc-800 text-white font-bold py-2.5 text-sm transition-all disabled:opacity-50"
+                  className="mt-6 w-full rounded-xl bg-zinc-950 py-2.5 text-sm font-bold text-white transition-all hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
                 >
                   {purchaseLoading === 'starter' ? 'Loading...' : 'Buy for ₹499'}
                 </button>
               </div>
 
               {/* Pro Pack */}
-              <div className="rounded-xl border-2 border-primary bg-white p-5 flex flex-col justify-between hover:shadow-md transition-all relative overflow-hidden">
+              <div className="relative flex flex-col justify-between overflow-hidden rounded-xl border-2 border-primary bg-white p-5 transition-all hover:shadow-md dark:bg-zinc-900/70">
                 <div className="absolute top-0 right-0 bg-primary text-white text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-bl-lg">
                   Popular
                 </div>
                 <div>
                   <span className="text-xs font-bold text-primary uppercase tracking-widest">Pro Pack</span>
-                  <h3 className="text-2xl font-black text-zinc-950 mt-1">15 Credits</h3>
+                  <h3 className="mt-1 text-2xl font-black text-zinc-950 dark:text-zinc-50">15 Credits</h3>
                   <p className="text-xs text-zinc-500 mt-2">Practice 15 complete rounds. Best value for active job hunters.</p>
                 </div>
                 <button

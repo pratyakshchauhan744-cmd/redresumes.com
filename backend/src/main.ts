@@ -1,5 +1,5 @@
-import { app } from "./app.js";
 import { env } from "./config/env.js";
+import { app } from "./app.js";
 import { ensureJobsIndex } from "./modules/search/search.service.js";
 
 async function bootstrap(): Promise<void> {

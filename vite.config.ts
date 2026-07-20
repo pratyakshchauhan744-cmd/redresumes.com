@@ -103,6 +103,16 @@ const localResumePdfPlugin = () => ({
   },
 });
 
+const deferCssPlugin = () => ({
+  name: 'defer-css',
+  transformIndexHtml(html: string) {
+    return html.replace(
+      /<link rel="stylesheet"([^>]*)\shref="(\/?assets\/[^"]+\.css)"([^>]*)>/g,
+      '<link rel="preload" as="style" href="$2"$1$3 onload="this.onload=null;this.rel=\'stylesheet\'"><noscript><link rel="stylesheet" href="$2"$1$3></noscript>'
+    );
+  }
+});
+
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
 
@@ -111,6 +121,7 @@ export default defineConfig(({mode}) => {
       react(),
       tailwindcss(),
       localResumePdfPlugin(),
+      deferCssPlugin(),
     ],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),

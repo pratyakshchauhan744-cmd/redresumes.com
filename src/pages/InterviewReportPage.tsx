@@ -378,15 +378,15 @@ export const InterviewReportPage = () => {
           <Play className="w-5 h-5 text-red-400" /> Interview Replay Timeline
         </h2>
 
-        <div className="flex flex-col md:flex-row items-stretch gap-3">
+        <div className="flex flex-col md:flex-row items-stretch gap-3 md:overflow-x-auto md:pb-4 custom-scrollbar">
           {timelineChapters.map((chapter) => (
             <button
               key={chapter.idx}
               onClick={() => setActiveQuestionIdx(chapter.idx)}
-              className={`flex-1 text-left p-4 rounded-xl border transition-all ${
+              className={`flex-1 md:shrink-0 md:min-w-[220px] text-left p-4 rounded-xl border transition-all ${
                 activeQuestionIdx === chapter.idx
                   ? 'bg-primary/10 border-primary text-white shadow-md'
-                  : 'bg-zinc-900/60 border-zinc-850 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
+                  : 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
               }`}
             >
               <div className="text-[10px] font-black font-mono uppercase tracking-wider text-red-400 mb-1.5 flex items-center justify-between">
@@ -468,7 +468,7 @@ export const InterviewReportPage = () => {
                           <span className="text-[10px] font-bold text-primary dark:text-red-400 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
                             STAR Framework Recommended Response
                           </span>
-                          <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400 whitespace-pre-line bg-zinc-950 p-4 rounded-lg border border-zinc-850 mt-2">
+                          <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400 whitespace-pre-line bg-zinc-950 p-4 rounded-lg border border-zinc-800 mt-2">
                             {sortedQuestions[activeQuestionIdx].answer.feedback.improvedAnswerExample || "No specific example was generated for this question."}
                           </p>
                         </div>

@@ -1,5 +1,6 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Inter:wght@400;500;600&display=swap');
 @import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
   --font-headline: "Manrope", sans-serif;
@@ -76,6 +77,16 @@
   to { opacity: 1; transform: scale(1); }
 }
 
+@keyframes float-up-down {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes float-down-up {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(8px); }
+}
+
 .crimson-gradient {
   background: linear-gradient(135deg, #af101a 0%, #d32f2f 100%);
 }
@@ -94,6 +105,88 @@
 .template-preview-embedded > div,
 .template-preview-embedded > section {
   min-width: 0;
+}
+
+@layer base {
+  html.dark .builder-page input,
+  html.dark .builder-page textarea,
+  html.dark .builder-page select {
+    background-color: #09090b !important;
+    color: #f4f4f5 !important;
+    border-color: #3f3f46 !important;
+    color-scheme: dark;
+  }
+
+  html.dark .builder-page input::placeholder,
+  html.dark .builder-page textarea::placeholder {
+    color: #a1a1aa !important;
+    opacity: 1 !important;
+  }
+
+  html.dark .builder-page input[type="file"]::file-selector-button {
+    background-color: #18181b;
+    color: #f4f4f5;
+    border: 1px solid #3f3f46;
+    border-radius: 0.5rem;
+    margin-right: 0.75rem;
+    padding: 0.35rem 0.75rem;
+  }
+
+  html.dark button.template-card-preview-button.template-card-preview-button {
+    background-color: #f4f4f5 !important;
+    color: #111827 !important;
+  }
+
+  html.dark .template-visual-preview {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+  }
+
+  html.dark .template-visual-preview .bg-white {
+    background-color: #ffffff !important;
+  }
+
+  html.dark .template-visual-preview .bg-zinc-50 {
+    background-color: #fafafa !important;
+  }
+
+  html.dark .template-visual-preview .bg-slate-50 {
+    background-color: #f8fafc !important;
+  }
+
+  html.dark .template-visual-preview .text-zinc-950,
+  html.dark .template-visual-preview .text-slate-950 {
+    color: #020617 !important;
+  }
+
+  html.dark .template-visual-preview .text-zinc-900,
+  html.dark .template-visual-preview .text-slate-900 {
+    color: #18181b !important;
+  }
+
+  html.dark .template-visual-preview .text-zinc-800 {
+    color: #27272a !important;
+  }
+
+  html.dark .template-visual-preview .text-zinc-700,
+  html.dark .template-visual-preview .text-slate-700 {
+    color: #3f3f46 !important;
+  }
+
+  html.dark .template-visual-preview .text-zinc-600,
+  html.dark .template-visual-preview .text-slate-600 {
+    color: #52525b !important;
+  }
+
+  html.dark .template-visual-preview .text-zinc-500 {
+    color: #71717a !important;
+  }
+
+  html.dark .template-visual-preview .border-zinc-100,
+  html.dark .template-visual-preview .border-zinc-200,
+  html.dark .template-visual-preview .border-zinc-300 {
+    border-color: #e5e7eb !important;
+  }
 }
 
 @media print {
@@ -145,4 +238,24 @@
     break-inside: avoid;
     page-break-inside: avoid;
   }
+}
+
+/* Custom scrollbar for horizontal scrolling timelines/containers */
+.custom-scrollbar::-webkit-scrollbar {
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(24, 24, 27, 0.5); /* zinc-900/50 */
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #3f3f46; /* zinc-700 */
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #52525b; /* zinc-600 */
+}
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #3f3f46 rgba(24, 24, 27, 0.5);
 }

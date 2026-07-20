@@ -2,6 +2,7 @@ import { Fragment, useState } from 'react';
 import { X } from 'lucide-react';
 import { Section } from '../components/Section';
 import { TemplateCard } from '../components/TemplateCard';
+import { TemplatePreviewScaler } from '../components/TemplatePreviewScaler';
 import { TemplateVisualPreview } from '../components/TemplateVisualPreview';
 import { templates } from '../data/templates';
 import type { TemplateItem } from '../types';
@@ -38,7 +39,7 @@ export const TemplatesPage = ({ onUseTemplate }: { onUseTemplate: (template: Tem
         description="Browse our hand-crafted collection of modern, professional, and creative resume templates. Optimized for applicant tracking systems."
       />
       <Section h1 title="Resume templates" kicker="Templates">
-        <div className="mb-6 rounded-2xl border border-zinc-200 bg-[linear-gradient(135deg,#fff_0%,#fff8f8_52%,#f8fafc_100%)] p-4 shadow-[0_12px_32px_rgba(15,23,42,0.05)] md:mb-10 md:rounded-[32px] md:p-8 md:shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+        <div className="mb-6 rounded-2xl border border-zinc-200 bg-[linear-gradient(135deg,#fff_0%,#fff8f8_52%,#f8fafc_100%)] p-4 shadow-[0_12px_32px_rgba(15,23,42,0.05)] dark:border-zinc-800 dark:bg-[linear-gradient(135deg,#18181b_0%,#111217_52%,#09090b_100%)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.24)] md:mb-10 md:rounded-[32px] md:p-8 md:shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
           <div className="grid gap-5 lg:grid-cols-[1.4fr_0.9fr] lg:items-end">
             <div className="max-w-3xl">
               <p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-primary md:text-xs md:tracking-[0.24em]">Curated Library</p>
@@ -53,9 +54,9 @@ export const TemplatesPage = ({ onUseTemplate }: { onUseTemplate: (template: Tem
                 { value: 'ATS', label: 'Ready' },
                 { value: 'PDF', label: 'Export' },
               ].map((item) => (
-                <div key={item.label} className="rounded-2xl border border-zinc-200 bg-white/90 px-2 py-3 md:rounded-[22px] md:px-4 md:py-5">
-                  <div className="text-xl font-black tracking-tight text-zinc-950 md:text-2xl md:tracking-[-0.06em]">{item.value}</div>
-                  <div className="mt-1 text-[0.62rem] font-bold uppercase tracking-[0.16em] text-zinc-500 md:text-[0.72rem] md:tracking-[0.2em]">{item.label}</div>
+                <div key={item.label} className="rounded-2xl border border-zinc-200 bg-white/90 px-2 py-3 dark:border-zinc-700 dark:bg-zinc-900/80 md:rounded-[22px] md:px-4 md:py-5">
+                  <div className="text-xl font-black tracking-tight text-zinc-950 dark:text-zinc-50 md:text-2xl md:tracking-[-0.06em]">{item.value}</div>
+                  <div className="mt-1 text-[0.62rem] font-bold uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-300 md:text-[0.72rem] md:tracking-[0.2em]">{item.label}</div>
                 </div>
               ))}
             </div>
@@ -75,9 +76,9 @@ export const TemplatesPage = ({ onUseTemplate }: { onUseTemplate: (template: Tem
               role="dialog"
               aria-modal="true"
               aria-labelledby="templates-preview-title"
-              className="flex h-full w-full flex-col overflow-hidden border-zinc-200 bg-white shadow-[0_30px_100px_rgba(15,23,42,0.4)] md:h-[95vh] md:max-w-[96vw] md:rounded-3xl md:border"
+              className="flex h-full w-full flex-col overflow-hidden border-zinc-200 bg-white shadow-[0_30px_100px_rgba(15,23,42,0.4)] dark:border-zinc-800 dark:bg-zinc-950 md:h-[95vh] md:max-w-[96vw] md:rounded-3xl md:border"
             >
-              <div className="z-10 flex items-start justify-between gap-2 border-b border-zinc-200 bg-white/95 px-3 py-3 md:px-6 md:py-5">
+              <div className="z-10 flex items-start justify-between gap-2 border-b border-zinc-200 bg-white/95 px-3 py-3 dark:border-zinc-800 dark:bg-zinc-950/95 md:px-6 md:py-5">
                 <div className="min-w-0 pt-1">
                   <p className="text-[0.6rem] font-bold uppercase tracking-[0.16em] text-zinc-400 md:text-xs md:tracking-[0.2em]">Full Resume Preview</p>
                   <h2 id="templates-preview-title" className="mt-1 truncate text-lg font-black tracking-tight text-zinc-900 md:mt-2 md:text-2xl">{previewTemplate.name}</h2>
@@ -86,7 +87,7 @@ export const TemplatesPage = ({ onUseTemplate }: { onUseTemplate: (template: Tem
                 <button
                   type="button"
                   onClick={handleZoomOut}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-300 text-sm font-semibold text-zinc-700 hover:border-zinc-500 md:h-11 md:w-11 md:text-base"
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-300 text-sm font-semibold text-zinc-700 hover:border-zinc-500 dark:border-zinc-700 dark:text-zinc-100 dark:hover:border-zinc-500 md:h-11 md:w-11 md:text-base"
                   aria-label="Zoom out"
                 >
                   -
@@ -94,14 +95,14 @@ export const TemplatesPage = ({ onUseTemplate }: { onUseTemplate: (template: Tem
                 <button
                   type="button"
                   onClick={handleZoomReset}
-                  className="h-9 rounded-full border border-zinc-300 px-3 text-xs font-semibold text-zinc-700 hover:border-zinc-500 md:h-11 md:px-4 md:text-sm"
+                  className="h-9 rounded-full border border-zinc-300 px-3 text-xs font-semibold text-zinc-700 hover:border-zinc-500 dark:border-zinc-700 dark:text-zinc-100 dark:hover:border-zinc-500 md:h-11 md:px-4 md:text-sm"
                 >
                   {Math.round(previewZoom * 100)}%
                 </button>
                 <button
                   type="button"
                   onClick={handleZoomIn}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-300 text-sm font-semibold text-zinc-700 hover:border-zinc-500 md:h-11 md:w-11 md:text-base"
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-300 text-sm font-semibold text-zinc-700 hover:border-zinc-500 dark:border-zinc-700 dark:text-zinc-100 dark:hover:border-zinc-500 md:h-11 md:w-11 md:text-base"
                   aria-label="Zoom in"
                 >
                   +
@@ -110,7 +111,7 @@ export const TemplatesPage = ({ onUseTemplate }: { onUseTemplate: (template: Tem
                   type="button"
                   onClick={closePreview}
                   autoFocus
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 text-zinc-500 hover:text-zinc-900 md:h-11 md:w-11"
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 text-zinc-500 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-100 dark:hover:text-white md:h-11 md:w-11"
                   aria-label="Close preview"
                 >
                   <X className="h-4 w-4 md:h-5 md:w-5" />
@@ -118,17 +119,19 @@ export const TemplatesPage = ({ onUseTemplate }: { onUseTemplate: (template: Tem
               </div>
             </div>
 
-            <div className="flex-1 overflow-hidden bg-zinc-100 px-2 py-2 md:px-6 md:py-4">
+            <div className="flex-1 overflow-hidden bg-zinc-100 px-2 py-2 dark:bg-zinc-950 md:px-6 md:py-4">
               <div className="h-full overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-1.5 md:p-4">
                 <div className="mx-auto w-full min-w-[280px] max-w-[1040px]">
-                  <div className="rounded-lg border border-zinc-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.12)]">
-                    <TemplateVisualPreview template={previewTemplate} />
-                  </div>
+                  <TemplatePreviewScaler zoom={previewZoom} pageWidth={960}>
+                    <div className="rounded-lg border border-zinc-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.12)]">
+                      <TemplateVisualPreview template={previewTemplate} />
+                    </div>
+                  </TemplatePreviewScaler>
                 </div>
               </div>
             </div>
 
-            <div className="z-10 grid gap-3 border-t border-zinc-200 bg-white px-4 py-4 sm:flex sm:flex-wrap md:px-6 md:pb-6">
+            <div className="z-10 grid gap-3 border-t border-zinc-200 bg-white px-4 py-4 dark:border-zinc-800 dark:bg-zinc-950 sm:flex sm:flex-wrap md:px-6 md:pb-6">
               <button
                 onClick={() => {
                   useTemplateAndOpenBuilder(previewTemplate);
@@ -140,7 +143,7 @@ export const TemplatesPage = ({ onUseTemplate }: { onUseTemplate: (template: Tem
               </button>
               <button
                 onClick={closePreview}
-                className="rounded-full border border-zinc-300 px-5 py-3 text-sm font-semibold text-zinc-700 hover:border-zinc-500"
+                className="rounded-full border border-zinc-300 px-5 py-3 text-sm font-semibold text-zinc-700 hover:border-zinc-500 dark:border-zinc-700 dark:text-zinc-100 dark:hover:border-zinc-500"
               >
                 Close
               </button>

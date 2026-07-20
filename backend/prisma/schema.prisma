@@ -3,6 +3,12 @@ generator client {
   binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
+generator adminClient {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native"]
+  output        = "../../admin-panel/node_modules/.prisma/client"
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -12,6 +18,8 @@ enum UserRole {
   candidate
   employer
   admin
+  manager
+  support
 }
 
 enum RemoteType {
@@ -59,6 +67,7 @@ model User {
   email         String         @unique
   passwordHash  String
   role          UserRole       @default(candidate)
+  isActive      Boolean        @default(true)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   phone         String?
@@ -76,6 +85,8 @@ model User {
   subscription  UserSubscription?
   credits       UserCredit?
   transactions  CreditTransaction[]
+  adminAuditLogs AdminAuditLog[] @relation("AdminActor")
+  signOutEvents  SignOutEvent[]
 }
 
 model Company {
@@ -174,6 +185,8 @@ model SignInEvent {
   userId    String
   user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   method    SignInMethod
+  ipAddress String?
+  userAgent String?
   createdAt DateTime     @default(now())
 
   @@index([userId])
@@ -329,6 +342,43 @@ model PublicResume {
   updatedAt  DateTime @default(now()) @map("updated_at")
 
   @@map("public_resumes")
+}
+
+model AdminAuditLog {
+  id          String   @id @default(cuid())
+  actorId     String
+  actor       User     @relation("AdminActor", fields: [actorId], references: [id], onDelete: Cascade)
+  action      String   // e.g., "ADJUST_CREDITS", "CHANGE_ROLE", "UPDATE_SETTING"
+  entityType  String   // e.g., "User", "UserCredit", "SystemSetting"
+  entityId    String?  // Target record ID
+  oldValue    Json?    // Pre-change state snapshot
+  newValue    Json?    // Post-change state snapshot
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model SystemSetting {
+  key         String   @id
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+}
+
+model SignOutEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
 }
 
 

@@ -21,6 +21,26 @@ const LOCAL_PUBLIC_RESUMES_STORAGE_KEY = 'redresumes_local_public_resumes';
 const DEFAULT_JOB_DESCRIPTION = 'Looking for a Senior Product Manager with experience in product analytics, SQL, roadmap ownership, stakeholder management, and experimentation.';
 const cleanListLine = (line: string) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim();
 const sanitizePhoneNumber = (value: string): string => value.replace(/\D/g, '').slice(0, 10);
+const sanitizeImportantDate = (value: string, fallback = ''): string => {
+  if (!value) return '';
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return fallback;
+
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const isRealDate =
+    year >= 1 &&
+    year <= 9999 &&
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day;
+
+  return isRealDate ? value : fallback;
+};
 
 const getEffectiveListStyle = (text: string, globalStyle: string): 'bullet' | 'number' | 'paragraph' => {
   if (!text) return 'paragraph';
@@ -384,6 +404,13 @@ export const ResumeBuilderPage = ({
   const setEducationDegree = (value: string) => updateEducation(0, 'degree', value);
   const setEducationSchool = (value: string) => updateEducation(0, 'school', value);
   const setEducationYear = (value: string) => updateEducation(0, 'year', value);
+  const handleImportantDateChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const nextDate = sanitizeImportantDate(event.currentTarget.value, importantDate);
+    if (event.currentTarget.value !== nextDate) {
+      event.currentTarget.value = nextDate;
+    }
+    setImportantDate(nextDate);
+  };
 
   useEffect(() => {
     if (!selectedExample) return;
@@ -527,7 +554,7 @@ export const ResumeBuilderPage = ({
     setPhone(sanitizePhoneNumber(data.phone));
     setLocation(data.location);
     setProfileLink(data.profileLink);
-    setImportantDate(data.importantDate);
+    setImportantDate(sanitizeImportantDate(data.importantDate));
     setImportantPlace(data.importantPlace);
     setSummary(data.summary);
     setExperiences(data.experiences);
@@ -2533,7 +2560,7 @@ export const ResumeBuilderPage = ({
 
   return (
     <>
-      <div className="overflow-x-clip bg-white">
+      <div className="builder-page overflow-x-clip bg-white">
       <div className="mx-auto w-full max-w-7xl min-w-0 px-4 py-8 sm:px-6 md:py-12">
         <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
           <div>
@@ -2801,7 +2828,10 @@ export const ResumeBuilderPage = ({
                 <input
                   type="date"
                   value={importantDate}
-                  onChange={(e) => setImportantDate(e.target.value)}
+                  min="0001-01-01"
+                  max="9999-12-31"
+                  onInput={handleImportantDateChange}
+                  onChange={handleImportantDateChange}
                   className="border border-zinc-200 rounded-lg px-3 py-2"
                   aria-label="Important date"
                 />

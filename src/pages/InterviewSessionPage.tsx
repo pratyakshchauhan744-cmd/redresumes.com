@@ -53,7 +53,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
 
   // Simulated video feed assets / visualizer
   // Initial values are empty strings — they are populated from the session API response.
-  // Avoid hardcoded defaults like 'HR Recruiter' / 'Google' that would flash on the
+  // Avoid hardcoded defaults like 'HR Team' / 'Google' that would flash on the
   // join screen while the async fetchSession() call is in-flight.
   const [interviewerName, setInterviewerName] = useState('');
   const [companyName, setCompanyName] = useState('');
@@ -299,7 +299,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
         }
 
         // Calibrate metadata from database session details
-        setInterviewerName(data.interviewerPersona || 'HR Recruiter');
+        setInterviewerName(data.interviewerPersona || 'HR Team');
         setCompanyName(data.companyType || 'Google');
         setDifficulty(data.difficulty || 'Medium');
         setSessionDurationSecs(data.durationMins * 60);

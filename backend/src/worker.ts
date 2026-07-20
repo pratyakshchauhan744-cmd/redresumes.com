@@ -1,3 +1,4 @@
+import { env } from "./config/env.js";
 import { Worker } from "bullmq";
 import { redisConnection } from "./db/redis.js";
 import { fetchAdzunaJobs, fetchJoobleJobs } from "./modules/ingestion/adapters.js";

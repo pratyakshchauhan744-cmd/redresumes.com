@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';
@@ -6,28 +6,28 @@ import { Seo } from './components/Seo';
 import { readStoredUser } from './lib/auth';
 import type { AuthUser } from './lib/backendApi';
 
-import { HomePage } from './pages/HomePage';
-import { ResumeBuilderPage } from './pages/BuilderPage';
-import { TemplatesPage } from './pages/TemplatesPage';
-import { CoverLetterPage } from './pages/CoverLetterPage';
-import { ExamplesPage } from './pages/ExamplesPage';
-import { JobFinderPage } from './pages/JobFinderPage';
-import { BlogPage } from './pages/BlogPage';
-import { BlogPostPage } from './pages/BlogPostPage';
-import { LoginPage } from './pages/LoginPage';
-import { DashboardPage } from './pages/DashboardPage';
-import { ContactPage } from './pages/ContactPage';
-import { LegalPage } from './pages/LegalPage';
-import { AdminPage } from './pages/AdminPage';
-import { PublicResumePage } from './pages/PublicResumePage';
-import { InterviewSetupPage } from './pages/InterviewSetupPage';
-import { InterviewSessionPage } from './pages/InterviewSessionPage';
-import { InterviewReportPage } from './pages/InterviewReportPage';
-import { PricingPage } from './pages/PricingPage';
-
 import { templates } from './data/templates';
 import { blogArticles } from './data/blogArticles';
 import type { BlogArticle, TemplateItem } from './types';
+
+const HomePage = lazy(() => import('./pages/HomePage').then(m => ({ default: m.HomePage })));
+const ResumeBuilderPage = lazy(() => import('./pages/BuilderPage').then(m => ({ default: m.ResumeBuilderPage })));
+const TemplatesPage = lazy(() => import('./pages/TemplatesPage').then(m => ({ default: m.TemplatesPage })));
+const CoverLetterPage = lazy(() => import('./pages/CoverLetterPage').then(m => ({ default: m.CoverLetterPage })));
+const ExamplesPage = lazy(() => import('./pages/ExamplesPage').then(m => ({ default: m.ExamplesPage })));
+const JobFinderPage = lazy(() => import('./pages/JobFinderPage').then(m => ({ default: m.JobFinderPage })));
+const BlogPage = lazy(() => import('./pages/BlogPage').then(m => ({ default: m.BlogPage })));
+const BlogPostPage = lazy(() => import('./pages/BlogPostPage').then(m => ({ default: m.BlogPostPage })));
+const LoginPage = lazy(() => import('./pages/LoginPage').then(m => ({ default: m.LoginPage })));
+const DashboardPage = lazy(() => import('./pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
+const ContactPage = lazy(() => import('./pages/ContactPage').then(m => ({ default: m.ContactPage })));
+const LegalPage = lazy(() => import('./pages/LegalPage').then(m => ({ default: m.LegalPage })));
+const AdminPage = lazy(() => import('./pages/AdminPage').then(m => ({ default: m.AdminPage })));
+const PublicResumePage = lazy(() => import('./pages/PublicResumePage').then(m => ({ default: m.PublicResumePage })));
+const InterviewSetupPage = lazy(() => import('./pages/InterviewSetupPage').then(m => ({ default: m.InterviewSetupPage })));
+const InterviewSessionPage = lazy(() => import('./pages/InterviewSessionPage').then(m => ({ default: m.InterviewSessionPage })));
+const InterviewReportPage = lazy(() => import('./pages/InterviewReportPage').then(m => ({ default: m.InterviewReportPage })));
+const AboutPage = lazy(() => import('./pages/AboutPage').then(m => ({ default: m.AboutPage })));
 
 const RouteUiEffects = () => {
   const location = useLocation();
@@ -130,6 +130,12 @@ const App = () => {
       <Seo />
       <RouteUiEffects />
       <div className="min-h-screen flex flex-col bg-white dark:bg-zinc-950">
+        <a 
+          href="#main-content" 
+          className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-white focus:text-primary focus:p-4 focus:border focus:border-primary focus:rounded focus:m-4"
+        >
+          Skip to main content
+        </a>
         <Header
           currentUser={currentUser}
           onLogout={handleLogout}
@@ -137,86 +143,89 @@ const App = () => {
           onToggleDarkMode={() => setDarkMode((prev) => !prev)}
         />
         
-        <main className="flex-1">
-          <Routes>
-            {/* Public Routes */}
-            <Route path="/" element={
-              <HomePage 
-                onUseTemplate={handleUseTemplate} 
-              />
-            } />
-            <Route path="/templates" element={
-              <TemplatesPage onUseTemplate={handleUseTemplate} />
-            } />
-            
-            {/* Note: Builder is now fully public */}
-            <Route path="/builder" element={
-              <ResumeBuilderPage 
-                selectedTemplate={selectedTemplate} 
-                selectedExample={selectedExample} 
-                onSelectTemplate={setSelectedTemplate} 
-                currentUser={currentUser} 
-              />
-            } />
-            
-            <Route path="/cover-letter" element={<CoverLetterPage />} />
-            <Route path="/pricing" element={<Navigate to="/" replace />} />
-            <Route path="/examples" element={
-              <ExamplesPage onViewExample={(r) => setSelectedExample(r)} />
-            } />
-            <Route path="/job-finder" element={<JobFinderPage currentUser={currentUser} />} />
-            <Route path="/blog" element={
-              <BlogPage onReadArticle={(a) => setSelectedBlogArticle(a)} />
-            } />
-            <Route path="/blog/post" element={
-              <BlogPostPage article={selectedBlogArticle} onBack={() => window.location.assign('/blog')} />
-            } />
-            <Route path="/contact" element={<ContactPage />} />
-            <Route path="/r/:resumeId" element={<PublicResumePage />} />
-            <Route path="/privacy" element={<LegalPage title="Privacy Policy" />} />
-            <Route path="/terms" element={<LegalPage title="Terms of Service" />} />
-            
-            {/* Auth Routes */}
-            <Route path="/login" element={
-              isAuthenticated ? <Navigate to="/dashboard" replace /> : 
-              <LoginPage onLoginSuccess={(user) => setCurrentUser(user)} />
-            } />
+        <main id="main-content" className="flex-1">
+          <Suspense fallback={<div className="min-h-[60vh] flex items-center justify-center text-zinc-500">Loading...</div>}>
+            <Routes>
+              {/* Public Routes */}
+              <Route path="/" element={
+                <HomePage 
+                  onUseTemplate={handleUseTemplate} 
+                />
+              } />
+              <Route path="/templates" element={
+                <TemplatesPage onUseTemplate={handleUseTemplate} />
+              } />
+              
+              {/* Note: Builder is now fully public */}
+              <Route path="/builder" element={
+                <ResumeBuilderPage 
+                  selectedTemplate={selectedTemplate} 
+                  selectedExample={selectedExample} 
+                  onSelectTemplate={setSelectedTemplate} 
+                  currentUser={currentUser} 
+                />
+              } />
+              
+              <Route path="/cover-letter" element={<CoverLetterPage />} />
+              <Route path="/pricing" element={<Navigate to="/" replace />} />
+              <Route path="/examples" element={
+                <ExamplesPage onViewExample={(r) => setSelectedExample(r)} />
+              } />
+              <Route path="/job-finder" element={<JobFinderPage currentUser={currentUser} />} />
+              <Route path="/blog" element={
+                <BlogPage onReadArticle={(a) => setSelectedBlogArticle(a)} />
+              } />
+              <Route path="/blog/post" element={
+                <BlogPostPage article={selectedBlogArticle} onBack={() => window.location.assign('/blog')} />
+              } />
+              <Route path="/contact" element={<ContactPage />} />
+              <Route path="/about" element={<AboutPage />} />
+              <Route path="/r/:resumeId" element={<PublicResumePage />} />
+              <Route path="/privacy" element={<LegalPage title="Privacy Policy" />} />
+              <Route path="/terms" element={<LegalPage title="Terms of Service" />} />
+              
+              {/* Auth Routes */}
+              <Route path="/login" element={
+                isAuthenticated ? <Navigate to="/dashboard" replace /> : 
+                <LoginPage onLoginSuccess={(user) => setCurrentUser(user)} />
+              } />
 
-            {/* Protected Routes */}
-            <Route path="/dashboard" element={
-              isAuthenticated ? 
-                <DashboardPage 
-                  currentUser={currentUser!} 
-                  onLogout={handleLogout} 
-                  onUserUpdated={setCurrentUser} 
-                /> : 
-                <Navigate to="/login" replace />
-            } />
-            
-            <Route path="/interview/setup" element={
-              isAuthenticated ? 
-                <InterviewSetupPage currentUser={currentUser} onUserUpdated={setCurrentUser} /> : 
-                <Navigate to="/login" replace />
-            } />
-            <Route path="/interview/session/:id" element={
-              isAuthenticated ? 
-                <InterviewSessionPage currentUser={currentUser} /> : 
-                <Navigate to="/login" replace />
-            } />
-            <Route path="/interview/report/:id" element={
-              isAuthenticated ? 
-                <InterviewReportPage /> : 
-                <Navigate to="/login" replace />
-            } />
-            
-            {/* Admin Route */}
-            <Route path="/admin" element={
-              isAdmin ? <AdminPage /> : <Navigate to="/" replace />
-            } />
+              {/* Protected Routes */}
+              <Route path="/dashboard" element={
+                isAuthenticated ? 
+                  <DashboardPage 
+                    currentUser={currentUser!} 
+                    onLogout={handleLogout} 
+                    onUserUpdated={setCurrentUser} 
+                  /> : 
+                  <Navigate to="/login" replace />
+              } />
+              
+              <Route path="/interview/setup" element={
+                isAuthenticated ? 
+                  <InterviewSetupPage currentUser={currentUser} onUserUpdated={setCurrentUser} /> : 
+                  <Navigate to="/login" replace />
+              } />
+              <Route path="/interview/session/:id" element={
+                isAuthenticated ? 
+                  <InterviewSessionPage currentUser={currentUser} /> : 
+                  <Navigate to="/login" replace />
+              } />
+              <Route path="/interview/report/:id" element={
+                isAuthenticated ? 
+                  <InterviewReportPage /> : 
+                  <Navigate to="/login" replace />
+              } />
+              
+              {/* Admin Route */}
+              <Route path="/admin" element={
+                isAdmin ? <AdminPage /> : <Navigate to="/" replace />
+              } />
 
-            {/* Fallback */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+              {/* Fallback */}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
         </main>
         
         <Footer currentUser={currentUser} />

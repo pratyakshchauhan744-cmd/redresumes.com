@@ -5,12 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/main.ts",
-    "build": "prisma generate && tsc -p tsconfig.json",
-    "postinstall": "prisma generate",
+    "build": "prisma generate --schema=prisma/schema.prisma && tsc -p tsconfig.json",
+    "postinstall": "prisma generate --schema=prisma/schema.prisma",
     "start": "node dist/src/main.js",
     "worker": "tsx src/worker.ts",
     "worker:prod": "node dist/worker.js",
-    "prisma:generate": "prisma generate",
+    "prisma:generate": "prisma generate --schema=prisma/schema.prisma",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "tsx prisma/seed.ts"

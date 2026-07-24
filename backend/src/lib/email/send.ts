@@ -41,9 +41,15 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
   const appUrl = env.APP_URL || "http://localhost:4000";
   const unsubscribeUrl = `${appUrl}/api/onboarding/unsubscribe?userId=${params.userId}`;
 
+  // In dev sandbox mode, send to developer email to satisfy Resend 403 sandbox rules
+  const targetEmail =
+    env.NODE_ENV !== "production" && fromAddress === "onboarding@resend.dev"
+      ? "pratyakshchauhan744@gmail.com"
+      : params.to;
+
   const { data, error } = await resend.emails.send({
     from: fromAddress,
-    to: params.to,
+    to: targetEmail,
     subject: params.subject,
     html: params.html,
     headers: {

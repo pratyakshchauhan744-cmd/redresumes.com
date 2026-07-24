@@ -60,6 +60,18 @@ const envSchema = z.object({
     .transform((value) => value === "true"),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
+
+  // Resend (transactional email via Resend SDK)
+  RESEND_API_KEY: z.string().optional(),
+  RESEND_FROM: z.string().optional(),
+
+  // Inngest (durable workflow orchestration)
+  INNGEST_EVENT_KEY: z.string().optional(),
+  INNGEST_SIGNING_KEY: z.string().optional(),
+
+  // Base URL for building unsubscribe links and other absolute URLs in emails
+  APP_URL: z.string().optional().default("http://localhost:4000"),
+  FRONTEND_URL: z.string().optional().default("http://localhost:3000"),
 });
 
 const parsed = envSchema.safeParse(process.env);

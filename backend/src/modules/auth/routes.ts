@@ -620,7 +620,7 @@ router.post("/register/verify", otpVerifyLimiter, async (req, res, next) => {
     });
 
     pendingOtpSignups.delete(body.sessionId);
-    await issueAuthResponse(res, user, "email_password");
+    await issueAuthResponse(res, user as any, "email_password");
   } catch (error) {
     next(error);
   }
@@ -648,7 +648,7 @@ router.post("/register", registerLimiter, async (req, res, next) => {
     });
 
     res.status(201);
-    await issueAuthResponse(res, user, "email_password");
+    await issueAuthResponse(res, user as any, "email_password");
   } catch (error) {
     next(error);
   }
@@ -671,7 +671,7 @@ router.post("/login", loginLimiter, async (req, res, next) => {
       return;
     }
 
-    await issueAuthResponse(res, user, "email_password");
+    await issueAuthResponse(res, user as any, "email_password");
   } catch (error) {
     next(error);
   }
@@ -715,7 +715,7 @@ router.post("/google", loginLimiter, async (req, res, next) => {
       }
     });
 
-    await issueAuthResponse(res, user, "google");
+    await issueAuthResponse(res, user as any, "google");
   } catch (error) {
     next(error);
   }
@@ -800,7 +800,7 @@ router.post("/login/verify", otpVerifyLimiter, async (req, res, next) => {
       return;
     }
 
-    await issueAuthResponse(res, user, "email_password");
+    await issueAuthResponse(res, user as any, "email_password");
   } catch (error) {
     next(error);
   }

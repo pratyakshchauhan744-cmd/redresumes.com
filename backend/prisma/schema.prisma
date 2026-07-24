@@ -381,4 +381,57 @@ model SignOutEvent {
   @@index([createdAt])
 }
 
+// ---------------------------------------------------------------------------
+// Onboarding email sequence models
+// ---------------------------------------------------------------------------
+
+model OnboardingEnrollment {
+  id              String   @id @default(cuid())
+  userId          String
+  flowType        String   // e.g. "resume_onboarding"
+  sourceResumeId  String
+  idempotencyKey  String   @unique
+  status          String   @default("active") // active | completed | cancelled
+  triggeredAt     DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  emailSends      OnboardingEmailSend[]
+
+  // DB-level dedup: only one active enrollment per user per flow type
+  @@unique([userId, flowType])
+  @@index([userId])
+  @@index([status])
+}
+
+model OnboardingEmailSend {
+  id                String   @id @default(cuid())
+  enrollmentId      String
+  enrollment        OnboardingEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  emailNumber       Int      // 1–4 in the sequence
+  templateKey       String   // e.g. "email-2-started_clarity"
+  subject           String
+  providerMessageId String   // Resend message ID for tracking
+  status            String   @default("sent") // sent | failed | suppressed
+  sentAt            DateTime @default(now())
+  createdAt         DateTime @default(now())
+
+  @@index([enrollmentId])
+  @@index([templateKey])
+}
+
+model UserLifecycleFlags {
+  id                       String    @id @default(cuid())
+  userId                   String    @unique
+  startedMockInterviewAt   DateTime? // free trial / preview started
+  enteredInterviewRoomAt   DateTime? // entered the interview room
+  completedMockInterviewAt DateTime? // completed a full mock session
+  paidInterviewAccessAt    DateTime? // paid for ongoing interview access
+  portfolioUpgradedAt      DateTime?
+  paidPlanUpgradedAt       DateTime?
+  unsubscribedAt           DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  @@index([userId])
+}
 

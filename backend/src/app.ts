@@ -93,6 +93,8 @@ if (env.NODE_ENV !== "production") {
 }
 
 import supportRoutes from "./modules/support/routes.js";
+import onboardingRoutes from "./modules/onboarding/routes.js";
+import { inngestMiddleware } from "./modules/onboarding/inngest-handler.js";
 
 app.use("/api/auth", authRoutes);
 app.use("/api/jobs", jobsRoutes);
@@ -109,6 +111,15 @@ app.use("/api/resume", resumePdfRoutes);
 app.use("/api/interview", interviewRoutes);
 app.use("/api/credits", creditsRoutes);
 app.use("/api/support", supportRoutes);
+app.use("/api/onboarding", onboardingRoutes);
+app.use("/api/inngest", inngestMiddleware);
+
+// Redirect legacy or direct web links (e.g. /resume/.../scorecard, /dashboard, /portfolio)
+// to the frontend application
+app.get(["/resume/*", "/dashboard", "/mock-interview", "/interview-practice", "/portfolio"], (req, res) => {
+  const frontendUrl = env.FRONTEND_URL || "http://localhost:3000";
+  res.redirect(`${frontendUrl}${req.originalUrl}`);
+});
 
 app.use(notFoundHandler);
 app.use(errorHandler);

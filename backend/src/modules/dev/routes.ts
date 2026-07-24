@@ -365,7 +365,7 @@ router.post("/login", async (req, res, next) => {
       return;
     }
 
-    const payload = { sub: user.id, role: user.role, email: user.email };
+    const payload = { sub: user.id, role: user.role as any, email: user.email };
     const accessToken = signAccessToken(payload);
     const refreshToken = signRefreshToken(payload);
 

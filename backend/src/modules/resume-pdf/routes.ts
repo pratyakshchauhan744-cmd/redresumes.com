@@ -61,6 +61,7 @@ router.post("/pdf", pdfLimiter, async (req, res, next) => {
 
     if (isVercelRuntime) {
       const [{ default: chromium }, { default: puppeteer }] = await Promise.all([
+        // @ts-ignore
         import("@sparticuz/chromium"),
         import("puppeteer-core"),
       ]);

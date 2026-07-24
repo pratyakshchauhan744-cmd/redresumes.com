@@ -2050,6 +2050,27 @@ export const ResumeBuilderPage = ({
       saveCurrentResumeToHistory('Saved from PDF download');
       await downloadResumePdfFromHtml(generateResumePdfHtml(false, templateForDownload), getResumePdfFileName(templateForDownload));
       setHistoryMessage('Resume PDF downloaded.');
+
+      // Trigger onboarding email sequence
+      if (currentUser?.id) {
+        try {
+          const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
+          const baseUrl = apiBaseUrl || window.location.origin;
+          
+          await fetch(`${baseUrl}/api/onboarding/resume-downloaded`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              userId: currentUser.id,
+              resumeId: activeHistoryId || 'draft_resume'
+            })
+          });
+        } catch (e) {
+          console.error('Failed to trigger onboarding', e);
+        }
+      }
     } catch (error) {
       setHistoryMessage(error instanceof Error ? error.message : 'Unable to generate PDF. Please try again.');
     } finally {

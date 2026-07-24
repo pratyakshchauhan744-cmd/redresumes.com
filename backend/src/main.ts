@@ -3,8 +3,10 @@ import { app } from "./app.js";
 import { ensureJobsIndex } from "./modules/search/search.service.js";
 
 async function bootstrap(): Promise<void> {
-  app.listen(env.PORT, () => {
-    console.log(`API server listening on port ${env.PORT}`);
+  const port = Number(process.env.PORT) || env.PORT || 4000;
+
+  app.listen(port, "0.0.0.0", () => {
+    console.log(`API server listening on 0.0.0.0:${port}`);
   });
 
   ensureJobsIndex().catch((error) => {

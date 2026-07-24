@@ -80,4 +80,4 @@ if (!parsed.success) {
   console.error("Environment validation warnings", parsed.error.flatten().fieldErrors);
 }
 
-export const env = parsed.data;
+export const env = (parsed.data ?? envSchema.parse({}))!;

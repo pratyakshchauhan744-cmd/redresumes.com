@@ -2,6 +2,8 @@ import { Router } from "express";
 import { prisma } from "../../db/prisma.js";
 import { sendEvent } from "../../lib/inngest/client.js";
 import { tryEnroll } from "../../lib/onboarding/idempotency.js";
+import { sendEmail } from "../../lib/email/send.js";
+import { renderEmail1 } from "../../lib/email/templates/email-1.js";
 import { logEvent } from "../../lib/logging.js";
 
 const router = Router();
@@ -59,16 +61,27 @@ router.post("/resume-downloaded", async (req, res) => {
         },
       });
     } catch (sendErr: any) {
-      // Rollback enrollment if event emission fails so subsequent retries can succeed
-      await prisma.onboardingEnrollment
-        .delete({
-          where: { id: result.enrollmentId },
-        })
-        .catch(() => null);
-
       logEvent("onboarding.event_send_failed", { userId, error: sendErr.message });
-      res.status(500).json({ error: "Failed to queue onboarding workflow" });
-      return;
+      
+      // Fallback: send Email #1 directly if Inngest background queue is unavailable
+      try {
+        const email1 = renderEmail1({
+          userName: user.name || "",
+          resumeId,
+          userId,
+        });
+        await sendEmail({
+          to: user.email,
+          subject: email1.subject,
+          html: email1.html,
+          emailNumber: 1,
+          templateKey: email1.templateKey,
+          enrollmentId: result.enrollmentId,
+          userId,
+        });
+      } catch (directEmailErr: any) {
+        logEvent("onboarding.direct_email_failed", { userId, error: directEmailErr.message });
+      }
     }
 
     logEvent("onboarding.enrolled", {

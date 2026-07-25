@@ -6,7 +6,7 @@ import { logEvent } from "../logging.js";
 
 // ---------------------------------------------------------------------------
 // Centralized email send helper — supports dual-transport (Resend SDK & SMTP).
-// Ensures sender displays as "Arvind from RedResumes <Arvind@redresumes.com>".
+// Delivers emails directly to params.to without any recipient redirection.
 // ---------------------------------------------------------------------------
 
 export interface SendEmailParams {
@@ -43,7 +43,7 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
 
   let providerMessageId = "";
 
-  // 1. Try Resend (Production Primary Sender: Arvind@redresumes.com)
+  // 1. Try Resend (Production Primary Sender)
   if (env.RESEND_API_KEY) {
     try {
       const fromAddress =
@@ -52,14 +52,9 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
           ? "Arvind from RedResumes <Arvind@redresumes.com>"
           : "onboarding@resend.dev");
 
-      const targetEmail =
-        env.NODE_ENV !== "production" && fromAddress === "onboarding@resend.dev"
-          ? "pratyakshchauhan744@gmail.com"
-          : params.to;
-
       const { data, error } = await resend.emails.send({
         from: fromAddress,
-        to: targetEmail,
+        to: params.to,
         replyTo: "Arvind@redresumes.com",
         subject: params.subject,
         html: params.html,

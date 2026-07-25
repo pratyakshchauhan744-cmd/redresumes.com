@@ -50,7 +50,30 @@ router.post("/resume-downloaded", async (req, res) => {
       return;
     }
 
-    // Emit the typed Inngest event to start the durable workflow
+    // 1. Send Email #1 (Welcome + ATS Scorecard) IMMEDIATELY for instant delivery
+    let immediateEmailSent = false;
+    try {
+      const email1 = renderEmail1({
+        userName: user.name || "",
+        resumeId,
+        userId,
+      });
+      await sendEmail({
+        to: user.email,
+        subject: email1.subject,
+        html: email1.html,
+        emailNumber: 1,
+        templateKey: email1.templateKey,
+        enrollmentId: result.enrollmentId,
+        userId,
+      });
+      immediateEmailSent = true;
+      logEvent("onboarding.immediate_email_sent", { userId, resumeId });
+    } catch (emailErr: any) {
+      logEvent("onboarding.immediate_email_failed", { userId, error: emailErr.message });
+    }
+
+    // 2. Queue Inngest event for multi-day background follow-up sequence (Email 2-4)
     try {
       await sendEvent("user/resume.downloaded", {
         data: {
@@ -62,26 +85,6 @@ router.post("/resume-downloaded", async (req, res) => {
       });
     } catch (sendErr: any) {
       logEvent("onboarding.event_send_failed", { userId, error: sendErr.message });
-      
-      // Fallback: send Email #1 directly if Inngest background queue is unavailable
-      try {
-        const email1 = renderEmail1({
-          userName: user.name || "",
-          resumeId,
-          userId,
-        });
-        await sendEmail({
-          to: user.email,
-          subject: email1.subject,
-          html: email1.html,
-          emailNumber: 1,
-          templateKey: email1.templateKey,
-          enrollmentId: result.enrollmentId,
-          userId,
-        });
-      } catch (directEmailErr: any) {
-        logEvent("onboarding.direct_email_failed", { userId, error: directEmailErr.message });
-      }
     }
 
     logEvent("onboarding.enrolled", {

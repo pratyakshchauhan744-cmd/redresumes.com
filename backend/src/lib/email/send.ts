@@ -6,8 +6,7 @@ import { logEvent } from "../logging.js";
 
 // ---------------------------------------------------------------------------
 // Centralized email send helper — supports dual-transport (Resend SDK & SMTP).
-// Automatically falls back to Gmail SMTP if Resend is unconfigured or invalid,
-// guaranteeing 100% inbox delivery. Includes List-Unsubscribe RFC headers.
+// Ensures sender displays as "Arvind from RedResumes <Arvind@redresumes.com>".
 // ---------------------------------------------------------------------------
 
 export interface SendEmailParams {
@@ -44,13 +43,13 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
 
   let providerMessageId = "";
 
-  // 1. Try Resend if API key is provided
+  // 1. Try Resend (Production Primary Sender: Arvind@redresumes.com)
   if (env.RESEND_API_KEY) {
     try {
       const fromAddress =
         env.RESEND_FROM ||
         (env.NODE_ENV === "production"
-          ? "Arvind@redresumes.com"
+          ? "Arvind from RedResumes <Arvind@redresumes.com>"
           : "onboarding@resend.dev");
 
       const targetEmail =
@@ -61,6 +60,7 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
       const { data, error } = await resend.emails.send({
         from: fromAddress,
         to: targetEmail,
+        replyTo: "Arvind@redresumes.com",
         subject: params.subject,
         html: params.html,
         headers: {
@@ -79,11 +79,12 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
     }
   }
 
-  // 2. Dual-Transport Fallback to Gmail SMTP if Resend fails or is unconfigured
+  // 2. Dual-Transport Fallback to SMTP
   if (!providerMessageId && smtpTransporter) {
-    const fromAddress = env.EMAIL_FROM || env.SMTP_USER || "pratyakshchauhan744@gmail.com";
+    const senderEmail = env.SMTP_USER || "Arvind@redresumes.com";
     const info = await smtpTransporter.sendMail({
-      from: `"RedResumes" <${fromAddress}>`,
+      from: `"Arvind from RedResumes" <${senderEmail}>`,
+      replyTo: "Arvind@redresumes.com",
       to: params.to,
       subject: params.subject,
       html: params.html,

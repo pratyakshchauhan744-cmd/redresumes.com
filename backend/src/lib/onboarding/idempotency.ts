@@ -1,47 +1,46 @@
 import { prisma } from "../../db/prisma.js";
 
 // ---------------------------------------------------------------------------
-// Idempotency key generation — deterministic from userId + flowType so
-// duplicate resume-download events (retries, re-downloads) won't start
-// parallel onboarding flows for the same user.
+// Idempotency key generation — deterministic from userId + flowType.
 // ---------------------------------------------------------------------------
 
 export function buildIdempotencyKey(userId: string, flowType: string): string {
-  return `onboarding:${userId}:${flowType}`;
+  return `onboarding:${userId}:${flowType}:${Date.now()}`;
 }
 
 /**
- * Attempts to create an OnboardingEnrollment row with a DB-level unique
- * constraint on (userId, flowType). Returns the enrollment if created,
- * or null if a row already exists (meaning the flow is already running
- * or has already completed for this user).
- *
- * This is the source of truth for deduplication — not an in-memory check.
+ * Creates or updates an OnboardingEnrollment row for the user download.
+ * Allows fresh enrollments and re-download triggers so users receive
+ * their onboarding/scorecard email whenever they download a resume.
  */
 export async function tryEnroll(params: {
   userId: string;
   flowType: string;
   sourceResumeId: string;
-}): Promise<{ enrolled: true; enrollmentId: string } | { enrolled: false }> {
+}): Promise<{ enrolled: true; enrollmentId: string }> {
   const idempotencyKey = buildIdempotencyKey(params.userId, params.flowType);
 
-  try {
-    const enrollment = await prisma.onboardingEnrollment.create({
-      data: {
+  const enrollment = await prisma.onboardingEnrollment.upsert({
+    where: {
+      userId_flowType: {
         userId: params.userId,
         flowType: params.flowType,
-        sourceResumeId: params.sourceResumeId,
-        idempotencyKey,
-        status: "active",
       },
-    });
+    },
+    create: {
+      userId: params.userId,
+      flowType: params.flowType,
+      sourceResumeId: params.sourceResumeId,
+      idempotencyKey,
+      status: "active",
+    },
+    update: {
+      sourceResumeId: params.sourceResumeId,
+      idempotencyKey,
+      updatedAt: new Date(),
+      status: "active",
+    },
+  });
 
-    return { enrolled: true, enrollmentId: enrollment.id };
-  } catch (error: any) {
-    // Prisma P2002 = unique constraint violation — enrollment already exists
-    if (error?.code === "P2002") {
-      return { enrolled: false };
-    }
-    throw error;
-  }
+  return { enrolled: true, enrollmentId: enrollment.id };
 }

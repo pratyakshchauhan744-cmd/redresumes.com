@@ -6,7 +6,7 @@ import { logEvent } from "../logging.js";
 
 // ---------------------------------------------------------------------------
 // Centralized email send helper.
-// Primary: SMTP (Gmail verified credentials).
+// Primary: Gmail SMTP (Port 587 STARTTLS for cloud container compatibility).
 // Fallback: Resend SDK.
 // ---------------------------------------------------------------------------
 
@@ -25,19 +25,21 @@ export interface SendEmailResult {
   providerMessageId: string;
 }
 
-// Default production SMTP fallback credentials to guarantee 100% email delivery on Railway
 const DEFAULT_SMTP_HOST = env.SMTP_HOST || "smtp.gmail.com";
-const DEFAULT_SMTP_PORT = env.SMTP_PORT || 465;
+const DEFAULT_SMTP_PORT = Number(env.SMTP_PORT) || 587;
 const DEFAULT_SMTP_USER = env.SMTP_USER || "pratyakshchauhan744@gmail.com";
 const DEFAULT_SMTP_PASS = env.SMTP_PASS || "iuqg cluj yujo sfhe";
 
 const smtpTransporter = nodemailer.createTransport({
   host: DEFAULT_SMTP_HOST,
   port: DEFAULT_SMTP_PORT,
-  secure: true,
+  secure: DEFAULT_SMTP_PORT === 465, // false for port 587
   auth: {
     user: DEFAULT_SMTP_USER,
     pass: DEFAULT_SMTP_PASS,
+  },
+  tls: {
+    rejectUnauthorized: false,
   },
 });
 
@@ -47,7 +49,7 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
 
   let providerMessageId = "";
 
-  // 1. Primary Transport: SMTP (Guaranteed Active & Verified)
+  // 1. Primary Transport: Gmail SMTP (Port 587 STARTTLS)
   try {
     const senderEmail = DEFAULT_SMTP_USER;
     const info = await smtpTransporter.sendMail({

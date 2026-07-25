@@ -5,7 +5,9 @@ import { env } from "../../config/env.js";
 import { logEvent } from "../logging.js";
 
 // ---------------------------------------------------------------------------
-// Centralized email send helper — prioritizing Gmail SMTP for instant delivery.
+// Centralized email send helper.
+// Primary: Resend SDK (sends from Arvind@redresumes.com with verified domain).
+// Fallback: Gmail SMTP (if Resend is unconfigured or unavailable).
 // ---------------------------------------------------------------------------
 
 export interface SendEmailParams {
@@ -42,10 +44,39 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
 
   let providerMessageId = "";
 
-  // 1. Primary Transport: Gmail SMTP (Verified & Active)
-  if (smtpTransporter) {
+  // 1. Primary Transport: Resend (Sends from Arvind@redresumes.com)
+  if (env.RESEND_API_KEY) {
     try {
-      const senderEmail = env.SMTP_USER || "pratyakshchauhan744@gmail.com";
+      const fromAddress =
+        env.RESEND_FROM || "Arvind from RedResumes <Arvind@redresumes.com>";
+
+      const { data, error } = await resend.emails.send({
+        from: fromAddress,
+        to: params.to,
+        replyTo: "Arvind@redresumes.com",
+        subject: params.subject,
+        html: params.html,
+        headers: {
+          "List-Unsubscribe": `<${unsubscribeUrl}>`,
+          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        },
+      });
+
+      if (!error && data?.id) {
+        providerMessageId = data.id;
+        logEvent("email.resend_sent", { to: params.to, messageId: providerMessageId });
+      } else if (error) {
+        logEvent("email.resend_error", { error: error.message });
+      }
+    } catch (resendErr: any) {
+      logEvent("email.resend_exception", { error: resendErr.message });
+    }
+  }
+
+  // 2. Secondary Transport Fallback: Gmail SMTP
+  if (!providerMessageId && smtpTransporter) {
+    try {
+      const senderEmail = env.EMAIL_FROM || env.SMTP_USER || "pratyakshchauhan744@gmail.com";
       const info = await smtpTransporter.sendMail({
         from: `"Arvind from RedResumes" <${senderEmail}>`,
         replyTo: "Arvind@redresumes.com",
@@ -67,39 +98,8 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
     }
   }
 
-  // 2. Secondary Transport Fallback: Resend SDK
-  if (!providerMessageId && env.RESEND_API_KEY) {
-    try {
-      const fromAddress =
-        env.RESEND_FROM ||
-        (env.NODE_ENV === "production"
-          ? "Arvind from RedResumes <Arvind@redresumes.com>"
-          : "onboarding@resend.dev");
-
-      const { data, error } = await resend.emails.send({
-        from: fromAddress,
-        to: params.to,
-        replyTo: "Arvind@redresumes.com",
-        subject: params.subject,
-        html: params.html,
-        headers: {
-          "List-Unsubscribe": `<${unsubscribeUrl}>`,
-          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-        },
-      });
-
-      if (!error && data?.id) {
-        providerMessageId = data.id;
-      } else if (error) {
-        logEvent("email.resend_error", { error: error.message });
-      }
-    } catch (resendErr: any) {
-      logEvent("email.resend_exception", { error: resendErr.message });
-    }
-  }
-
   if (!providerMessageId) {
-    throw new Error("No valid email transport (SMTP or Resend) succeeded.");
+    throw new Error("No valid email transport (Resend or SMTP) succeeded.");
   }
 
   // Record send in audit table

@@ -50,42 +50,44 @@ router.post("/resume-downloaded", async (req, res) => {
       return;
     }
 
-    // 1. Send Email #1 (Welcome + ATS Scorecard) IMMEDIATELY for instant delivery
-    let immediateEmailSent = false;
-    try {
-      const email1 = renderEmail1({
-        userName: user.name || "",
-        resumeId,
-        userId,
-      });
-      await sendEmail({
-        to: user.email,
-        subject: email1.subject,
-        html: email1.html,
-        emailNumber: 1,
-        templateKey: email1.templateKey,
-        enrollmentId: result.enrollmentId,
-        userId,
-      });
-      immediateEmailSent = true;
-      logEvent("onboarding.immediate_email_sent", { userId, resumeId });
-    } catch (emailErr: any) {
-      logEvent("onboarding.immediate_email_failed", { userId, error: emailErr.message });
-    }
+    // 1. Return HTTP 200 OK immediately so frontend PDF download never hangs
+    res.status(200).json({ status: "enrolled", enrollmentId: result.enrollmentId });
 
-    // 2. Queue Inngest event for multi-day background follow-up sequence (Email 2-4)
-    try {
-      await sendEvent("user/resume.downloaded", {
-        data: {
-          userId,
+    // 2. Execute email dispatch & Inngest event asynchronously in background
+    setImmediate(async () => {
+      try {
+        const email1 = renderEmail1({
+          userName: user.name || "",
           resumeId,
-          userEmail: user.email,
-          userName: user.name ?? "",
-        },
-      });
-    } catch (sendErr: any) {
-      logEvent("onboarding.event_send_failed", { userId, error: sendErr.message });
-    }
+          userId,
+        });
+        await sendEmail({
+          to: user.email,
+          subject: email1.subject,
+          html: email1.html,
+          emailNumber: 1,
+          templateKey: email1.templateKey,
+          enrollmentId: result.enrollmentId,
+          userId,
+        });
+        logEvent("onboarding.immediate_email_sent", { userId, resumeId });
+      } catch (emailErr: any) {
+        logEvent("onboarding.immediate_email_failed", { userId, error: emailErr.message });
+      }
+
+      try {
+        await sendEvent("user/resume.downloaded", {
+          data: {
+            userId,
+            resumeId,
+            userEmail: user.email,
+            userName: user.name ?? "",
+          },
+        });
+      } catch (sendErr: any) {
+        logEvent("onboarding.event_send_failed", { userId, error: sendErr.message });
+      }
+    });
 
     logEvent("onboarding.enrolled", {
       userId,

@@ -331,6 +331,7 @@ export const ResumeBuilderPage = ({
   const [atsError, setAtsError] = useState<string | null>(null);
   const [atsApplyLoading, setAtsApplyLoading] = useState(false);
   const [atsApplyMessage, setAtsApplyMessage] = useState<string | null>(null);
+  const [atsFixesApplied, setAtsFixesApplied] = useState(false);
   const [aiImproveResult, setAiImproveResult] = useState<ImproveResumeResponse | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -2263,6 +2264,17 @@ export const ResumeBuilderPage = ({
       .slice(0, 4)
       .map((bullet, index) => {
         const keyword = topKeywords[index % Math.max(topKeywords.length, 1)];
+        const normalized = bullet.toLowerCase();
+        
+        // Idempotency check: if bullet already contains the improvement phrase or suffix, do not append again
+        if (
+          normalized.includes('with clearer ownership') ||
+          normalized.includes('measurable business impact') ||
+          (keyword && normalized.includes(keyword.toLowerCase()))
+        ) {
+          return bullet;
+        }
+
         const enriched = bullet.replace(/\.$/, '');
         return keyword
           ? `${enriched} while strengthening ${keyword} alignment and measurable business impact.`
@@ -2281,6 +2293,7 @@ export const ResumeBuilderPage = ({
     setAtsLoading(true);
     setAtsError(null);
     setAtsApplyMessage(null);
+    setAtsFixesApplied(false);
     try {
       const token = getStoredAccessToken();
       if (!token) throw new Error('Sign in required');
@@ -2364,6 +2377,11 @@ export const ResumeBuilderPage = ({
       return;
     }
 
+    if (atsFixesApplied) {
+      setAtsApplyMessage('All ATS fixes have already been applied.');
+      return;
+    }
+
     setAtsApplyLoading(true);
     setAtsError(null);
     setAtsApplyMessage(null);
@@ -2398,6 +2416,7 @@ export const ResumeBuilderPage = ({
         });
       }
 
+      setAtsFixesApplied(true);
       setAtsApplyMessage(
         `Applied all ATS fixes: ${addedCount} keyword(s) added, summary improved, and first experience bullets strengthened.`
       );
@@ -2423,7 +2442,12 @@ export const ResumeBuilderPage = ({
         });
       }
       setAtsError(null);
-      setAtsApplyMessage(`Applied all ATS fixes locally: ${addedCount} keyword(s) added.`);
+      setAtsFixesApplied(true);
+      setAtsApplyMessage(
+        addedCount
+          ? `Applied all ATS fixes locally: ${addedCount} keyword(s) added.`
+          : `All ATS fixes are already applied to your resume.`
+      );
     } finally {
       setAtsApplyLoading(false);
     }
@@ -3415,10 +3439,18 @@ export const ResumeBuilderPage = ({
                 <button
                   type="button"
                   onClick={applyAllAtsFixes}
-                  disabled={atsApplyLoading}
-                  className="px-3 py-1 rounded-full border border-emerald-300 bg-emerald-50 text-xs font-semibold text-emerald-700 disabled:opacity-60"
+                  disabled={atsApplyLoading || atsFixesApplied}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                    atsFixesApplied
+                      ? 'border border-emerald-400 bg-emerald-100 text-emerald-800 opacity-90 cursor-default'
+                      : 'border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-60'
+                  }`}
                 >
-                  {atsApplyLoading ? 'Applying all...' : 'Apply all ATS fixes'}
+                  {atsApplyLoading
+                    ? 'Applying all...'
+                    : atsFixesApplied
+                    ? 'ATS Fixes Applied ✓'
+                    : 'Apply all ATS fixes'}
                 </button>
               </div>
             )}

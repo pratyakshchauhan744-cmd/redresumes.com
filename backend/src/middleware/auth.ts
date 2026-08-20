@@ -25,7 +25,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   const token = authHeader.slice(7);
 
   try {
-    const payload = verifyToken(token);
+    const payload = verifyToken(token, "access");
     req.user = {
       id: payload.sub,
       role: payload.role,

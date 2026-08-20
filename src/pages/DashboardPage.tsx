@@ -494,9 +494,9 @@ export const DashboardPage = ({
               { label: 'Interviews', value: interviewCount },
               { label: 'Credits Remaining', value: creditsBalance },
             ].map((item) => (
-              <div key={item.label} className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-400">{item.label}</p>
-                <p className="mt-3 text-3xl font-black tracking-tight text-zinc-900">{item.value}</p>
+              <div key={item.label} className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-[0_12px_30px_rgba(15,23,42,0.04)] dark:border-zinc-800 dark:bg-zinc-950/70">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-400">{item.label}</p>
+                <p className="mt-3 text-3xl font-black tracking-tight text-zinc-900 dark:text-zinc-50">{item.value}</p>
               </div>
             ))}
           </div>
@@ -505,10 +505,10 @@ export const DashboardPage = ({
           <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-[0_12px_30px_rgba(15,23,42,0.04)] dark:border-zinc-800 dark:bg-zinc-950/70">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-4 border-b border-zinc-200 pb-4 dark:border-zinc-800">
               <div>
-                <h2 className="font-bold text-zinc-900 text-lg">Interview Credits</h2>
-                <p className="text-sm text-zinc-500 mt-0.5">Use credits to run interactive AI mock interviews. 1 Interview = 1 Credit.</p>
+                <h2 className="font-bold text-zinc-900 dark:text-zinc-50 text-lg">Interview Credits</h2>
+                <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">Use credits to run interactive AI mock interviews. 1 Interview = 1 Credit.</p>
               </div>
-              <div className="bg-primary/5 border border-primary/20 rounded-xl px-4 py-2 text-right">
+              <div className="bg-primary/5 border border-primary/20 rounded-xl px-4 py-2 text-right dark:bg-primary/10 dark:border-primary/30">
                 <span className="block text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-300">Remaining Balance</span>
                 <span className="text-2xl font-black text-primary">{creditsBalance} Credits</span>
               </div>
@@ -525,7 +525,7 @@ export const DashboardPage = ({
                 <div>
                   <span className="text-xs font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-300">Starter Pack</span>
                   <h3 className="mt-1 text-2xl font-black text-zinc-950 dark:text-zinc-50">5 Credits</h3>
-                  <p className="text-xs text-zinc-500 mt-2">Practice up to 5 complete rounds with AI feedback.</p>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">Practice up to 5 complete rounds with AI feedback.</p>
                 </div>
                 <button
                   disabled={purchaseLoading !== null}
@@ -544,7 +544,7 @@ export const DashboardPage = ({
                 <div>
                   <span className="text-xs font-bold text-primary uppercase tracking-widest">Pro Pack</span>
                   <h3 className="mt-1 text-2xl font-black text-zinc-950 dark:text-zinc-50">15 Credits</h3>
-                  <p className="text-xs text-zinc-500 mt-2">Practice 15 complete rounds. Best value for active job hunters.</p>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">Practice 15 complete rounds. Best value for active job hunters.</p>
                 </div>
                 <button
                   disabled={purchaseLoading !== null}
@@ -559,18 +559,18 @@ export const DashboardPage = ({
 
             {/* Transaction Log */}
             {transactions.length > 0 && (
-              <div className="border-t border-zinc-100 pt-6 mt-6">
-                <h3 className="font-bold text-zinc-900 text-sm mb-3">Billing History</h3>
+              <div className="border-t border-zinc-100 pt-6 mt-6 dark:border-zinc-800">
+                <h3 className="font-bold text-zinc-900 dark:text-zinc-50 text-sm mb-3">Billing History</h3>
                 <div className="space-y-2.5 max-h-40 overflow-y-auto pr-1">
                   {transactions.map((tx: any) => (
-                    <div key={tx.id} className="flex justify-between items-center bg-zinc-50 p-3 rounded-lg text-xs border border-zinc-100">
+                    <div key={tx.id} className="flex justify-between items-center bg-zinc-50 p-3 rounded-lg text-xs border border-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/70">
                       <div>
-                        <p className="font-bold text-zinc-800">{tx.packageName}</p>
-                        <p className="text-[10px] text-zinc-400 mt-0.5">{new Date(tx.createdAt).toLocaleDateString()} • Ref: {tx.razorpayPaymentId ? tx.razorpayPaymentId.slice(0, 15) : ''}...</p>
+                        <p className="font-bold text-zinc-800 dark:text-zinc-200">{tx.packageName}</p>
+                        <p className="text-[10px] text-zinc-400 dark:text-zinc-400 mt-0.5">{new Date(tx.createdAt).toLocaleDateString()} • Ref: {tx.razorpayPaymentId ? tx.razorpayPaymentId.slice(0, 15) : ''}...</p>
                       </div>
                       <div className="text-right">
-                        <p className="font-black text-emerald-600">+{tx.creditsAdded} Credits</p>
-                        <p className="text-[10px] text-zinc-400 mt-0.5">₹{tx.paymentAmount}</p>
+                        <p className="font-black text-emerald-600 dark:text-emerald-400">+{tx.creditsAdded} Credits</p>
+                        <p className="text-[10px] text-zinc-400 dark:text-zinc-400 mt-0.5">₹{tx.paymentAmount}</p>
                       </div>
                     </div>
                   ))}
@@ -579,43 +579,43 @@ export const DashboardPage = ({
             )}
           </div>
 
-          <div className="rounded-2xl border border-zinc-200 bg-white p-6">
-            <h2 className="font-semibold text-zinc-900">Full user profile</h2>
+          <div className="rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950/70">
+            <h2 className="font-semibold text-zinc-900 dark:text-zinc-50">Full user profile</h2>
             <div className="mt-5 grid gap-4 md:grid-cols-2 text-sm">
-              <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-4">
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-400">Full name</p>
-                <p className="mt-2 font-semibold text-zinc-900">{user.name}</p>
+              <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/70">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-400 dark:text-zinc-400">Full name</p>
+                <p className="mt-2 font-semibold text-zinc-900 dark:text-zinc-100">{user.name}</p>
               </div>
-              <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-4">
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-400">Email</p>
-                <p className="mt-2 font-semibold text-zinc-900 break-all">{user.email}</p>
+              <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/70">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-400 dark:text-zinc-400">Email</p>
+                <p className="mt-2 font-semibold text-zinc-900 dark:text-zinc-100 break-all">{user.email}</p>
               </div>
-              <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-4">
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-400">Role</p>
-                <p className="mt-2 font-semibold text-zinc-900 capitalize">{user.role}</p>
+              <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/70">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-400 dark:text-zinc-400">Role</p>
+                <p className="mt-2 font-semibold text-zinc-900 dark:text-zinc-100 capitalize">{user.role}</p>
               </div>
-              <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-4">
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-400">Account status</p>
-                <p className="mt-2 font-semibold text-emerald-700">Active</p>
+              <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/70">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-400 dark:text-zinc-400">Account status</p>
+                <p className="mt-2 font-semibold text-emerald-700 dark:text-emerald-400">Active</p>
               </div>
             </div>
             <div className="mt-6 grid gap-4 md:grid-cols-2">
-              <input value={profileName} onChange={(event) => setProfileName(event.target.value)} className="rounded-xl border border-zinc-200 px-4 py-3 text-sm" placeholder="Full name" aria-label="Profile full name" />
+              <input value={profileName} onChange={(event) => setProfileName(event.target.value)} className="rounded-xl border border-zinc-200 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 border-zinc-200 dark:border-zinc-800 px-4 py-3 text-sm" placeholder="Full name" aria-label="Profile full name" />
               <input
                 type="tel"
                 inputMode="numeric"
                 pattern="[0-9]{10}"
                 value={profilePhone}
                 onChange={(event) => setProfilePhone(sanitizeProfilePhone(event.target.value))}
-                className="rounded-xl border border-zinc-200 px-4 py-3 text-sm"
+                className="rounded-xl border border-zinc-200 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 border-zinc-200 dark:border-zinc-800 px-4 py-3 text-sm"
                 placeholder="Phone number"
                 aria-label="Profile phone number"
               />
-              <input value={profileLocation} onChange={(event) => setProfileLocation(event.target.value)} className="rounded-xl border border-zinc-200 px-4 py-3 text-sm md:col-span-2" placeholder="Location" aria-label="Profile location" />
-              <textarea value={profileBio} onChange={(event) => setProfileBio(event.target.value)} className="rounded-xl border border-zinc-200 px-4 py-3 text-sm md:col-span-2 h-28" placeholder="Short profile bio" aria-label="Profile bio" />
+              <input value={profileLocation} onChange={(event) => setProfileLocation(event.target.value)} className="rounded-xl border border-zinc-200 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 border-zinc-200 dark:border-zinc-800 px-4 py-3 text-sm md:col-span-2" placeholder="Location" aria-label="Profile location" />
+              <textarea value={profileBio} onChange={(event) => setProfileBio(event.target.value)} className="rounded-xl border border-zinc-200 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 border-zinc-200 dark:border-zinc-800 px-4 py-3 text-sm md:col-span-2 h-28" placeholder="Short profile bio" aria-label="Profile bio" />
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <input type="file" accept="image/*" onChange={handlePhotoUpload} className="max-w-xs rounded-xl border border-zinc-200 px-3 py-2 text-sm" aria-label="Upload profile photo" />
+              <input type="file" accept="image/*" onChange={handlePhotoUpload} className="max-w-xs rounded-xl border border-zinc-200 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 border-zinc-200 dark:border-zinc-800 px-3 py-2 text-sm" aria-label="Upload profile photo" />
               <button onClick={handleProfileSave} className="rounded-full bg-primary px-5 py-3 text-sm font-semibold text-white">
                 Save profile
               </button>
@@ -625,15 +625,15 @@ export const DashboardPage = ({
 
         <div className="space-y-6">
           {isLocalHost && (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50/20 p-6 shadow-sm">
-              <h2 className="font-bold text-amber-800 text-sm uppercase tracking-wider">Local Developer Tools</h2>
-              <p className="text-xs text-amber-700 mt-1">Simulate credit balance adjustments for testing on localhost.</p>
+            <div className="rounded-2xl border border-amber-200 bg-amber-50/20 dark:border-amber-900/50 dark:bg-amber-950/20 p-6 shadow-sm">
+              <h2 className="font-bold text-amber-800 dark:text-amber-400 text-sm uppercase tracking-wider">Local Developer Tools</h2>
+              <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">Simulate credit balance adjustments for testing on localhost.</p>
               <div className="mt-4 flex gap-2">
                 <input
                   type="number"
                   value={devAmount}
                   onChange={(e) => setDevAmount(Math.max(1, parseInt(e.target.value, 10) || 0))}
-                  className="w-20 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800"
+                  className="w-20 rounded-xl border border-zinc-200 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 border-zinc-200 dark:border-zinc-800 px-3 py-2 text-xs font-semibold"
                   aria-label="Test credits amount"
                 />
                 <button
@@ -647,15 +647,15 @@ export const DashboardPage = ({
             </div>
           )}
 
-          <div className="rounded-2xl border border-zinc-200 bg-white p-6">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950/70">
             <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-zinc-900">AI Mock Interviews</h2>
+              <h2 className="font-semibold text-zinc-900 dark:text-zinc-50">AI Mock Interviews</h2>
               <button onClick={() => navigate('/interview/setup')} className="text-sm font-semibold text-primary hover:underline">Practice now</button>
             </div>
             <div className="mt-4 space-y-3">
               {interviewHistory.length === 0 ? (
-                <div className="text-center py-6 border border-dashed border-zinc-200 rounded-xl bg-zinc-50">
-                  <p className="text-sm text-zinc-500 mb-3">No completed interviews yet.</p>
+                <div className="text-center py-6 border border-dashed border-zinc-200 rounded-xl bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/40">
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-3">No completed interviews yet.</p>
                   <button onClick={() => navigate('/interview/setup')} className="bg-primary hover:bg-primary/90 text-white font-medium py-2 px-4 rounded-lg text-sm shadow-sm transition-all hover:scale-105">
                     Start Your First Interview
                   </button>
@@ -666,14 +666,14 @@ export const DashboardPage = ({
                   const hasScore = Number.isFinite(overallScore);
 
                   return (
-                    <div key={session.id} onClick={() => navigate(`/interview/report/${session.id}`)} className="flex items-center justify-between rounded-xl border border-zinc-100 hover:border-primary/30 hover:bg-primary/5 cursor-pointer px-4 py-3 transition-colors">
+                    <div key={session.id} onClick={() => navigate(`/interview/report/${session.id}`)} className="flex items-center justify-between rounded-xl border border-zinc-100 hover:border-primary/30 hover:bg-primary/5 cursor-pointer px-4 py-3 transition-colors dark:border-zinc-800 dark:hover:border-primary/40 dark:hover:bg-primary/10">
                       <div>
-                        <p className="text-sm font-semibold text-zinc-900">{session.targetRole}</p>
-                        <p className="text-xs text-zinc-500">{new Date(session.createdAt).toLocaleDateString()} • {session.companyType}</p>
+                        <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{session.targetRole}</p>
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400">{new Date(session.createdAt).toLocaleDateString()} • {session.companyType}</p>
                       </div>
                       {hasScore && (
                         <div className="text-right">
-                          <span className={`text-sm font-bold ${overallScore >= 8 ? 'text-green-600' : overallScore >= 6 ? 'text-amber-600' : 'text-red-600'}`}>
+                          <span className={`text-sm font-bold ${overallScore >= 8 ? 'text-green-600 dark:text-green-400' : overallScore >= 6 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
                             {overallScore.toFixed(1)}/10
                           </span>
                         </div>

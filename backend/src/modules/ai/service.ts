@@ -377,35 +377,40 @@ function extractGeminiText(responseJson: unknown): string {
 
 async function requestGeminiJson(prompt: string, temperature = 0.2): Promise<Response> {
   if (env.OPENAI_API_KEY) {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
-        temperature,
-        response_format: { type: "json_object" }
-      })
-    });
-    if (res.ok) {
-      const json = await res.json() as any;
-      const text = json.choices?.[0]?.message?.content || "";
-      const compatibleJson = {
-        candidates: [{
-          content: {
-            parts: [{ text }]
-          }
-        }]
-      };
-      return new Response(JSON.stringify(compatibleJson), {
-        status: 200,
-        headers: { "Content-Type": "application/json" }
+    try {
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${env.OPENAI_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [{ role: "user", content: prompt }],
+          temperature,
+          response_format: { type: "json_object" }
+        }),
+        signal: AbortSignal.timeout(25000)
       });
+      if (res.ok) {
+        const json = await res.json() as any;
+        const text = json.choices?.[0]?.message?.content || "";
+        const compatibleJson = {
+          candidates: [{
+            content: {
+              parts: [{ text }]
+            }
+          }]
+        };
+        return new Response(JSON.stringify(compatibleJson), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      console.warn("OpenAI JSON request returned status:", res.status, "falling back to Gemini if available.");
+    } catch (openaiErr) {
+      console.warn("OpenAI JSON request failed:", openaiErr instanceof Error ? openaiErr.message : openaiErr);
     }
-    return res;
   }
 
   if (!env.GEMINI_API_KEY) {
@@ -423,40 +428,46 @@ async function requestGeminiJson(prompt: string, temperature = 0.2): Promise<Res
         temperature,
         responseMimeType: "application/json"
       }
-    })
+    }),
+    signal: AbortSignal.timeout(25000)
   });
 }
 
 async function requestGeminiText(prompt: string, temperature = 0.5): Promise<Response> {
   if (env.OPENAI_API_KEY) {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
-        temperature
-      })
-    });
-    if (res.ok) {
-      const json = await res.json() as any;
-      const text = json.choices?.[0]?.message?.content || "";
-      const compatibleJson = {
-        candidates: [{
-          content: {
-            parts: [{ text }]
-          }
-        }]
-      };
-      return new Response(JSON.stringify(compatibleJson), {
-        status: 200,
-        headers: { "Content-Type": "application/json" }
+    try {
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${env.OPENAI_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [{ role: "user", content: prompt }],
+          temperature
+        }),
+        signal: AbortSignal.timeout(25000)
       });
+      if (res.ok) {
+        const json = await res.json() as any;
+        const text = json.choices?.[0]?.message?.content || "";
+        const compatibleJson = {
+          candidates: [{
+            content: {
+              parts: [{ text }]
+            }
+          }]
+        };
+        return new Response(JSON.stringify(compatibleJson), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      console.warn("OpenAI Text request returned status:", res.status, "falling back to Gemini if available.");
+    } catch (openaiErr) {
+      console.warn("OpenAI Text request failed:", openaiErr instanceof Error ? openaiErr.message : openaiErr);
     }
-    return res;
   }
 
   if (!env.GEMINI_API_KEY) {
@@ -473,7 +484,8 @@ async function requestGeminiText(prompt: string, temperature = 0.5): Promise<Res
       generationConfig: {
         temperature
       }
-    })
+    }),
+    signal: AbortSignal.timeout(25000)
   });
 }
 
@@ -523,6 +535,17 @@ function parseSections(resumeText: string): Record<string, string> {
   return Object.fromEntries(Object.entries(sections).map(([key, value]) => [key, value.join("\n")]));
 }
 
+function ensureUniquePhrase(text: string, phrase: string): string {
+  if (!text || !text.trim()) return phrase;
+  const normalizedText = text.toLowerCase();
+  const normalizedPhrase = phrase.toLowerCase().replace(/^[,\s.]+/, "").replace(/[,\s.]+$/, "");
+  if (normalizedText.includes(normalizedPhrase)) {
+    return text.trim();
+  }
+  const clean = text.trim().replace(/\.$/, "");
+  return `${clean} ${phrase.trim()}`.replace(/\s+/g, " ");
+}
+
 function fallbackImproveResult(
   resumeText: string,
   jobTitle?: string,
@@ -540,6 +563,7 @@ function fallbackImproveResult(
     .slice(0, 4)
     .map((line) => line.replace(/^[-*•]\s*/, ""));
 
+  const defaultSummarySuffix = "Delivered measurable impact through ownership, prioritization, and data-informed decisions.";
   const improvedSummary =
     focus === "bullets"
       ? baseSummary ||
@@ -547,18 +571,19 @@ function fallbackImproveResult(
           ? `${jobTitle.trim()} professional focused on measurable business outcomes and cross-functional execution.`
           : "Results-driven professional focused on measurable outcomes and cross-functional execution.")
       : baseSummary
-        ? `${baseSummary.replace(/\.$/, "")}. Delivered measurable impact through ownership, prioritization, and data-informed decisions.`
+        ? ensureUniquePhrase(baseSummary, defaultSummarySuffix)
         : jobTitle && jobTitle.trim().length
           ? `${jobTitle.trim()} professional focused on measurable business outcomes, cross-functional execution, and continuous optimization.`
           : "Results-driven professional focused on measurable outcomes, cross-functional execution, and continuous optimization.";
 
+  const defaultBulletSuffix = "with measurable business impact.";
   const improvedBullets =
     focus === "summary"
       ? bullets.length
         ? bullets
         : ["Led key initiatives to improve delivery speed and quality.", "Collaborated across teams to ship customer-focused outcomes."]
       : bullets.length > 0
-        ? bullets.map((bullet) => bullet.replace(/\.$/, "") + " with measurable business impact.")
+        ? bullets.map((bullet) => ensureUniquePhrase(bullet, defaultBulletSuffix))
         : [
             "Led key initiatives to improve delivery speed and quality with measurable business impact.",
             "Collaborated across teams to ship customer-focused outcomes with measurable business impact."

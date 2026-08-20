@@ -7,6 +7,7 @@ import nodemailer from "nodemailer";
 import { OAuth2Client } from "google-auth-library";
 import type { SignInMethod } from "@prisma/client";
 import { prisma } from "../../db/prisma.js";
+import { redisConnection } from "../../db/redis.js";
 import { env } from "../../config/env.js";
 import { signAccessToken, signRefreshToken, verifyToken } from "../../utils/jwt.js";
 
@@ -117,6 +118,35 @@ const OTP_TTL_MS = 5 * 60 * 1000;
 const REFRESH_COOKIE_NAME = "rr_refresh_token";
 const REFRESH_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const googleOAuthClient = new OAuth2Client();
+
+async function saveOtpSession<T>(map: Map<string, T>, type: string, sessionId: string, data: T): Promise<void> {
+  map.set(sessionId, data);
+  setTimeout(() => { map.delete(sessionId); }, OTP_TTL_MS);
+  try {
+    await redisConnection.setex(`otp:${type}:${sessionId}`, Math.ceil(OTP_TTL_MS / 1000), JSON.stringify(data));
+  } catch (err) {
+    // Silent memory fallback
+  }
+}
+
+async function getOtpSession<T>(map: Map<string, T>, type: string, sessionId: string): Promise<T | undefined> {
+  try {
+    const raw = await redisConnection.get(`otp:${type}:${sessionId}`);
+    if (raw) return JSON.parse(raw) as T;
+  } catch (err) {
+    // Silent memory fallback
+  }
+  return map.get(sessionId);
+}
+
+async function deleteOtpSession<T>(map: Map<string, T>, type: string, sessionId: string): Promise<void> {
+  map.delete(sessionId);
+  try {
+    await redisConnection.del(`otp:${type}:${sessionId}`);
+  } catch (err) {
+    // Silent memory fallback
+  }
+}
 
 type VerifiedGooglePayload = {
   sub: string;
@@ -552,7 +582,7 @@ router.post("/register/start", otpStartLimiter, async (req, res, next) => {
 
     const sessionId = randomBytes(24).toString("hex");
     const otp = generateOtp();
-    pendingOtpSignups.set(sessionId, {
+    await saveOtpSession(pendingOtpSignups, "signup", sessionId, {
       sessionId,
       name: body.name.trim(),
       email,
@@ -562,10 +592,6 @@ router.post("/register/start", otpStartLimiter, async (req, res, next) => {
       expiresAt: Date.now() + OTP_TTL_MS
     });
 
-    setTimeout(() => {
-      pendingOtpSignups.delete(sessionId);
-    }, OTP_TTL_MS);
-
     try {
       await sendOtpEmail(email, otp);
     } catch (emailError) {
@@ -573,7 +599,7 @@ router.post("/register/start", otpStartLimiter, async (req, res, next) => {
         res.json(buildOtpStartResponse("OTP generated for account verification.", sessionId, otp, getEmailDeliveryMessage(emailError)));
         return;
       }
-      pendingOtpSignups.delete(sessionId);
+      await deleteOtpSession(pendingOtpSignups, "signup", sessionId);
       res.status(503).json({ message: getEmailDeliveryMessage(emailError) });
       return;
     }
@@ -587,13 +613,13 @@ router.post("/register/start", otpStartLimiter, async (req, res, next) => {
 router.post("/register/verify", otpVerifyLimiter, async (req, res, next) => {
   try {
     const body = registerVerifySchema.parse(req.body);
-    const pending = pendingOtpSignups.get(body.sessionId);
+    const pending = await getOtpSession(pendingOtpSignups, "signup", body.sessionId);
     if (!pending) {
       res.status(401).json({ message: "OTP session expired. Please create account again." });
       return;
     }
     if (Date.now() > pending.expiresAt) {
-      pendingOtpSignups.delete(body.sessionId);
+      await deleteOtpSession(pendingOtpSignups, "signup", body.sessionId);
       res.status(401).json({ message: "OTP expired. Please create account again." });
       return;
     }
@@ -604,7 +630,7 @@ router.post("/register/verify", otpVerifyLimiter, async (req, res, next) => {
 
     const exists = await prisma.user.findUnique({ where: { email: pending.email } });
     if (exists) {
-      pendingOtpSignups.delete(body.sessionId);
+      await deleteOtpSession(pendingOtpSignups, "signup", body.sessionId);
       res.status(409).json({ message: "This email is already registered. Please sign in." });
       return;
     }
@@ -619,7 +645,7 @@ router.post("/register/verify", otpVerifyLimiter, async (req, res, next) => {
       }
     });
 
-    pendingOtpSignups.delete(body.sessionId);
+    await deleteOtpSession(pendingOtpSignups, "signup", body.sessionId);
     await issueAuthResponse(res, user as any, "email_password");
   } catch (error) {
     next(error);
@@ -739,7 +765,7 @@ router.post("/login/start", otpStartLimiter, async (req, res, next) => {
 
     const sessionId = randomBytes(24).toString("hex");
     const otp = generateOtp();
-    pendingOtpLogins.set(sessionId, {
+    await saveOtpSession(pendingOtpLogins, "login", sessionId, {
       sessionId,
       userId: user.id,
       email: user.email,
@@ -747,14 +773,10 @@ router.post("/login/start", otpStartLimiter, async (req, res, next) => {
       expiresAt: Date.now() + OTP_TTL_MS
     });
 
-    setTimeout(() => {
-      pendingOtpLogins.delete(sessionId);
-    }, OTP_TTL_MS);
-
     try {
       await sendOtpEmail(user.email, otp);
     } catch (emailError) {
-      pendingOtpLogins.delete(sessionId);
+      await deleteOtpSession(pendingOtpLogins, "login", sessionId);
       res.status(503).json({ message: getEmailDeliveryMessage(emailError) });
       return;
     }
@@ -778,13 +800,13 @@ router.post("/login/start", otpStartLimiter, async (req, res, next) => {
 router.post("/login/verify", otpVerifyLimiter, async (req, res, next) => {
   try {
     const body = loginVerifySchema.parse(req.body);
-    const pending = pendingOtpLogins.get(body.sessionId);
+    const pending = await getOtpSession(pendingOtpLogins, "login", body.sessionId);
     if (!pending) {
       res.status(401).json({ message: "OTP session expired. Please login again." });
       return;
     }
     if (Date.now() > pending.expiresAt) {
-      pendingOtpLogins.delete(body.sessionId);
+      await deleteOtpSession(pendingOtpLogins, "login", body.sessionId);
       res.status(401).json({ message: "OTP expired. Please login again." });
       return;
     }
@@ -793,7 +815,7 @@ router.post("/login/verify", otpVerifyLimiter, async (req, res, next) => {
       return;
     }
 
-    pendingOtpLogins.delete(body.sessionId);
+    await deleteOtpSession(pendingOtpLogins, "login", body.sessionId);
     const user = await prisma.user.findUnique({ where: { id: pending.userId } });
     if (!user) {
       res.status(401).json({ message: "User not found." });
@@ -887,7 +909,7 @@ router.post("/forgot-password/start", otpStartLimiter, async (req, res, next) =>
 
     const sessionId = randomBytes(24).toString("hex");
     const otp = generateOtp();
-    pendingOtpForgot.set(sessionId, {
+    await saveOtpSession(pendingOtpForgot, "forgot", sessionId, {
       sessionId,
       userId: user.id,
       email: user.email,
@@ -896,10 +918,6 @@ router.post("/forgot-password/start", otpStartLimiter, async (req, res, next) =>
       expiresAt: Date.now() + OTP_TTL_MS
     });
 
-    setTimeout(() => {
-      pendingOtpForgot.delete(sessionId);
-    }, OTP_TTL_MS);
-
     try {
       await sendOtpEmail(user.email, otp);
     } catch (emailError) {
@@ -907,7 +925,7 @@ router.post("/forgot-password/start", otpStartLimiter, async (req, res, next) =>
         res.json(buildOtpStartResponse("OTP generated for password reset.", sessionId, otp, getEmailDeliveryMessage(emailError)));
         return;
       }
-      pendingOtpForgot.delete(sessionId);
+      await deleteOtpSession(pendingOtpForgot, "forgot", sessionId);
       res.status(503).json({ message: getEmailDeliveryMessage(emailError) });
       return;
     }
@@ -921,13 +939,13 @@ router.post("/forgot-password/start", otpStartLimiter, async (req, res, next) =>
 router.post("/forgot-password/verify", otpVerifyLimiter, async (req, res, next) => {
   try {
     const body = forgotPasswordVerifySchema.parse(req.body);
-    const pending = pendingOtpForgot.get(body.sessionId);
+    const pending = await getOtpSession(pendingOtpForgot, "forgot", body.sessionId);
     if (!pending) {
       res.status(401).json({ message: "OTP session expired. Please request a new OTP." });
       return;
     }
     if (Date.now() > pending.expiresAt) {
-      pendingOtpForgot.delete(body.sessionId);
+      await deleteOtpSession(pendingOtpForgot, "forgot", body.sessionId);
       res.status(401).json({ message: "OTP expired. Please request a new OTP." });
       return;
     }
@@ -937,6 +955,7 @@ router.post("/forgot-password/verify", otpVerifyLimiter, async (req, res, next) 
     }
 
     pending.verified = true;
+    await saveOtpSession(pendingOtpForgot, "forgot", body.sessionId, pending);
     res.json({ message: "OTP verified successfully." });
   } catch (error) {
     next(error);
@@ -946,13 +965,13 @@ router.post("/forgot-password/verify", otpVerifyLimiter, async (req, res, next) 
 router.post("/forgot-password/reset", async (req, res, next) => {
   try {
     const body = forgotPasswordResetSchema.parse(req.body);
-    const pending = pendingOtpForgot.get(body.sessionId);
+    const pending = await getOtpSession(pendingOtpForgot, "forgot", body.sessionId);
     if (!pending || !pending.verified) {
       res.status(401).json({ message: "Unauthorized or session expired. Please verify OTP first." });
       return;
     }
     if (Date.now() > pending.expiresAt) {
-      pendingOtpForgot.delete(body.sessionId);
+      await deleteOtpSession(pendingOtpForgot, "forgot", body.sessionId);
       res.status(401).json({ message: "Session expired. Please start over." });
       return;
     }
@@ -963,7 +982,7 @@ router.post("/forgot-password/reset", async (req, res, next) => {
       data: { passwordHash }
     });
 
-    pendingOtpForgot.delete(body.sessionId);
+    await deleteOtpSession(pendingOtpForgot, "forgot", body.sessionId);
     
     await prisma.refreshToken.deleteMany({
       where: { userId: pending.userId }

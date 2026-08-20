@@ -114,16 +114,16 @@ export async function handleRazorpayWebhook(req: Request, res: Response, next: N
     // Parse the webhook body since it was parsed as a raw buffer
     const event = JSON.parse(req.body.toString());
 
-    if (event.event === "order.paid") {
-      const order = event.payload.order.entity;
-      const payment = event.payload.payment.entity;
+    if (event.event === "order.paid" || event.event === "payment.captured") {
+      const order = event.payload?.order?.entity;
+      const payment = event.payload?.payment?.entity;
       
-      const userId = order.notes?.userId;
-      const packageKey = order.notes?.packageKey;
+      const userId = order?.notes?.userId || payment?.notes?.userId;
+      const packageKey = order?.notes?.packageKey || payment?.notes?.packageKey;
 
       if (userId && packageKey && PACKAGES[packageKey]) {
         const pkg = PACKAGES[packageKey];
-        const razorpayPaymentId = payment.id as string || order.id;
+        const razorpayPaymentId = (payment?.id as string) || (order?.id as string) || `pay_${Date.now()}`;
 
         try {
           await prisma.$transaction(async (tx) => {
@@ -162,6 +162,8 @@ export async function handleRazorpayWebhook(req: Request, res: Response, next: N
           console.error("Database transaction error in Razorpay Webhook: ", dbErr);
           return res.status(500).json({ message: "Internal DB transaction error" });
         }
+      } else {
+        console.warn("Razorpay Webhook missing userId or packageKey in notes:", { userId, packageKey });
       }
     }
 

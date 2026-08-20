@@ -25,7 +25,7 @@ const resumeDataSchema = z.object({
   experiences: z.array(z.object({
     title: z.string(),
     dates: z.string(),
-    bullets: z.string()
+    bullets: z.union([z.string(), z.array(z.string())])
   })).optional(),
   projects: z.array(z.string()).optional(),
   projectsDisplay: z.enum(["paragraph", "list"]).optional(),
@@ -48,24 +48,6 @@ const publishResumeSchema = z.object({
   resumeData: resumeDataSchema
 });
 
-const tableSql = `
-  CREATE TABLE IF NOT EXISTS public_resumes (
-    id TEXT PRIMARY KEY,
-    slug TEXT NOT NULL,
-    template_id TEXT NOT NULL,
-    resume_data JSONB NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )
-`;
-
-let tableReady: Promise<void> | null = null;
-
-function ensureTable() {
-  tableReady ??= prisma.$executeRawUnsafe(tableSql).then(() => undefined);
-  return tableReady;
-}
-
 function createPublicResumeId(slug: string) {
   const suffix = Math.random().toString(36).slice(2, 8);
   return `${slug.slice(0, 48)}-${suffix}`;
@@ -74,19 +56,22 @@ function createPublicResumeId(slug: string) {
 router.post("/", async (req, res, next) => {
   try {
     const data = publishResumeSchema.parse(req.body);
-    await ensureTable();
-
     const id = createPublicResumeId(data.slug);
-    await prisma.$executeRaw`
-      INSERT INTO public_resumes (id, slug, template_id, resume_data)
-      VALUES (${id}, ${data.slug}, ${data.templateId}, ${JSON.stringify(data.resumeData)}::jsonb)
-    `;
+
+    const created = await prisma.publicResume.create({
+      data: {
+        id,
+        slug: data.slug,
+        templateId: data.templateId,
+        resumeData: data.resumeData as any
+      }
+    });
 
     res.status(201).json({
-      id,
-      slug: data.slug,
-      templateId: data.templateId,
-      resumeData: data.resumeData
+      id: created.id,
+      slug: created.slug,
+      templateId: created.templateId,
+      resumeData: created.resumeData
     });
   } catch (error) {
     next(error);
@@ -95,22 +80,10 @@ router.post("/", async (req, res, next) => {
 
 router.get("/:id", async (req, res, next) => {
   try {
-    await ensureTable();
+    const resume = await prisma.publicResume.findUnique({
+      where: { id: req.params.id }
+    });
 
-    const rows = await prisma.$queryRaw<Array<{
-      id: string;
-      slug: string;
-      template_id: string;
-      resume_data: unknown;
-      updated_at: Date;
-    }>>`
-      SELECT id, slug, template_id, resume_data, updated_at
-      FROM public_resumes
-      WHERE id = ${req.params.id}
-      LIMIT 1
-    `;
-
-    const resume = rows[0];
     if (!resume) {
       res.status(404).json({ message: "Shared resume not found." });
       return;
@@ -119,9 +92,9 @@ router.get("/:id", async (req, res, next) => {
     res.json({
       id: resume.id,
       slug: resume.slug,
-      templateId: resume.template_id,
-      resumeData: resume.resume_data,
-      updatedAt: resume.updated_at
+      templateId: resume.templateId,
+      resumeData: resume.resumeData,
+      updatedAt: resume.updatedAt
     });
   } catch (error) {
     next(error);

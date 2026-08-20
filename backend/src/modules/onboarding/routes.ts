@@ -95,10 +95,6 @@ router.post("/resume-downloaded", async (req, res) => {
       enrollmentId: result.enrollmentId,
     });
 
-    res.status(200).json({
-      status: "enrolled",
-      enrollmentId: result.enrollmentId,
-    });
   } catch (error: any) {
     logEvent("onboarding.trigger_error", { error: error.message });
     res.status(500).json({ error: "Internal server error" });

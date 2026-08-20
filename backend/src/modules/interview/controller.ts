@@ -83,11 +83,10 @@ export async function startInterview(req: Request, res: Response, next: NextFunc
       // persona, duration) and return stale interview data — the root cause of Bug 1 & 2.
       // Credits are deducted only at session completion, so creating a new session is safe.
 
-      // Mark any lingering in_progress sessions as completed so they don't block
-      // history or report lookups.
+      // Mark any lingering in_progress sessions as abandoned so they don't pollute completed history
       await prisma.interviewSession.updateMany({
         where: { userId, status: "in_progress" },
-        data: { status: "completed" }
+        data: { status: "abandoned" }
       });
 
       // Validate credits before starting a new session
@@ -254,7 +253,7 @@ export async function getHistory(req: Request, res: Response, next: NextFunction
     }
 
     const sessions = await prisma.interviewSession.findMany({
-      where: { userId, status: "completed" },
+      where: { userId, status: "completed", report: { isNot: null } },
       orderBy: { createdAt: "desc" },
       include: {
         report: true

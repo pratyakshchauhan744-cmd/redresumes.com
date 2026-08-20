@@ -1,3 +1,4 @@
+// BuilderPage.tsx - Complete file
 import React, { useState, useEffect, useRef, useMemo, type ChangeEvent } from 'react';
 import { Download, Layout, Sparkles, User, FileText, CheckCircle, Save, HelpCircle, Briefcase, ChevronRight, PenTool, Type, Move, Plus, X, ArrowUp, ArrowDown, GripVertical, Check, MessageSquare, AlertCircle, Copy, Code, ArrowLeft, LoaderCircle, ClipboardCheck, List, ListOrdered, Lock, AlignLeft } from 'lucide-react';
 import QRCode from 'qrcode';
@@ -53,7 +54,7 @@ const getEffectiveListStyle = (text: string, globalStyle: string): 'bullet' | 'n
 
   const listMarkerRegex = /^\s*(?:[-*•]|\d+[.)])/;
   const hasAnyListMarker = lines.some(line => listMarkerRegex.test(line));
-  
+
   if (!hasAnyListMarker) {
     return 'paragraph';
   }
@@ -665,10 +666,10 @@ export const ResumeBuilderPage = ({
     ...customColumns,
     ...(pendingCustomColumnTitle || pendingCustomColumnContent
       ? [{
-          id: 'custom-draft-preview',
-          title: pendingCustomColumnTitle || `Custom section ${customColumns.length + 1}`,
-          content: pendingCustomColumnContent,
-        }]
+        id: 'custom-draft-preview',
+        title: pendingCustomColumnTitle || `Custom section ${customColumns.length + 1}`,
+        content: pendingCustomColumnContent,
+      }]
       : []),
   ];
   const parsedCustomColumns = effectiveCustomColumns
@@ -2025,11 +2026,10 @@ export const ResumeBuilderPage = ({
               ${profileMarkup ? `<p class="meta">${profileMarkup}</p>` : ''}
               ${datePlaceText ? `<p class="meta">${escapeHtml(datePlaceText)}</p>` : ''}
             </header>
-            ${
-              pdfTheme.layout === 'two-column'
-                ? `<div class="content two"><aside class="side">${twoColumnSideMarkup}</aside><main class="main">${twoColumnMainMarkup}</main></div>`
-                : `<div class="content single">${singleColumnMarkup}</div>`
-            }
+            ${pdfTheme.layout === 'two-column'
+        ? `<div class="content two"><aside class="side">${twoColumnSideMarkup}</aside><main class="main">${twoColumnMainMarkup}</main></div>`
+        : `<div class="content single">${singleColumnMarkup}</div>`
+      }
           </div>
           </div>
         </body>
@@ -2057,7 +2057,7 @@ export const ResumeBuilderPage = ({
         try {
           const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
           const baseUrl = apiBaseUrl || window.location.origin;
-          
+
           await fetch(`${baseUrl}/api/onboarding/resume-downloaded`, {
             method: 'POST',
             headers: {
@@ -2265,7 +2265,7 @@ export const ResumeBuilderPage = ({
       .map((bullet, index) => {
         const keyword = topKeywords[index % Math.max(topKeywords.length, 1)];
         const normalized = bullet.toLowerCase();
-        
+
         // Idempotency check: if bullet already contains the improvement phrase or suffix, do not append again
         if (
           normalized.includes('with clearer ownership') ||
@@ -2547,16 +2547,16 @@ export const ResumeBuilderPage = ({
   const handleUploadResume = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    
+
     setParseLoading(true);
     setParseError(null);
     try {
       const token = getStoredAccessToken();
       if (!token) throw new Error('Please sign in to use AI resume parsing.');
       const data = await backendApi.parseResume(file, token);
-      
+
       saveCurrentResumeToHistory('Saved before AI parse override');
-      
+
       if (data.fullName) setFullName(data.fullName);
       if (data.jobTitle) setJobTitle(data.jobTitle);
       if (data.email) setEmail(data.email);
@@ -2578,7 +2578,7 @@ export const ResumeBuilderPage = ({
           year: data.educationYear || ''
         }]);
       }
-      
+
       if (data.experiences && Array.isArray(data.experiences) && data.experiences.length > 0) {
         setExperiences(data.experiences.map((exp: any) => ({
           title: exp.title || '',
@@ -2586,13 +2586,13 @@ export const ResumeBuilderPage = ({
           bullets: Array.isArray(exp.bullets) ? exp.bullets.map((b: string) => `- ${b}`).join('\n') : (exp.bullets || '')
         })));
       }
-      
+
       if (data.projects && Array.isArray(data.projects)) setProjectsInput(data.projects.join('\n'));
       if (data.certifications && Array.isArray(data.certifications)) setCertificationsInput(data.certifications.join(', '));
       if (data.languages && Array.isArray(data.languages)) setLanguagesInput(data.languages.join(', '));
       if (data.achievements && Array.isArray(data.achievements)) setAchievementsInput(data.achievements.join('\n'));
       if (data.volunteer && Array.isArray(data.volunteer)) setVolunteerInput(data.volunteer.join('\n'));
-      
+
     } catch (err: any) {
       setParseError(err.message || 'Failed to parse resume');
     } finally {
@@ -2606,947 +2606,942 @@ export const ResumeBuilderPage = ({
   return (
     <>
       <div className="builder-page overflow-x-clip bg-white">
-      <div className="mx-auto w-full max-w-7xl min-w-0 px-4 py-8 sm:px-6 md:py-12">
-        <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-zinc-400 md:text-xs md:tracking-[0.2em]">Resume Builder</p>
-            <h1 className="mt-2 text-3xl font-extrabold leading-tight text-zinc-900 md:text-4xl">Build your resume</h1>
-            {selectedExample && (
-              <div className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-primary bg-primary/5 px-3 py-1 rounded-full">
-                Viewing example: {selectedExample}
+        <div className="mx-auto w-full max-w-7xl min-w-0 px-4 py-8 sm:px-6 md:py-12">
+          <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-zinc-400 md:text-xs md:tracking-[0.2em]">Resume Builder</p>
+              <h1 className="mt-2 text-3xl font-extrabold leading-tight text-zinc-900 md:text-4xl">Build your resume</h1>
+              {selectedExample && (
+                <div className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-primary bg-primary/5 px-3 py-1 rounded-full">
+                  Viewing example: {selectedExample}
+                </div>
+              )}
+            </div>
+            <div className="grid gap-2 sm:hidden">
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  onClick={downloadResumePdf}
+                  disabled={pdfDownloadLoading}
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {pdfDownloadLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+                  {pdfDownloadLoading ? 'Downloading' : 'Download PDF'}
+                </button>
               </div>
-            )}
-          </div>
-          <div className="grid gap-2 sm:hidden">
-            <div className="grid grid-cols-1 gap-2">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => saveCurrentResumeToHistory('Manual save')}
+                  className="rounded-full border border-zinc-300 px-4 py-2.5 text-sm font-semibold text-zinc-900 transition hover:border-zinc-900"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={() => parseInputRef.current?.click()}
+                  disabled={parseLoading}
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary/10 disabled:opacity-50"
+                >
+                  {parseLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  {parseLoading ? 'Parsing' : 'Auto-fill'}
+                </button>
+              </div>
+              <details className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                <summary className="cursor-pointer text-center text-sm font-semibold text-zinc-700">More actions</summary>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <button
+                    onClick={handleUndo}
+                    disabled={undoStack.length <= 1}
+                    className="rounded-full border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-900 transition hover:border-zinc-900 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Undo
+                  </button>
+                  <button
+                    onClick={handleRedo}
+                    disabled={redoStack.length === 0}
+                    className="rounded-full border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-900 transition hover:border-zinc-900 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Redo
+                  </button>
+                  <button
+                    onClick={handleDownloadDocx}
+                    className="rounded-full bg-zinc-900 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-zinc-800"
+                  >
+                    DOCX
+                  </button>
+                </div>
+              </details>
+            </div>
+            <div className="hidden w-full grid-cols-2 gap-2 sm:grid sm:grid-cols-5 md:w-auto">
+              <button
+                onClick={handleUndo}
+                disabled={undoStack.length <= 1}
+                className="w-full rounded-full border border-zinc-300 px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:border-zinc-900 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Undo
+              </button>
+              <button
+                onClick={handleRedo}
+                disabled={redoStack.length === 0}
+                className="w-full rounded-full border border-zinc-300 px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:border-zinc-900 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Redo
+              </button>
+
+              <button
+                onClick={() => saveCurrentResumeToHistory('Manual save')}
+                className="w-full rounded-full border border-zinc-300 px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:border-zinc-900"
+              >
+                Save version
+              </button>
+
+              <button
+                onClick={handleDownloadDocx}
+                className="w-full rounded-full bg-zinc-900 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800"
+              >
+                Download DOCX
+              </button>
               <button
                 onClick={downloadResumePdf}
                 disabled={pdfDownloadLoading}
-                className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {pdfDownloadLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
                 {pdfDownloadLoading ? 'Downloading' : 'Download PDF'}
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => saveCurrentResumeToHistory('Manual save')}
-                className="rounded-full border border-zinc-300 px-4 py-2.5 text-sm font-semibold text-zinc-900 transition hover:border-zinc-900"
-              >
-                Save
-              </button>
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <p className="text-xs text-zinc-500">
+              {!canSaveResumeHistory
+                ? 'Sign in to save resume versions'
+                : saveStatus === 'saving'
+                  ? 'Saving...'
+                  : lastSavedAt
+                    ? `Saved ${new Date(lastSavedAt).toLocaleTimeString()}`
+                    : 'Saved'}
+            </p>
+            <div className="hidden items-center gap-3 sm:flex">
+              {parseError && <p className="text-xs text-red-500 font-medium">{parseError}</p>}
+              <input
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                ref={parseInputRef}
+                onChange={handleUploadResume}
+                aria-label="Auto-fill resume from PDF"
+              />
               <button
                 onClick={() => parseInputRef.current?.click()}
                 disabled={parseLoading}
-                className="inline-flex items-center justify-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary/10 disabled:opacity-50"
+                className="flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-4 py-2 text-xs font-semibold text-primary transition hover:bg-primary/10 disabled:opacity-50"
               >
-                {parseLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                {parseLoading ? 'Parsing' : 'Auto-fill'}
+                {parseLoading ? (
+                  <>
+                    <LoaderCircle className="h-4 w-4 animate-spin" /> Parsing...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4" /> Auto-fill from PDF
+                  </>
+                )}
               </button>
             </div>
-            <details className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-              <summary className="cursor-pointer text-center text-sm font-semibold text-zinc-700">More actions</summary>
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                <button
-                  onClick={handleUndo}
-                  disabled={undoStack.length <= 1}
-                  className="rounded-full border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-900 transition hover:border-zinc-900 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Undo
-                </button>
-                <button
-                  onClick={handleRedo}
-                  disabled={redoStack.length === 0}
-                  className="rounded-full border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-900 transition hover:border-zinc-900 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Redo
-                </button>
-                <button
-                  onClick={handleDownloadDocx}
-                  className="rounded-full bg-zinc-900 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-zinc-800"
-                >
-                  DOCX
-                </button>
-              </div>
-            </details>
           </div>
-          <div className="hidden w-full grid-cols-2 gap-2 sm:grid sm:grid-cols-5 md:w-auto">
-            <button
-              onClick={handleUndo}
-              disabled={undoStack.length <= 1}
-              className="w-full rounded-full border border-zinc-300 px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:border-zinc-900 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Undo
-            </button>
-            <button
-              onClick={handleRedo}
-              disabled={redoStack.length === 0}
-              className="w-full rounded-full border border-zinc-300 px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:border-zinc-900 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Redo
-            </button>
 
-            <button
-              onClick={() => saveCurrentResumeToHistory('Manual save')}
-              className="w-full rounded-full border border-zinc-300 px-4 py-3 text-sm font-semibold text-zinc-900 transition hover:border-zinc-900"
-            >
-              Save version
-            </button>
-
-            <button
-              onClick={handleDownloadDocx}
-              className="w-full rounded-full bg-zinc-900 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800"
-            >
-              Download DOCX
-            </button>
-            <button
-              onClick={downloadResumePdf}
-              disabled={pdfDownloadLoading}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {pdfDownloadLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
-              {pdfDownloadLoading ? 'Downloading' : 'Download PDF'}
-            </button>
-          </div>
-        </div>
-        <div className="mt-3 flex items-center justify-between gap-3">
-          <p className="text-xs text-zinc-500">
-            {!canSaveResumeHistory
-              ? 'Sign in to save resume versions'
-              : saveStatus === 'saving'
-              ? 'Saving...'
-              : lastSavedAt
-                ? `Saved ${new Date(lastSavedAt).toLocaleTimeString()}`
-                : 'Saved'}
-          </p>
-          <div className="hidden items-center gap-3 sm:flex">
-            {parseError && <p className="text-xs text-red-500 font-medium">{parseError}</p>}
-            <input
-              type="file"
-              accept="application/pdf"
-              className="hidden"
-              ref={parseInputRef}
-              onChange={handleUploadResume}
-              aria-label="Auto-fill resume from PDF"
-            />
-            <button
-              onClick={() => parseInputRef.current?.click()}
-              disabled={parseLoading}
-              className="flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-4 py-2 text-xs font-semibold text-primary transition hover:bg-primary/10 disabled:opacity-50"
-            >
-              {parseLoading ? (
-                <>
-                  <LoaderCircle className="h-4 w-4 animate-spin" /> Parsing...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4" /> Auto-fill from PDF
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-6 grid min-w-0 gap-5 lg:mt-10 lg:grid-cols-[minmax(0,200px)_minmax(0,1fr)_minmax(0,320px)] lg:gap-5 xl:grid-cols-[220px_minmax(0,1fr)_380px] xl:gap-6">
-          <aside className="h-fit min-w-0 overflow-hidden rounded-2xl border border-zinc-100 bg-zinc-50 p-3 md:p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-zinc-400 font-semibold">Sections</p>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3 lg:mt-4 lg:block lg:space-y-2">
-              {sectionItems.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => focusSection(item.id)}
-                  className={`flex w-full min-w-0 items-center justify-between rounded-lg border px-3 py-2 text-left transition ${
-                    activeSection === item.id
-                      ? 'border-primary bg-primary/5 text-primary'
-                      : 'border-zinc-100 bg-white text-zinc-900 hover:border-zinc-300'
-                  }`}
-                >
-                  <span className="truncate">{item.label}</span>
-                  <ChevronRight className="h-4 w-4 shrink-0" />
-                </button>
-              ))}
-            </div>
-            <div className="mt-5 border-t border-zinc-200 pt-4">
-              <div className="flex items-center justify-between">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400">Section Order</p>
-                <button type="button" onClick={resetPrintableSectionOrder} className="text-[11px] font-semibold text-primary">
-                  Reset
-                </button>
-              </div>
-              <div ref={sectionOrderListRef} className="mt-3 max-h-[28rem] space-y-2 overflow-y-auto overflow-x-hidden pr-1">
-                {orderedPrintableSections.map((sectionId, index) => (
-                  <div
-                    key={`order-${sectionId}`}
-                    data-testid={`section-order-${sectionId}`}
-                    ref={(el) => {
-                      sectionOrderItemRefs.current[sectionId] = el;
-                    }}
-                    className={`min-w-0 rounded-lg border bg-white px-2 py-2 ${
-                      highlightedOrderSectionId === sectionId
-                        ? 'border-primary bg-primary/10 ring-2 ring-primary/30'
-                        : activeSection === sectionId
-                          ? 'border-primary/40 ring-1 ring-primary/20'
-                          : 'border-zinc-200'
-                    }`}
+          <div className="mt-6 grid min-w-0 gap-5 lg:mt-10 lg:grid-cols-[minmax(0,200px)_minmax(0,1fr)_minmax(0,320px)] lg:gap-5 xl:grid-cols-[220px_minmax(0,1fr)_380px] xl:gap-6">
+            <aside className="h-fit min-w-0 overflow-hidden rounded-2xl border border-zinc-100 bg-zinc-50 p-3 md:p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-zinc-400 font-semibold">Sections</p>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3 lg:mt-4 lg:block lg:space-y-2">
+                {sectionItems.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => focusSection(item.id)}
+                    className={`flex w-full min-w-0 items-center justify-between rounded-lg border px-3 py-2 text-left transition ${activeSection === item.id
+                        ? 'border-primary bg-primary/5 text-primary'
+                        : 'border-zinc-100 bg-white text-zinc-900 hover:border-zinc-300'
+                      }`}
                   >
-                    <p className="text-xs font-semibold text-zinc-700">{printableSectionLabel[sectionId]}</p>
-                    <div className="mt-1 flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => movePrintableSection(sectionId, 'up')}
-                        disabled={index === 0}
-                        data-testid={`section-order-${sectionId}-up`}
-                        className="rounded border border-zinc-200 px-2 py-1 text-[10px] font-semibold text-zinc-600 disabled:opacity-40"
-                      >
-                        Up
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => movePrintableSection(sectionId, 'down')}
-                        disabled={index === orderedPrintableSections.length - 1}
-                        data-testid={`section-order-${sectionId}-down`}
-                        className="rounded border border-zinc-200 px-2 py-1 text-[10px] font-semibold text-zinc-600 disabled:opacity-40"
-                      >
-                        Down
-                      </button>
-                    </div>
-                  </div>
+                    <span className="truncate">{item.label}</span>
+                    <ChevronRight className="h-4 w-4 shrink-0" />
+                  </button>
                 ))}
               </div>
-            </div>
-          </aside>
-
-          <div className="min-w-0 space-y-6">
-            <div id="builder-section-contact" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-              <h2 className="font-semibold text-zinc-900">Contact Information</h2>
-              <div className="mt-4 grid md:grid-cols-2 gap-4 text-sm">
-                <input value={fullName} onChange={(e) => setFullName(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Full name" aria-label="Full name" />
-                <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Job title" aria-label="Job title" />
-                <input value={email} onChange={(e) => setEmail(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Email" aria-label="Email" />
-                <input
-                  type="tel"
-                  inputMode="numeric"
-                  pattern="[0-9]{10}"
-                  value={phone}
-                  onChange={(e) => setPhone(sanitizePhoneNumber(e.target.value))}
-                  className="border border-zinc-200 rounded-lg px-3 py-2"
-                  placeholder="Phone"
-                  aria-label="Phone number"
-                />
-                <input value={location} onChange={(e) => setLocation(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Location" aria-label="Location" />
-                <input value={profileLink} onChange={(e) => setProfileLink(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="LinkedIn / Portfolio" aria-label="LinkedIn or portfolio URL" />
-              </div>
-            </div>
-
-            <div id="builder-section-photo" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-              <h2 className="font-semibold text-zinc-900">Photo</h2>
-              <div className="mt-4 flex items-center gap-4">
-                <div className="h-20 w-20 rounded-xl border border-zinc-200 bg-zinc-50 overflow-hidden flex items-center justify-center">
-                  {photoDataUrl ? (
-                    <img src={photoDataUrl} alt="Profile preview" className="h-full w-full object-cover" />
-                  ) : (
-                    <User className="w-6 h-6 text-zinc-400" />
-                  )}
+              <div className="mt-5 border-t border-zinc-200 pt-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400">Section Order</p>
+                  <button type="button" onClick={resetPrintableSectionOrder} className="text-[11px] font-semibold text-primary">
+                    Reset
+                  </button>
                 </div>
-                <div className="flex-1">
-                  <input
-                    ref={photoInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handlePhotoUpload}
-                    className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm"
-                    aria-label="Upload profile photo"
-                  />
-                  {photoDataUrl && (
-                    <button onClick={handleRemovePhoto} className="mt-2 text-xs font-semibold text-primary">
-                      Remove photo
-                    </button>
-                  )}
-                  <p className="mt-2 text-xs text-zinc-500">Upload one profile photo for resume preview and PDF.</p>
-                </div>
-              </div>
-            </div>
-
-            <div id="builder-section-date-place" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-              <h2 className="font-semibold text-zinc-900">Date & Place</h2>
-              <div className="mt-4 grid md:grid-cols-2 gap-4 text-sm">
-                <input
-                  type="date"
-                  value={importantDate}
-                  min="0001-01-01"
-                  max="9999-12-31"
-                  onInput={handleImportantDateChange}
-                  onChange={handleImportantDateChange}
-                  className="border border-zinc-200 rounded-lg px-3 py-2"
-                  aria-label="Important date"
-                />
-                <input
-                  value={importantPlace}
-                  onChange={(e) => setImportantPlace(e.target.value)}
-                  className="border border-zinc-200 rounded-lg px-3 py-2"
-                  placeholder="Place"
-                  aria-label="Important place"
-                />
-              </div>
-            </div>
-
-            <div id="builder-section-summary" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-              <h2 className="font-semibold text-zinc-900">Professional Summary</h2>
-              <textarea
-                value={summary}
-                onChange={(e) => setSummary(e.target.value)}
-                className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 h-28"
-                placeholder="Write a short summary about your experience and impact."
-                aria-label="Professional summary"
-              />
-              <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                {['Professional', 'Confident', 'Simple', 'Executive'].map((tone) => (
-                  <span key={tone} className="px-3 py-1 rounded-full border border-zinc-200 text-zinc-500">{tone}</span>
-                ))}
-              </div>
-            </div>
-
-            <div id="builder-section-premium" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-              <p className="text-xs uppercase tracking-[0.2em] text-zinc-400 font-semibold">Upgrade</p>
-              <h2 className="font-semibold text-zinc-900 mt-2">Premium tools inside builder</h2>
-              <p className="text-sm text-zinc-500 mt-2">Use all premium features directly while editing your resume.</p>
-
-              <div className="mt-5 grid md:grid-cols-2 gap-4">
-                {premiumFeatures.map((feature) => (
-                  <div key={feature.id} className="rounded-xl border border-zinc-200 p-4 bg-zinc-50">
-                    <h3 className="font-semibold text-zinc-900">{feature.title}</h3>
-                    <p className="text-sm text-zinc-500 mt-1">{feature.desc}</p>
-
-                    <button
-                      onClick={() => handlePremiumFeatureInBuilder(feature.id)}
-                      disabled={premiumActionLoading === feature.id}
-                      className="mt-3 text-sm font-semibold text-primary disabled:cursor-wait disabled:opacity-60"
+                <div ref={sectionOrderListRef} className="mt-3 max-h-[28rem] space-y-2 overflow-y-auto overflow-x-hidden pr-1">
+                  {orderedPrintableSections.map((sectionId, index) => (
+                    <div
+                      key={`order-${sectionId}`}
+                      data-testid={`section-order-${sectionId}`}
+                      ref={(el) => {
+                        sectionOrderItemRefs.current[sectionId] = el;
+                      }}
+                      className={`min-w-0 rounded-lg border bg-white px-2 py-2 ${highlightedOrderSectionId === sectionId
+                          ? 'border-primary bg-primary/10 ring-2 ring-primary/30'
+                          : activeSection === sectionId
+                            ? 'border-primary/40 ring-1 ring-primary/20'
+                            : 'border-zinc-200'
+                        }`}
                     >
-                      {premiumActionLoading === feature.id
-                        ? 'Working...'
-                        : feature.id === 'resume-shareable-link'
-                          ? shareLinkCopied
-                            ? 'Link copied'
-                            : 'Publish & copy link'
-                          : feature.id === 'qr-code-resume'
-                            ? 'Publish & generate QR'
-                            : 'Generate portfolio site'}
-                    </button>
-                    {feature.id === 'portfolio-website-generator' && (
-                      <button
-                        onClick={downloadPortfolioWebsiteHtml}
-                        className="mt-2 block text-xs font-semibold text-zinc-600 hover:text-zinc-900"
-                      >
-                        Download portfolio HTML
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-4 rounded-xl border border-zinc-200 p-3 text-sm bg-white">
-                <p className="text-zinc-500">Live shareable URL</p>
-                <p className="mt-1 break-all text-zinc-900">
-                  {publishedResumeUrl || 'Publish your resume to create a live URL.'}
-                </p>
-              </div>
-              {premiumActionMessage && <p className="mt-3 text-sm text-primary font-medium">{premiumActionMessage}</p>}
-            </div>
-
-            <div id="builder-section-experience" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <h2 className="font-semibold text-zinc-900">Work Experience</h2>
-                <div className="flex flex-wrap items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-1">
-                  <button
-                    type="button"
-                    onClick={() => setListStyle('bullet')}
-                    className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${listStyle === 'bullet' ? 'bg-white text-zinc-950 shadow-sm' : 'text-zinc-500 hover:text-zinc-900'}`}
-                    aria-pressed={listStyle === 'bullet'}
-                  >
-                    <List className="h-3.5 w-3.5" />
-                    Points
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setListStyle('number')}
-                    className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${listStyle === 'number' ? 'bg-white text-zinc-950 shadow-sm' : 'text-zinc-500 hover:text-zinc-900'}`}
-                    aria-pressed={listStyle === 'number'}
-                  >
-                    <ListOrdered className="h-3.5 w-3.5" />
-                    Numbers
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setListStyle('paragraph')}
-                    className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${listStyle === 'paragraph' ? 'bg-white text-zinc-950 shadow-sm' : 'text-zinc-500 hover:text-zinc-900'}`}
-                    aria-pressed={listStyle === 'paragraph'}
-                  >
-                    <AlignLeft className="h-3.5 w-3.5" />
-                    Paragraph
-                  </button>
-                </div>
-              </div>
-              <div className="mt-4 space-y-4 text-sm">
-                {experiences.map((exp, index) => (
-                  <div key={index} className="rounded-xl border border-zinc-200 p-4 bg-zinc-50/40">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">Experience {index + 1}</p>
-                      {experiences.length > 1 && (
+                      <p className="text-xs font-semibold text-zinc-700">{printableSectionLabel[sectionId]}</p>
+                      <div className="mt-1 flex gap-2">
                         <button
                           type="button"
-                          onClick={() => removeExperience(index)}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-500 transition hover:border-red-200 hover:bg-red-50 hover:text-primary"
-                          aria-label={`Remove experience ${index + 1}`}
-                          title={`Remove experience ${index + 1}`}
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                    <div className="mt-3 space-y-3">
-                      <input value={exp.title} onChange={(e) => updateExperience(index, 'title', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 w-full bg-white" placeholder="Company and role" aria-label={`Experience ${index + 1} company and role`} />
-                      <input value={exp.dates} onChange={(e) => updateExperience(index, 'dates', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 w-full bg-white" placeholder="Dates" aria-label={`Experience ${index + 1} dates`} />
-                      <textarea
-                        value={exp.bullets}
-                        onChange={(e) => updateExperience(index, 'bullets', e.target.value)}
-                        className="border border-zinc-200 rounded-lg px-3 py-2 w-full h-24 bg-white"
-                        aria-label={`Experience ${index + 1} details`}
-                        placeholder={
-                          listStyle === 'number'
-                            ? 'Write each numbered point on a new line'
-                            : listStyle === 'paragraph'
-                            ? 'Write your work experience in paragraph form'
-                            : 'Write each point on a new line'
-                        }
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 flex gap-3">
-                <button onClick={addAnotherExperience} className="text-xs font-semibold text-primary">+ Add another experience</button>
-                <button onClick={duplicateExperienceSection} className="text-xs font-semibold text-zinc-500">Duplicate section</button>
-              </div>
-            </div>
-
-            <div id="builder-section-skills" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-              <h2 className="font-semibold text-zinc-900">Skills</h2>
-              <input
-                value={skillsInput}
-                onChange={(e) => setSkillsInput(e.target.value)}
-                className="mt-3 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm"
-                placeholder="Comma-separated skills"
-                aria-label="Skills"
-              />
-              <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                {parsedSkills.length > 0 ? parsedSkills.map((skill) => (
-                  <span key={skill} className="px-3 py-1 rounded-full bg-zinc-50 border border-zinc-200 text-zinc-500">{skill}</span>
-                )) : (
-                  <span className="text-zinc-400">Add skills to preview them live.</span>
-                )}
-              </div>
-            </div>
-
-            <div id="builder-section-education" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-              <h2 className="font-semibold text-zinc-900">Education</h2>
-              <div className="mt-4 space-y-4 text-sm">
-                {educationItems.map((education, index) => (
-                  <div key={index} className="rounded-2xl border border-zinc-100 bg-zinc-50/60 p-3">
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                      <p className="text-xs font-semibold text-zinc-500">Education {index + 1}</p>
-                      {educationItems.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeEducation(index)}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-500 hover:text-primary"
-                          aria-label={`Remove education ${index + 1}`}
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <input value={education.degree} onChange={(e) => updateEducation(index, 'degree', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 bg-white" placeholder="Degree" aria-label={`Education ${index + 1} degree`} />
-                      <input value={education.school} onChange={(e) => updateEducation(index, 'school', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 bg-white" placeholder="School / University" aria-label={`Education ${index + 1} school or university`} />
-                      <input value={education.year} onChange={(e) => updateEducation(index, 'year', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 bg-white md:col-span-2" placeholder="Years" aria-label={`Education ${index + 1} years`} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 flex gap-3">
-                <button onClick={addAnotherEducation} className="text-xs font-semibold text-primary">+ Add another education</button>
-                <button onClick={duplicateEducationSection} className="text-xs font-semibold text-zinc-500">Duplicate section</button>
-              </div>
-            </div>
-
-            <div id="builder-section-projects" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-              <h2 className="font-semibold text-zinc-900">Projects</h2>
-              <textarea value={projectsInput} onChange={(e) => setProjectsInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 h-24" placeholder="One project per line" aria-label="Projects" />
-            </div>
-
-            <div id="builder-section-certifications" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-              <h2 className="font-semibold text-zinc-900">Certifications</h2>
-              <input value={certificationsInput} onChange={(e) => setCertificationsInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm" placeholder="Comma-separated certifications" aria-label="Certifications" />
-            </div>
-
-            <div id="builder-section-languages" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-              <h2 className="font-semibold text-zinc-900">Languages</h2>
-              <input value={languagesInput} onChange={(e) => setLanguagesInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm" placeholder="Comma-separated languages" aria-label="Languages" />
-            </div>
-
-            <div id="builder-section-hobbies" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-              <h2 className="font-semibold text-zinc-900">Hobbies</h2>
-              <input
-                value={hobbiesInput}
-                onChange={(e) => setHobbiesInput(e.target.value)}
-                className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm"
-                placeholder="Comma-separated hobbies"
-                aria-label="Hobbies"
-              />
-              <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                {parsedHobbies.length > 0 ? parsedHobbies.map((hobby) => (
-                  <span key={hobby} className="px-3 py-1 rounded-full bg-zinc-50 border border-zinc-200 text-zinc-500">{hobby}</span>
-                )) : (
-                  <span className="text-zinc-400">Add hobbies to preview them live.</span>
-                )}
-              </div>
-            </div>
-
-            <div id="builder-section-achievements" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-              <h2 className="font-semibold text-zinc-900">Achievements</h2>
-              <textarea value={achievementsInput} onChange={(e) => setAchievementsInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 h-24" placeholder="One achievement per line" aria-label="Achievements" />
-            </div>
-
-            <div id="builder-section-volunteer" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-              <h2 className="font-semibold text-zinc-900">Volunteer</h2>
-              <textarea value={volunteerInput} onChange={(e) => setVolunteerInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 h-24" placeholder="Volunteer work details" aria-label="Volunteer work details" />
-            </div>
-
-            <div id="builder-section-custom-columns" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-              <h2 className="font-semibold text-zinc-900">Custom Columns</h2>
-              <p className="mt-2 text-xs text-zinc-500">Add your own section title and content. Reorder with up/down.</p>
-              <div className="mt-4 space-y-3">
-                <input
-                  value={newCustomColumnTitle}
-                  onChange={(e) => setNewCustomColumnTitle(e.target.value)}
-                  className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm"
-                  placeholder="Column title (e.g., Publications)"
-                  aria-label="New custom column title"
-                />
-                <textarea
-                  value={newCustomColumnContent}
-                  onChange={(e) => setNewCustomColumnContent(e.target.value)}
-                  className="w-full border border-zinc-200 rounded-lg px-3 py-2 h-24 text-sm"
-                  placeholder="One line per point"
-                  aria-label="New custom column content"
-                />
-                <button onClick={addCustomColumn} className="text-xs font-semibold text-primary">
-                  + Save custom column
-                </button>
-              </div>
-
-              <div className="mt-4 space-y-3">
-                {customColumns.length === 0 ? (
-                  <p className="text-xs text-zinc-400">No custom columns added yet.</p>
-                ) : (
-                  customColumns.map((column, index) => (
-                    <div key={column.id} className="rounded-xl border border-zinc-200 p-3 bg-zinc-50">
-                      <input
-                        value={column.title}
-                        onChange={(e) => updateCustomColumn(index, 'title', e.target.value)}
-                        className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-white"
-                        placeholder="Column title"
-                        aria-label={`Custom column ${index + 1} title`}
-                      />
-                      <textarea
-                        value={column.content}
-                        onChange={(e) => updateCustomColumn(index, 'content', e.target.value)}
-                        className="mt-2 w-full border border-zinc-200 rounded-lg px-3 py-2 h-20 text-sm bg-white"
-                        placeholder="Column content"
-                        aria-label={`Custom column ${index + 1} content`}
-                      />
-                      <div className="mt-2 flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => moveCustomColumn(index, 'up')}
+                          onClick={() => movePrintableSection(sectionId, 'up')}
                           disabled={index === 0}
-                          className="text-xs font-semibold text-zinc-600 disabled:opacity-40"
+                          data-testid={`section-order-${sectionId}-up`}
+                          className="rounded border border-zinc-200 px-2 py-1 text-[10px] font-semibold text-zinc-600 disabled:opacity-40"
                         >
-                          Move up
+                          Up
                         </button>
                         <button
                           type="button"
-                          onClick={() => moveCustomColumn(index, 'down')}
-                          disabled={index === customColumns.length - 1}
-                          className="text-xs font-semibold text-zinc-600 disabled:opacity-40"
+                          onClick={() => movePrintableSection(sectionId, 'down')}
+                          disabled={index === orderedPrintableSections.length - 1}
+                          data-testid={`section-order-${sectionId}-down`}
+                          className="rounded border border-zinc-200 px-2 py-1 text-[10px] font-semibold text-zinc-600 disabled:opacity-40"
                         >
-                          Move down
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeCustomColumn(index)}
-                          className="text-xs font-semibold text-zinc-500 hover:text-zinc-800"
-                        >
-                          Delete
+                          Down
                         </button>
                       </div>
                     </div>
-                  ))
-                )}
+                  ))}
+                </div>
               </div>
-            </div>
-          </div>
+            </aside>
 
-          <div className="min-w-0 space-y-6">
-            <div id="builder-live-preview" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold text-zinc-900">Live Preview</h2>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-zinc-400 font-medium">Template</span>
-                  <select
-                    id="builder-template-select"
-                    aria-label="Resume template"
-                    value={selectedTemplate.id}
-                    onChange={(e) => {
-                      const tpl = templates.find((t) => t.id === e.target.value);
-                      if (tpl) selectTemplateImmediately(tpl);
-                    }}
-                    className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-900 shadow-sm transition focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none cursor-pointer"
-                  >
-                    {templates.map((tpl) => (
-                      <option key={tpl.id} value={tpl.id}>
-                        {tpl.name}
-                      </option>
-                    ))}
-                  </select>
+            <div className="min-w-0 space-y-6">
+              <div id="builder-section-contact" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <h2 className="font-semibold text-zinc-900">Contact Information</h2>
+                <div className="mt-4 grid md:grid-cols-2 gap-4 text-sm">
+                  <input value={fullName} onChange={(e) => setFullName(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Full name" aria-label="Full name" />
+                  <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Job title" aria-label="Job title" />
+                  <input value={email} onChange={(e) => setEmail(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Email" aria-label="Email" />
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    pattern="[0-9]{10}"
+                    value={phone}
+                    onChange={(e) => setPhone(sanitizePhoneNumber(e.target.value))}
+                    className="border border-zinc-200 rounded-lg px-3 py-2"
+                    placeholder="Phone"
+                    aria-label="Phone number"
+                  />
+                  <input value={location} onChange={(e) => setLocation(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="Location" aria-label="Location" />
+                  <input value={profileLink} onChange={(e) => setProfileLink(e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2" placeholder="LinkedIn / Portfolio" aria-label="LinkedIn or portfolio URL" />
                 </div>
               </div>
 
-              <div className="mt-4 rounded-2xl border border-zinc-200 bg-white shadow-[0_14px_34px_rgba(15,23,42,0.06)]">
-                {/* Template label header */}
-                <div className="flex items-center justify-between px-5 pt-4 pb-3 text-sm text-zinc-500">
-                  <span>Template</span>
-                  <span className="font-bold text-zinc-900">{selectedTemplate.name}</span>
-                </div>
-
-                <div className="mx-3 mb-4 max-h-[700px] overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-2 [scrollbar-gutter:stable]">
-                  <div data-testid="builder-template-preview" className="mx-auto w-full min-w-0 max-w-[960px]">
-                    <TemplatePreviewScaler pageWidth={760}>
-                      <TemplateVisualPreview template={selectedTemplate} data={liveTemplateResumeData} sectionOrder={orderedPrintableSections} />
-                    </TemplatePreviewScaler>
+              <div id="builder-section-photo" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <h2 className="font-semibold text-zinc-900">Photo</h2>
+                <div className="mt-4 flex items-center gap-4">
+                  <div className="h-20 w-20 rounded-xl border border-zinc-200 bg-zinc-50 overflow-hidden flex items-center justify-center">
+                    {photoDataUrl ? (
+                      <img src={photoDataUrl} alt="Profile preview" className="h-full w-full object-cover" />
+                    ) : (
+                      <User className="w-6 h-6 text-zinc-400" />
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <input
+                      ref={photoInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePhotoUpload}
+                      className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm"
+                      aria-label="Upload profile photo"
+                    />
+                    {photoDataUrl && (
+                      <button onClick={handleRemovePhoto} className="mt-2 text-xs font-semibold text-primary">
+                        Remove photo
+                      </button>
+                    )}
+                    <p className="mt-2 text-xs text-zinc-500">Upload one profile photo for resume preview and PDF.</p>
                   </div>
                 </div>
               </div>
 
-
-            </div>
-
-          <div className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-zinc-900">Resume History</h3>
-              <span className="text-xs px-3 py-1 rounded-full bg-zinc-100 text-zinc-500">{resumeHistory.length} saved</span>
-            </div>
-            <p className="mt-2 text-xs text-zinc-500">
-              {canSaveResumeHistory
-                ? 'Each version is stored locally for your signed-in account.'
-                : 'Sign in or create an account before saving resume versions.'}
-            </p>
-            {canSaveResumeHistory && (
-              <div className="mt-3 grid grid-cols-1 gap-2">
-                <input
-                  value={historySearchTerm}
-                  onChange={(e) => setHistorySearchTerm(e.target.value)}
-                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-xs"
-                  placeholder="Search by name, role, or note"
-                  aria-label="Search resume history"
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <select
-                    value={historyRoleFilter}
-                    onChange={(e) => setHistoryRoleFilter(e.target.value)}
-                    className="rounded-lg border border-zinc-200 px-2 py-2 text-xs bg-white"
-                    aria-label="Filter resume history by role"
-                  >
-                    <option value="all">All roles</option>
-                    {historyRoleOptions.map((role) => (
-                      <option key={role} value={role}>{role}</option>
-                    ))}
-                  </select>
-                  <select
-                    value={historyDateFilter}
-                    onChange={(e) => setHistoryDateFilter(e.target.value as 'all' | 'today' | '7d' | '30d')}
-                    className="rounded-lg border border-zinc-200 px-2 py-2 text-xs bg-white"
-                    aria-label="Filter resume history by date"
-                  >
-                    <option value="all">Any date</option>
-                    <option value="today">Today</option>
-                    <option value="7d">Last 7 days</option>
-                    <option value="30d">Last 30 days</option>
-                  </select>
+              <div id="builder-section-date-place" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <h2 className="font-semibold text-zinc-900">Date & Place</h2>
+                <div className="mt-4 grid md:grid-cols-2 gap-4 text-sm">
+                  <input
+                    type="date"
+                    value={importantDate}
+                    min="0001-01-01"
+                    max="9999-12-31"
+                    onInput={handleImportantDateChange}
+                    onChange={handleImportantDateChange}
+                    className="border border-zinc-200 rounded-lg px-3 py-2"
+                    aria-label="Important date"
+                  />
+                  <input
+                    value={importantPlace}
+                    onChange={(e) => setImportantPlace(e.target.value)}
+                    className="border border-zinc-200 rounded-lg px-3 py-2"
+                    placeholder="Place"
+                    aria-label="Important place"
+                  />
                 </div>
               </div>
-            )}
-            {historyMessage && (
-              <p
-                className={`mt-3 rounded-xl border px-3 py-2 text-xs font-medium ${
-                  isHistoryErrorMessage(historyMessage)
-                    ? 'border-red-200 bg-red-50 text-red-700'
-                    : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                }`}
-              >
-                {historyMessage}
-              </p>
-            )}
-            <div className="mt-4 space-y-2 max-h-56 overflow-auto pr-1">
-              {!canSaveResumeHistory ? (
-                <p className="rounded-xl border border-primary/15 bg-primary/5 px-3 py-3 text-xs font-medium leading-5 text-primary">
-                  Login or create an account to keep saved resume versions.
-                </p>
-              ) : filteredResumeHistory.length === 0 ? (
-                <p className="text-xs text-zinc-400">
-                  {resumeHistory.length === 0 ? 'No history yet. Edit resume and click Save version.' : 'No versions match current filters.'}
-                </p>
-              ) : (
-                filteredResumeHistory.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className={`rounded-lg border p-3 ${
-                      activeHistoryId === entry.id ? 'border-primary/40 bg-primary/5' : 'border-zinc-200 bg-zinc-50'
-                    }`}
-                  >
-                    <p className="text-xs font-semibold text-zinc-800">
-                      {entry.snapshot.fullName || 'Untitled'} - {entry.snapshot.jobTitle || 'Role not set'}
-                    </p>
-                    <p className="mt-1 text-[11px] text-zinc-500">
-                      {new Date(entry.savedAt).toLocaleString()} - {entry.note}
-                    </p>
-                    <div className="mt-2 flex items-center gap-3">
+
+              <div id="builder-section-summary" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <h2 className="font-semibold text-zinc-900">Professional Summary</h2>
+                <textarea
+                  value={summary}
+                  onChange={(e) => setSummary(e.target.value)}
+                  className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 h-28"
+                  placeholder="Write a short summary about your experience and impact."
+                  aria-label="Professional summary"
+                />
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                  {['Professional', 'Confident', 'Simple', 'Executive'].map((tone) => (
+                    <span key={tone} className="px-3 py-1 rounded-full border border-zinc-200 text-zinc-500">{tone}</span>
+                  ))}
+                </div>
+              </div>
+
+              <div id="builder-section-premium" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <p className="text-xs uppercase tracking-[0.2em] text-zinc-400 font-semibold">Upgrade</p>
+                <h2 className="font-semibold text-zinc-900 mt-2">Premium tools inside builder</h2>
+                <p className="text-sm text-zinc-500 mt-2">Use all premium features directly while editing your resume.</p>
+
+                <div className="mt-5 grid md:grid-cols-2 gap-4">
+                  {premiumFeatures.map((feature) => (
+                    <div key={feature.id} className="rounded-xl border border-zinc-200 p-4 bg-zinc-50">
+                      <h3 className="font-semibold text-zinc-900">{feature.title}</h3>
+                      <p className="text-sm text-zinc-500 mt-1">{feature.desc}</p>
+
+                      <button
+                        onClick={() => handlePremiumFeatureInBuilder(feature.id)}
+                        disabled={premiumActionLoading === feature.id}
+                        className="mt-3 text-sm font-semibold text-primary disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {premiumActionLoading === feature.id
+                          ? 'Working...'
+                          : feature.id === 'resume-shareable-link'
+                            ? shareLinkCopied
+                              ? 'Link copied'
+                              : 'Publish & copy link'
+                            : feature.id === 'qr-code-resume'
+                              ? 'Publish & generate QR'
+                              : 'Generate portfolio site'}
+                      </button>
+                      {feature.id === 'portfolio-website-generator' && (
                         <button
-                          type="button"
-                          onClick={() => viewHistoryEntry(entry)}
-                          className="text-xs font-semibold text-zinc-700 hover:text-zinc-900"
+                          onClick={downloadPortfolioWebsiteHtml}
+                          className="mt-2 block text-xs font-semibold text-zinc-600 hover:text-zinc-900"
                         >
-                          View
+                          Download portfolio HTML
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => restoreResumeFromHistory(entry)}
-                          className="text-xs font-semibold text-primary"
-                        >
-                          Restore
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => duplicateFromHistory(entry)}
-                        className="text-xs font-semibold text-zinc-700 hover:text-zinc-900"
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-4 rounded-xl border border-zinc-200 p-3 text-sm bg-white">
+                  <p className="text-zinc-500">Live shareable URL</p>
+                  <p className="mt-1 break-all text-zinc-900">
+                    {publishedResumeUrl || 'Publish your resume to create a live URL.'}
+                  </p>
+                </div>
+                {premiumActionMessage && <p className="mt-3 text-sm text-primary font-medium">{premiumActionMessage}</p>}
+              </div>
+
+              <div id="builder-section-experience" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <h2 className="font-semibold text-zinc-900">Work Experience</h2>
+                  <div className="flex flex-wrap items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setListStyle('bullet')}
+                      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${listStyle === 'bullet' ? 'bg-white text-zinc-950 shadow-sm' : 'text-zinc-500 hover:text-zinc-900'}`}
+                      aria-pressed={listStyle === 'bullet'}
+                    >
+                      <List className="h-3.5 w-3.5" />
+                      Points
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setListStyle('number')}
+                      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${listStyle === 'number' ? 'bg-white text-zinc-950 shadow-sm' : 'text-zinc-500 hover:text-zinc-900'}`}
+                      aria-pressed={listStyle === 'number'}
+                    >
+                      <ListOrdered className="h-3.5 w-3.5" />
+                      Numbers
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setListStyle('paragraph')}
+                      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${listStyle === 'paragraph' ? 'bg-white text-zinc-950 shadow-sm' : 'text-zinc-500 hover:text-zinc-900'}`}
+                      aria-pressed={listStyle === 'paragraph'}
+                    >
+                      <AlignLeft className="h-3.5 w-3.5" />
+                      Paragraph
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-4 space-y-4 text-sm">
+                  {experiences.map((exp, index) => (
+                    <div key={index} className="rounded-xl border border-zinc-200 p-4 bg-zinc-50/40">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">Experience {index + 1}</p>
+                        {experiences.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeExperience(index)}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-500 transition hover:border-red-200 hover:bg-red-50 hover:text-primary"
+                            aria-label={`Remove experience ${index + 1}`}
+                            title={`Remove experience ${index + 1}`}
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="mt-3 space-y-3">
+                        <input value={exp.title} onChange={(e) => updateExperience(index, 'title', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 w-full bg-white" placeholder="Company and role" aria-label={`Experience ${index + 1} company and role`} />
+                        <input value={exp.dates} onChange={(e) => updateExperience(index, 'dates', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 w-full bg-white" placeholder="Dates" aria-label={`Experience ${index + 1} dates`} />
+                        <textarea
+                          value={exp.bullets}
+                          onChange={(e) => updateExperience(index, 'bullets', e.target.value)}
+                          className="border border-zinc-200 rounded-lg px-3 py-2 w-full h-24 bg-white"
+                          aria-label={`Experience ${index + 1} details`}
+                          placeholder={
+                            listStyle === 'number'
+                              ? 'Write each numbered point on a new line'
+                              : listStyle === 'paragraph'
+                                ? 'Write your work experience in paragraph form'
+                                : 'Write each point on a new line'
+                          }
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 flex gap-3">
+                  <button onClick={addAnotherExperience} className="text-xs font-semibold text-primary">+ Add another experience</button>
+                  <button onClick={duplicateExperienceSection} className="text-xs font-semibold text-zinc-500">Duplicate section</button>
+                </div>
+              </div>
+
+              <div id="builder-section-skills" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <h2 className="font-semibold text-zinc-900">Skills</h2>
+                <input
+                  value={skillsInput}
+                  onChange={(e) => setSkillsInput(e.target.value)}
+                  className="mt-3 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm"
+                  placeholder="Comma-separated skills"
+                  aria-label="Skills"
+                />
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                  {parsedSkills.length > 0 ? parsedSkills.map((skill) => (
+                    <span key={skill} className="px-3 py-1 rounded-full bg-zinc-50 border border-zinc-200 text-zinc-500">{skill}</span>
+                  )) : (
+                    <span className="text-zinc-400">Add skills to preview them live.</span>
+                  )}
+                </div>
+              </div>
+
+              <div id="builder-section-education" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <h2 className="font-semibold text-zinc-900">Education</h2>
+                <div className="mt-4 space-y-4 text-sm">
+                  {educationItems.map((education, index) => (
+                    <div key={index} className="rounded-2xl border border-zinc-100 bg-zinc-50/60 p-3">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <p className="text-xs font-semibold text-zinc-500">Education {index + 1}</p>
+                        {educationItems.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeEducation(index)}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-500 hover:text-primary"
+                            aria-label={`Remove education ${index + 1}`}
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <input value={education.degree} onChange={(e) => updateEducation(index, 'degree', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 bg-white" placeholder="Degree" aria-label={`Education ${index + 1} degree`} />
+                        <input value={education.school} onChange={(e) => updateEducation(index, 'school', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 bg-white" placeholder="School / University" aria-label={`Education ${index + 1} school or university`} />
+                        <input value={education.year} onChange={(e) => updateEducation(index, 'year', e.target.value)} className="border border-zinc-200 rounded-lg px-3 py-2 bg-white md:col-span-2" placeholder="Years" aria-label={`Education ${index + 1} years`} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 flex gap-3">
+                  <button onClick={addAnotherEducation} className="text-xs font-semibold text-primary">+ Add another education</button>
+                  <button onClick={duplicateEducationSection} className="text-xs font-semibold text-zinc-500">Duplicate section</button>
+                </div>
+              </div>
+
+              <div id="builder-section-projects" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <h2 className="font-semibold text-zinc-900">Projects</h2>
+                <textarea value={projectsInput} onChange={(e) => setProjectsInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 h-24" placeholder="One project per line" aria-label="Projects" />
+              </div>
+
+              <div id="builder-section-certifications" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <h2 className="font-semibold text-zinc-900">Certifications</h2>
+                <input value={certificationsInput} onChange={(e) => setCertificationsInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm" placeholder="Comma-separated certifications" aria-label="Certifications" />
+              </div>
+
+              <div id="builder-section-languages" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <h2 className="font-semibold text-zinc-900">Languages</h2>
+                <input value={languagesInput} onChange={(e) => setLanguagesInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm" placeholder="Comma-separated languages" aria-label="Languages" />
+              </div>
+
+              <div id="builder-section-hobbies" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <h2 className="font-semibold text-zinc-900">Hobbies</h2>
+                <input
+                  value={hobbiesInput}
+                  onChange={(e) => setHobbiesInput(e.target.value)}
+                  className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm"
+                  placeholder="Comma-separated hobbies"
+                  aria-label="Hobbies"
+                />
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                  {parsedHobbies.length > 0 ? parsedHobbies.map((hobby) => (
+                    <span key={hobby} className="px-3 py-1 rounded-full bg-zinc-50 border border-zinc-200 text-zinc-500">{hobby}</span>
+                  )) : (
+                    <span className="text-zinc-400">Add hobbies to preview them live.</span>
+                  )}
+                </div>
+              </div>
+
+              <div id="builder-section-achievements" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <h2 className="font-semibold text-zinc-900">Achievements</h2>
+                <textarea value={achievementsInput} onChange={(e) => setAchievementsInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 h-24" placeholder="One achievement per line" aria-label="Achievements" />
+              </div>
+
+              <div id="builder-section-volunteer" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <h2 className="font-semibold text-zinc-900">Volunteer</h2>
+                <textarea value={volunteerInput} onChange={(e) => setVolunteerInput(e.target.value)} className="mt-4 w-full border border-zinc-200 rounded-lg px-3 py-2 h-24" placeholder="Volunteer work details" aria-label="Volunteer work details" />
+              </div>
+
+              <div id="builder-section-custom-columns" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <h2 className="font-semibold text-zinc-900">Custom Columns</h2>
+                <p className="mt-2 text-xs text-zinc-500">Add your own section title and content. Reorder with up/down.</p>
+                <div className="mt-4 space-y-3">
+                  <input
+                    value={newCustomColumnTitle}
+                    onChange={(e) => setNewCustomColumnTitle(e.target.value)}
+                    className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm"
+                    placeholder="Column title (e.g., Publications)"
+                    aria-label="New custom column title"
+                  />
+                  <textarea
+                    value={newCustomColumnContent}
+                    onChange={(e) => setNewCustomColumnContent(e.target.value)}
+                    className="w-full border border-zinc-200 rounded-lg px-3 py-2 h-24 text-sm"
+                    placeholder="One line per point"
+                    aria-label="New custom column content"
+                  />
+                  <button onClick={addCustomColumn} className="text-xs font-semibold text-primary">
+                    + Save custom column
+                  </button>
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  {customColumns.length === 0 ? (
+                    <p className="text-xs text-zinc-400">No custom columns added yet.</p>
+                  ) : (
+                    customColumns.map((column, index) => (
+                      <div key={column.id} className="rounded-xl border border-zinc-200 p-3 bg-zinc-50">
+                        <input
+                          value={column.title}
+                          onChange={(e) => updateCustomColumn(index, 'title', e.target.value)}
+                          className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-white"
+                          placeholder="Column title"
+                          aria-label={`Custom column ${index + 1} title`}
+                        />
+                        <textarea
+                          value={column.content}
+                          onChange={(e) => updateCustomColumn(index, 'content', e.target.value)}
+                          className="mt-2 w-full border border-zinc-200 rounded-lg px-3 py-2 h-20 text-sm bg-white"
+                          placeholder="Column content"
+                          aria-label={`Custom column ${index + 1} content`}
+                        />
+                        <div className="mt-2 flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => moveCustomColumn(index, 'up')}
+                            disabled={index === 0}
+                            className="text-xs font-semibold text-zinc-600 disabled:opacity-40"
+                          >
+                            Move up
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveCustomColumn(index, 'down')}
+                            disabled={index === customColumns.length - 1}
+                            className="text-xs font-semibold text-zinc-600 disabled:opacity-40"
+                          >
+                            Move down
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeCustomColumn(index)}
+                            className="text-xs font-semibold text-zinc-500 hover:text-zinc-800"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="min-w-0 space-y-6">
+              <div id="builder-live-preview" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-bold text-zinc-900">Live Preview</h2>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-zinc-400 font-medium">Template</span>
+                    <select
+                      id="builder-template-select"
+                      aria-label="Resume template"
+                      value={selectedTemplate.id}
+                      onChange={(e) => {
+                        const tpl = templates.find((t) => t.id === e.target.value);
+                        if (tpl) selectTemplateImmediately(tpl);
+                      }}
+                      className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-900 shadow-sm transition focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none cursor-pointer"
+                    >
+                      {templates.map((tpl) => (
+                        <option key={tpl.id} value={tpl.id}>
+                          {tpl.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white shadow-[0_14px_34px_rgba(15,23,42,0.06)]">
+                  {/* Template label header */}
+                  <div className="flex items-center justify-between px-5 pt-4 pb-3 text-sm text-zinc-500">
+                    <span>Template</span>
+                    <span className="font-bold text-zinc-900">{selectedTemplate.name}</span>
+                  </div>
+
+                  <div className="mx-3 mb-4 max-h-[700px] overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-2 [scrollbar-gutter:stable]">
+                    <div data-testid="builder-template-preview" className="mx-auto w-full min-w-0 max-w-[960px]">
+                      <TemplatePreviewScaler pageWidth={760}>
+                        <TemplateVisualPreview template={selectedTemplate} data={liveTemplateResumeData} sectionOrder={orderedPrintableSections} />
+                      </TemplatePreviewScaler>
+                    </div>
+                  </div>
+                </div>
+
+
+              </div>
+
+              <div className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-zinc-900">Resume History</h3>
+                  <span className="text-xs px-3 py-1 rounded-full bg-zinc-100 text-zinc-500">{resumeHistory.length} saved</span>
+                </div>
+                <p className="mt-2 text-xs text-zinc-500">
+                  {canSaveResumeHistory
+                    ? 'Each version is stored locally for your signed-in account.'
+                    : 'Sign in or create an account before saving resume versions.'}
+                </p>
+                {canSaveResumeHistory && (
+                  <div className="mt-3 grid grid-cols-1 gap-2">
+                    <input
+                      value={historySearchTerm}
+                      onChange={(e) => setHistorySearchTerm(e.target.value)}
+                      className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-xs"
+                      placeholder="Search by name, role, or note"
+                      aria-label="Search resume history"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        value={historyRoleFilter}
+                        onChange={(e) => setHistoryRoleFilter(e.target.value)}
+                        className="rounded-lg border border-zinc-200 px-2 py-2 text-xs bg-white"
+                        aria-label="Filter resume history by role"
                       >
-                        Duplicate
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => deleteHistoryEntry(entry.id)}
-                        className="text-xs font-semibold text-zinc-500 hover:text-zinc-800"
+                        <option value="all">All roles</option>
+                        {historyRoleOptions.map((role) => (
+                          <option key={role} value={role}>{role}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={historyDateFilter}
+                        onChange={(e) => setHistoryDateFilter(e.target.value as 'all' | 'today' | '7d' | '30d')}
+                        className="rounded-lg border border-zinc-200 px-2 py-2 text-xs bg-white"
+                        aria-label="Filter resume history by date"
                       >
-                        Delete
+                        <option value="all">Any date</option>
+                        <option value="today">Today</option>
+                        <option value="7d">Last 7 days</option>
+                        <option value="30d">Last 30 days</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+                {historyMessage && (
+                  <p
+                    className={`mt-3 rounded-xl border px-3 py-2 text-xs font-medium ${isHistoryErrorMessage(historyMessage)
+                        ? 'border-red-200 bg-red-50 text-red-700'
+                        : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                      }`}
+                  >
+                    {historyMessage}
+                  </p>
+                )}
+                <div className="mt-4 space-y-2 max-h-56 overflow-auto pr-1">
+                  {!canSaveResumeHistory ? (
+                    <p className="rounded-xl border border-primary/15 bg-primary/5 px-3 py-3 text-xs font-medium leading-5 text-primary">
+                      Login or create an account to keep saved resume versions.
+                    </p>
+                  ) : filteredResumeHistory.length === 0 ? (
+                    <p className="text-xs text-zinc-400">
+                      {resumeHistory.length === 0 ? 'No history yet. Edit resume and click Save version.' : 'No versions match current filters.'}
+                    </p>
+                  ) : (
+                    filteredResumeHistory.map((entry) => (
+                      <div
+                        key={entry.id}
+                        className={`rounded-lg border p-3 ${activeHistoryId === entry.id ? 'border-primary/40 bg-primary/5' : 'border-zinc-200 bg-zinc-50'
+                          }`}
+                      >
+                        <p className="text-xs font-semibold text-zinc-800">
+                          {entry.snapshot.fullName || 'Untitled'} - {entry.snapshot.jobTitle || 'Role not set'}
+                        </p>
+                        <p className="mt-1 text-[11px] text-zinc-500">
+                          {new Date(entry.savedAt).toLocaleString()} - {entry.note}
+                        </p>
+                        <div className="mt-2 flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => viewHistoryEntry(entry)}
+                            className="text-xs font-semibold text-zinc-700 hover:text-zinc-900"
+                          >
+                            View
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => restoreResumeFromHistory(entry)}
+                            className="text-xs font-semibold text-primary"
+                          >
+                            Restore
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => duplicateFromHistory(entry)}
+                            className="text-xs font-semibold text-zinc-700 hover:text-zinc-900"
+                          >
+                            Duplicate
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteHistoryEntry(entry.id)}
+                            className="text-xs font-semibold text-zinc-500 hover:text-zinc-800"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                {resumeHistory.length > 0 && (
+                  <button type="button" onClick={clearResumeHistory} className="mt-3 text-xs font-semibold text-zinc-500 hover:text-zinc-800">
+                    Clear history
+                  </button>
+                )}
+              </div>
+
+              <div className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <h3 className="font-semibold text-zinc-900">Job Description Match</h3>
+                <textarea
+                  value={jobDescriptionInput}
+                  onChange={(e) => setJobDescriptionInput(e.target.value)}
+                  className="mt-3 h-24 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-700"
+                  placeholder="Paste a target job description here..."
+                  aria-label="Target job description"
+                />
+                <div className="mt-2 text-sm text-zinc-500">Match rate: {atsResult?.score ?? '--'}%</div>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                  {(atsResult?.matchedKeywords.length ? atsResult.matchedKeywords : ['Run ATS check to see matched keywords']).slice(0, 8).map((kw) => (
+                    <span key={kw} className="px-3 py-1 rounded-full bg-zinc-50 border border-zinc-200 text-zinc-500">{kw}</span>
+                  ))}
+                </div>
+                {atsResult?.missingKeywords?.length ? (
+                  <p className="mt-3 text-xs text-zinc-400">
+                    Missing keywords: {atsResult.missingKeywords.slice(0, 8).join(', ')}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-zinc-900">ATS Checker</h3>
+                  <span className="text-xs px-3 py-1 rounded-full bg-zinc-100 text-zinc-500">
+                    Score {atsResult?.score ?? '--'}
+                  </span>
+                </div>
+                <button
+                  onClick={handleRunAtsChecker}
+                  disabled={atsLoading}
+                  className="mt-4 inline-flex items-center gap-2 rounded-full border border-zinc-300 px-4 py-2 text-xs font-semibold text-zinc-700 hover:border-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {atsLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}
+                  {atsLoading ? 'Checking ATS...' : 'Run ATS check'}
+                </button>
+                {atsError && <p className="mt-3 text-xs text-red-600">{atsError}</p>}
+                {atsResult && (
+                  <ul className="mt-3 text-sm text-zinc-500 space-y-2">
+                    <li className="flex items-center gap-2">
+                      <Check className="w-4 h-4 text-primary" />
+                      Keywords matched: {atsResult.matchedKeywords.length}/
+                      {atsResult.matchedKeywords.length + atsResult.missingKeywords.length}
+                    </li>
+                    {atsResult.strengths.slice(0, 2).map((item) => (
+                      <li key={item} className="flex items-center gap-2">
+                        <Check className="w-4 h-4 text-primary" />
+                        {item}
+                      </li>
+                    ))}
+                    {atsResult.improvements.slice(0, 2).map((item) => (
+                      <li key={item} className="flex items-center gap-2 text-zinc-400">
+                        - {item}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {atsResult && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={applyAtsMissingKeywords}
+                      className="px-3 py-1 rounded-full border border-zinc-200 text-xs font-semibold text-zinc-700"
+                    >
+                      Add missing keywords
+                    </button>
+                    <button
+                      type="button"
+                      onClick={applyAtsStrongerBullets}
+                      disabled={atsApplyLoading}
+                      className="px-3 py-1 rounded-full border border-zinc-200 text-xs font-semibold text-zinc-700 disabled:opacity-60"
+                    >
+                      {atsApplyLoading ? 'Improving bullets...' : 'Strengthen bullets'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={applyAllAtsFixes}
+                      disabled={atsApplyLoading || atsFixesApplied}
+                      className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${atsFixesApplied
+                          ? 'border border-emerald-400 bg-emerald-100 text-emerald-800 opacity-90 cursor-default'
+                          : 'border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-60'
+                        }`}
+                    >
+                      {atsApplyLoading
+                        ? 'Applying all...'
+                        : atsFixesApplied
+                          ? 'ATS Fixes Applied ✓'
+                          : 'Apply all ATS fixes'}
+                    </button>
+                  </div>
+                )}
+                {atsApplyMessage && <p className="mt-3 text-xs font-medium text-emerald-700">{atsApplyMessage}</p>}
+              </div>
+
+              <div className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <h3 className="font-semibold text-zinc-900">AI Writing Assistant</h3>
+                <p className="text-sm text-zinc-500 mt-2">Improve bullets or generate a stronger summary.</p>
+                <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => handleRunAiImprove('summary')}
+                    disabled={aiLoading}
+                    className="px-3 py-1 rounded-full border border-zinc-200 text-zinc-600 disabled:opacity-60"
+                  >
+                    Rewrite summary
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRunAiImprove('bullets')}
+                    disabled={aiLoading}
+                    className="px-3 py-1 rounded-full border border-zinc-200 text-zinc-600 disabled:opacity-60"
+                  >
+                    Improve bullets
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRunAiImprove('full')}
+                    disabled={aiLoading}
+                    className="px-3 py-1 rounded-full border border-zinc-200 text-zinc-600 disabled:opacity-60"
+                  >
+                    Full optimization
+                  </button>
+                </div>
+                {aiLoading && <p className="mt-3 text-xs text-zinc-500">Generating suggestions...</p>}
+                {aiError && <p className="mt-3 text-xs text-red-600">{aiError}</p>}
+                {aiImproveResult && (
+                  <div className="mt-4 space-y-3">
+                    <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.1em] text-zinc-500">Suggested Summary</p>
+                      <p className="mt-1 text-xs text-zinc-700 whitespace-pre-line">{aiImproveResult.improvedSummary}</p>
+                      <button type="button" onClick={applyAiSummary} className="mt-2 text-xs font-semibold text-primary">
+                        Apply to summary
+                      </button>
+                    </div>
+                    <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.1em] text-zinc-500">Suggested Bullets</p>
+                      <ul className="mt-1 list-disc pl-4 text-xs text-zinc-700 space-y-1">
+                        {aiImproveResult.improvedBullets.slice(0, 4).map((bullet, index) => (
+                          <li key={`${bullet}-${index}`}>{bullet}</li>
+                        ))}
+                      </ul>
+                      <button type="button" onClick={applyAiBullets} className="mt-2 text-xs font-semibold text-primary">
+                        Apply to first experience
                       </button>
                     </div>
                   </div>
-                ))
-              )}
+                )}
+                {aiApplyMessage && <p className="mt-3 text-xs font-medium text-emerald-700">{aiApplyMessage}</p>}
+              </div>
             </div>
-            {resumeHistory.length > 0 && (
-              <button type="button" onClick={clearResumeHistory} className="mt-3 text-xs font-semibold text-zinc-500 hover:text-zinc-800">
-                Clear history
-              </button>
-            )}
           </div>
+        </div>
 
-          <div className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-            <h3 className="font-semibold text-zinc-900">Job Description Match</h3>
-            <textarea
-              value={jobDescriptionInput}
-              onChange={(e) => setJobDescriptionInput(e.target.value)}
-              className="mt-3 h-24 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-700"
-              placeholder="Paste a target job description here..."
-              aria-label="Target job description"
-            />
-            <div className="mt-2 text-sm text-zinc-500">Match rate: {atsResult?.score ?? '--'}%</div>
-            <div className="mt-3 flex flex-wrap gap-2 text-xs">
-              {(atsResult?.matchedKeywords.length ? atsResult.matchedKeywords : ['Run ATS check to see matched keywords']).slice(0, 8).map((kw) => (
-                <span key={kw} className="px-3 py-1 rounded-full bg-zinc-50 border border-zinc-200 text-zinc-500">{kw}</span>
-              ))}
-            </div>
-            {atsResult?.missingKeywords?.length ? (
-              <p className="mt-3 text-xs text-zinc-400">
-                Missing keywords: {atsResult.missingKeywords.slice(0, 8).join(', ')}
-              </p>
-            ) : null}
-          </div>
-
-          <div className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-zinc-900">ATS Checker</h3>
-              <span className="text-xs px-3 py-1 rounded-full bg-zinc-100 text-zinc-500">
-                Score {atsResult?.score ?? '--'}
-              </span>
-            </div>
-            <button
-              onClick={handleRunAtsChecker}
-              disabled={atsLoading}
-              className="mt-4 inline-flex items-center gap-2 rounded-full border border-zinc-300 px-4 py-2 text-xs font-semibold text-zinc-700 hover:border-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+        {/* Login Required Modal */}
+        {showLoginModal && (
+          <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowLoginModal(false)}>
+            <div
+              className="mx-4 w-full max-w-sm animate-[fadeInScale_0.25s_ease] rounded-3xl border border-zinc-200 bg-white p-6 shadow-2xl sm:p-8"
+              onClick={(e) => e.stopPropagation()}
             >
-              {atsLoading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}
-              {atsLoading ? 'Checking ATS...' : 'Run ATS check'}
-            </button>
-            {atsError && <p className="mt-3 text-xs text-red-600">{atsError}</p>}
-            {atsResult && (
-              <ul className="mt-3 text-sm text-zinc-500 space-y-2">
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-primary" />
-                  Keywords matched: {atsResult.matchedKeywords.length}/
-                  {atsResult.matchedKeywords.length + atsResult.missingKeywords.length}
-                </li>
-                {atsResult.strengths.slice(0, 2).map((item) => (
-                  <li key={item} className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-primary" />
-                    {item}
-                  </li>
-                ))}
-                {atsResult.improvements.slice(0, 2).map((item) => (
-                  <li key={item} className="flex items-center gap-2 text-zinc-400">
-                    - {item}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {atsResult && (
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={applyAtsMissingKeywords}
-                  className="px-3 py-1 rounded-full border border-zinc-200 text-xs font-semibold text-zinc-700"
-                >
-                  Add missing keywords
-                </button>
-                <button
-                  type="button"
-                  onClick={applyAtsStrongerBullets}
-                  disabled={atsApplyLoading}
-                  className="px-3 py-1 rounded-full border border-zinc-200 text-xs font-semibold text-zinc-700 disabled:opacity-60"
-                >
-                  {atsApplyLoading ? 'Improving bullets...' : 'Strengthen bullets'}
-                </button>
-                <button
-                  type="button"
-                  onClick={applyAllAtsFixes}
-                  disabled={atsApplyLoading || atsFixesApplied}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-                    atsFixesApplied
-                      ? 'border border-emerald-400 bg-emerald-100 text-emerald-800 opacity-90 cursor-default'
-                      : 'border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-60'
-                  }`}
-                >
-                  {atsApplyLoading
-                    ? 'Applying all...'
-                    : atsFixesApplied
-                    ? 'ATS Fixes Applied ✓'
-                    : 'Apply all ATS fixes'}
-                </button>
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
+                <Lock className="h-7 w-7 text-primary" />
               </div>
-            )}
-            {atsApplyMessage && <p className="mt-3 text-xs font-medium text-emerald-700">{atsApplyMessage}</p>}
-          </div>
-
-          <div className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-            <h3 className="font-semibold text-zinc-900">AI Writing Assistant</h3>
-            <p className="text-sm text-zinc-500 mt-2">Improve bullets or generate a stronger summary.</p>
-            <div className="mt-4 flex flex-wrap gap-2 text-xs">
+              <h3 className="mt-5 text-center text-xl font-extrabold tracking-tight text-zinc-900">Sign in to download</h3>
+              <p className="mt-2 text-center text-sm leading-6 text-zinc-500">
+                Create a free account or sign in to download your resume as PDF or DOCX.
+              </p>
+              <Link
+                to="/login"
+                className="mt-6 flex w-full items-center justify-center rounded-2xl bg-primary px-5 py-3.5 text-sm font-bold text-white shadow-[0_12px_28px_rgba(177,18,23,0.22)] transition hover:opacity-90"
+              >
+                Sign in / Create account
+              </Link>
               <button
                 type="button"
-                onClick={() => handleRunAiImprove('summary')}
-                disabled={aiLoading}
-                className="px-3 py-1 rounded-full border border-zinc-200 text-zinc-600 disabled:opacity-60"
+                onClick={() => setShowLoginModal(false)}
+                className="mt-3 w-full rounded-2xl border border-zinc-200 px-5 py-3 text-sm font-semibold text-zinc-600 transition hover:border-zinc-400 hover:text-zinc-900"
               >
-                Rewrite summary
-              </button>
-              <button
-                type="button"
-                onClick={() => handleRunAiImprove('bullets')}
-                disabled={aiLoading}
-                className="px-3 py-1 rounded-full border border-zinc-200 text-zinc-600 disabled:opacity-60"
-              >
-                Improve bullets
-              </button>
-              <button
-                type="button"
-                onClick={() => handleRunAiImprove('full')}
-                disabled={aiLoading}
-                className="px-3 py-1 rounded-full border border-zinc-200 text-zinc-600 disabled:opacity-60"
-              >
-                Full optimization
+                Continue editing
               </button>
             </div>
-            {aiLoading && <p className="mt-3 text-xs text-zinc-500">Generating suggestions...</p>}
-            {aiError && <p className="mt-3 text-xs text-red-600">{aiError}</p>}
-            {aiImproveResult && (
-              <div className="mt-4 space-y-3">
-                <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.1em] text-zinc-500">Suggested Summary</p>
-                  <p className="mt-1 text-xs text-zinc-700 whitespace-pre-line">{aiImproveResult.improvedSummary}</p>
-                  <button type="button" onClick={applyAiSummary} className="mt-2 text-xs font-semibold text-primary">
-                    Apply to summary
-                  </button>
-                </div>
-                <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.1em] text-zinc-500">Suggested Bullets</p>
-                  <ul className="mt-1 list-disc pl-4 text-xs text-zinc-700 space-y-1">
-                    {aiImproveResult.improvedBullets.slice(0, 4).map((bullet, index) => (
-                      <li key={`${bullet}-${index}`}>{bullet}</li>
-                    ))}
-                  </ul>
-                  <button type="button" onClick={applyAiBullets} className="mt-2 text-xs font-semibold text-primary">
-                    Apply to first experience
-                  </button>
-                </div>
-              </div>
-            )}
-            {aiApplyMessage && <p className="mt-3 text-xs font-medium text-emerald-700">{aiApplyMessage}</p>}
           </div>
-        </div>
+        )}
       </div>
-    </div>
-
-  {/* Login Required Modal */}
-  {showLoginModal && (
-    <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowLoginModal(false)}>
-      <div
-        className="mx-4 w-full max-w-sm animate-[fadeInScale_0.25s_ease] rounded-3xl border border-zinc-200 bg-white p-6 shadow-2xl sm:p-8"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
-          <Lock className="h-7 w-7 text-primary" />
-        </div>
-        <h3 className="mt-5 text-center text-xl font-extrabold tracking-tight text-zinc-900">Sign in to download</h3>
-        <p className="mt-2 text-center text-sm leading-6 text-zinc-500">
-          Create a free account or sign in to download your resume as PDF or DOCX.
-        </p>
-        <Link
-          to="/login"
-          className="mt-6 flex w-full items-center justify-center rounded-2xl bg-primary px-5 py-3.5 text-sm font-bold text-white shadow-[0_12px_28px_rgba(177,18,23,0.22)] transition hover:opacity-90"
-        >
-          Sign in / Create account
-        </Link>
-        <button
-          type="button"
-          onClick={() => setShowLoginModal(false)}
-          className="mt-3 w-full rounded-2xl border border-zinc-200 px-5 py-3 text-sm font-semibold text-zinc-600 transition hover:border-zinc-400 hover:text-zinc-900"
-        >
-          Continue editing
-        </button>
-      </div>
-    </div>
-  )}
-  </div>
-  </>
+    </>
   );
 };

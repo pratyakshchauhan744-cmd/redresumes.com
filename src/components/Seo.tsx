@@ -235,8 +235,10 @@ export const Seo = ({ title, description, canonicalUrl, ogImage, type, jsonLd }:
   const finalOgImage = ogImage || `${siteUrl}${DEFAULT_IMAGE}`;
   const finalJsonLd = jsonLd || jsonLdForPath(path, siteUrl);
 
+  const HelmetElement = Helmet as any;
+
   return (
-    <Helmet>
+    <HelmetElement>
       <title>{finalTitle}</title>
       <meta name="description" content={finalDescription} />
       <meta property="og:site_name" content={SITE_NAME} />
@@ -260,6 +262,6 @@ export const Seo = ({ title, description, canonicalUrl, ogImage, type, jsonLd }:
             </script>
           ))
         : null}
-    </Helmet>
+    </HelmetElement>
   );
 };

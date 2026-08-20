@@ -25,6 +25,7 @@
   },
   "exclude": [
     "backend",
+    "admin-panel",
     "node_modules",
     "dist"
   ]

@@ -20,12 +20,15 @@ const reportWebVitals = () => {
 
 reportWebVitals();
 
+const SafeErrorBoundary = ErrorBoundary as any;
+const SafeHelmetProvider = HelmetProvider as any;
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ErrorBoundary>
-      <HelmetProvider>
+    <SafeErrorBoundary>
+      <SafeHelmetProvider>
         <App />
-      </HelmetProvider>
-    </ErrorBoundary>
+      </SafeHelmetProvider>
+    </SafeErrorBoundary>
   </StrictMode>,
 );

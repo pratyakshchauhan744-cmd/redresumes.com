@@ -514,13 +514,12 @@ export const DashboardPage = ({
             {profileMessage && <p className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{profileMessage}</p>}
           </div>
 
-          <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-4 md:grid-cols-4">
             {[
-              { label: 'Saved Resumes', value: resumeHistory.length },
               { label: 'Saved jobs', value: savedJobs.length },
               { label: 'Applied', value: appliedCount },
               { label: 'Interviews', value: interviewCount },
-              { label: 'Credits Left', value: creditsBalance },
+              { label: 'Credits Remaining', value: creditsBalance },
             ].map((item) => (
               <div key={item.label} className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-[0_12px_30px_rgba(15,23,42,0.04)] dark:border-zinc-800 dark:bg-zinc-950/70">
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-400">{item.label}</p>
@@ -652,83 +651,6 @@ export const DashboardPage = ({
         </div>
 
         <div className="space-y-6">
-          {/* Saved Resumes & Resume History Card */}
-          <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-[0_12px_30px_rgba(15,23,42,0.04)] dark:border-zinc-800 dark:bg-zinc-950/70">
-            <div className="flex items-center justify-between border-b border-zinc-100 pb-4 dark:border-zinc-800">
-              <div className="flex items-center gap-2.5">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <FileText className="h-5 w-5" />
-                </div>
-                <div>
-                  <h2 className="font-bold text-zinc-900 dark:text-zinc-50">Saved Resumes</h2>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    {resumeHistory.length > 0 ? `${resumeHistory.length} saved version${resumeHistory.length > 1 ? 's' : ''}` : 'No saved resumes yet'}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => navigate('/builder')}
-                className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-xs font-bold text-white shadow-xs transition hover:bg-red-700 active:scale-98"
-              >
-                <Edit3 className="h-3.5 w-3.5" />
-                <span>{resumeHistory.length > 0 ? 'Edit in Builder' : 'Create Resume'}</span>
-              </button>
-            </div>
-
-            <div className="mt-4 space-y-3">
-              {resumeHistory.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/70 p-6 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
-                  <FileText className="mx-auto h-8 w-8 text-zinc-400" />
-                  <p className="mt-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">No resumes saved yet</p>
-                  <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                    Build and customize your resume for free in the Resume Builder.
-                  </p>
-                  <button
-                    onClick={() => navigate('/builder')}
-                    className="mt-4 inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:opacity-90"
-                  >
-                    Open Resume Builder
-                  </button>
-                </div>
-              ) : (
-                resumeHistory.slice(0, 5).map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="group flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-100 bg-zinc-50/50 p-4 transition-all hover:border-primary/30 hover:bg-primary/[0.02] dark:border-zinc-800 dark:bg-zinc-900/40 dark:hover:border-primary/40"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="truncate text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                          {entry.snapshot.jobTitle || entry.snapshot.fullName || 'Untitled Resume'}
-                        </p>
-                        {entry.snapshot.selectedTemplateName && (
-                          <span className="shrink-0 rounded-md bg-zinc-200/70 px-2 py-0.5 text-[10px] font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                            {entry.snapshot.selectedTemplateName}
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                        {entry.note || 'Saved resume'} • {new Date(entry.savedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        if (entry.snapshot.selectedTemplateId) {
-                          navigate(`/builder?template=${entry.snapshot.selectedTemplateId}`);
-                        } else {
-                          navigate('/builder');
-                        }
-                      }}
-                      className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 shadow-2xs transition hover:border-primary hover:text-primary dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:border-primary dark:hover:text-primary"
-                    >
-                      <span>Open</span>
-                      <ExternalLink className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
           {isLocalHost && (
             <div className="rounded-2xl border border-amber-200 bg-amber-50/20 dark:border-amber-900/50 dark:bg-amber-950/20 p-6 shadow-sm">
               <h2 className="font-bold text-amber-800 dark:text-amber-400 text-sm uppercase tracking-wider">Local Developer Tools</h2>

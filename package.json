@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build && (npx puppeteer browsers install chrome && node scripts/prerender.mjs || echo '[build] Prerender skipped in cloud container')",
-    "postinstall": "prisma generate --schema backend/prisma/schema.prisma",
+    "postinstall": "npx --yes prisma generate --schema backend/prisma/schema.prisma || true",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",

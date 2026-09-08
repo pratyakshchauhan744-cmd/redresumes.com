@@ -46,6 +46,41 @@ export const clearStoredAuthTokens = () => {
 export const buildUserScopedStorageKey = (baseKey: string, userId?: string | null): string =>
   userId ? `${baseKey}:${userId}` : `${baseKey}:guest`;
 
+export interface GoogleJwtPayload {
+  iss?: string;
+  aud?: string;
+  sub: string;
+  email: string;
+  name?: string;
+  given_name?: string;
+  family_name?: string;
+  picture?: string;
+  email_verified?: boolean;
+  exp?: number;
+}
+
+export function parseGoogleJwt(credential: string): GoogleJwtPayload | null {
+  try {
+    const parts = credential.split('.');
+    if (parts.length < 2) return null;
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
+    const binaryStr = atob(padded);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    const decodedText = new TextDecoder('utf-8').decode(bytes);
+    const parsed = JSON.parse(decodedText) as GoogleJwtPayload;
+    if (!parsed || typeof parsed !== 'object' || !parsed.email) return null;
+    return parsed;
+  } catch (e) {
+    console.error('Failed to parse Google JWT credential:', e);
+    return null;
+  }
+}
+
 export interface ResumeSnapshotLike {
   fullName?: string;
   jobTitle?: string;

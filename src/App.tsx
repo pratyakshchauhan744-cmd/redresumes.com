@@ -7,17 +7,15 @@ import { readStoredUser } from './lib/auth';
 import type { AuthUser } from './lib/backendApi';
 
 import { templates } from './data/templates';
-import { blogArticles } from './data/blogArticles';
-import type { BlogArticle, TemplateItem } from './types';
+import type { TemplateItem } from './types';
 
 const HomePage = lazy(() => import('./pages/HomePage').then(m => ({ default: m.HomePage })));
 const ResumeBuilderPage = lazy(() => import('./pages/BuilderPage').then(m => ({ default: m.ResumeBuilderPage })));
 const TemplatesPage = lazy(() => import('./pages/TemplatesPage').then(m => ({ default: m.TemplatesPage })));
 const CoverLetterPage = lazy(() => import('./pages/CoverLetterPage').then(m => ({ default: m.CoverLetterPage })));
-const ExamplesPage = lazy(() => import('./pages/ExamplesPage').then(m => ({ default: m.ExamplesPage })));
+const ResumeExamplesHubPage = lazy(() => import('./pages/ResumeExamplesHubPage').then(m => ({ default: m.ResumeExamplesHubPage })));
+const RoleGuideDetailPage = lazy(() => import('./pages/RoleGuideDetailPage').then(m => ({ default: m.RoleGuideDetailPage })));
 const JobFinderPage = lazy(() => import('./pages/JobFinderPage').then(m => ({ default: m.JobFinderPage })));
-const BlogPage = lazy(() => import('./pages/BlogPage').then(m => ({ default: m.BlogPage })));
-const BlogPostPage = lazy(() => import('./pages/BlogPostPage').then(m => ({ default: m.BlogPostPage })));
 const LoginPage = lazy(() => import('./pages/LoginPage').then(m => ({ default: m.LoginPage })));
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
 const ContactPage = lazy(() => import('./pages/ContactPage').then(m => ({ default: m.ContactPage })));
@@ -53,7 +51,13 @@ const RouteUiEffects = () => {
   );
 };
 
-const App = () => {
+const AuthenticatedLoginRedirect = () => {
+  const location = useLocation();
+  const redirect = new URLSearchParams(location.search).get('redirect');
+  return <Navigate to={redirect || '/dashboard'} replace />;
+};
+
+export const App = () => {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => readStoredUser());
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateItem>(() => {
     if (typeof window === 'undefined') return templates[0];
@@ -62,7 +66,6 @@ const App = () => {
     return storedTemplate ?? templates[0];
   });
   const [selectedExample, setSelectedExample] = useState<string | null>(null);
-  const [selectedBlogArticle, setSelectedBlogArticle] = useState<BlogArticle>(blogArticles[0]);
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     const stored = window.localStorage.getItem('redresumes_theme');
@@ -168,16 +171,17 @@ const App = () => {
               
               <Route path="/cover-letter" element={<CoverLetterPage />} />
               <Route path="/pricing" element={<Navigate to="/" replace />} />
-              <Route path="/examples" element={
-                <ExamplesPage onViewExample={(r) => setSelectedExample(r)} />
-              } />
+
+              {/* Resume Examples Hub and Dynamic Role Detail Guides */}
+              <Route path="/resume-examples" element={<ResumeExamplesHubPage />} />
+              <Route path="/resume-examples/:slug" element={<RoleGuideDetailPage />} />
+
+              {/* 301 / SEO Redirects from old /blog and /examples routes */}
+              <Route path="/examples" element={<Navigate to="/resume-examples" replace />} />
+              <Route path="/blog" element={<Navigate to="/resume-examples" replace />} />
+              <Route path="/blog/*" element={<Navigate to="/resume-examples" replace />} />
+
               <Route path="/job-finder" element={<JobFinderPage currentUser={currentUser} />} />
-              <Route path="/blog" element={
-                <BlogPage onReadArticle={(a) => setSelectedBlogArticle(a)} />
-              } />
-              <Route path="/blog/post" element={
-                <BlogPostPage article={selectedBlogArticle} onBack={() => window.location.assign('/blog')} />
-              } />
               <Route path="/contact" element={<ContactPage />} />
               <Route path="/about" element={<AboutPage />} />
               <Route path="/r/:resumeId" element={<PublicResumePage />} />
@@ -186,7 +190,7 @@ const App = () => {
               
               {/* Auth Routes */}
               <Route path="/login" element={
-                isAuthenticated ? <Navigate to="/dashboard" replace /> : 
+                isAuthenticated ? <AuthenticatedLoginRedirect /> : 
                 <LoginPage onLoginSuccess={(user) => setCurrentUser(user)} />
               } />
 

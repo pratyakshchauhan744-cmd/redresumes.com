@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Check } from 'lucide-react';
 import { backendApi, type AuthUser } from '../lib/backendApi';
-import { LOCAL_ACCOUNTS_STORAGE_KEY, setStoredAuthTokens, USER_STORAGE_KEY } from '../lib/auth';
+import { LOCAL_ACCOUNTS_STORAGE_KEY, setStoredAuthTokens, USER_STORAGE_KEY, migrateGuestResumeToUser } from '../lib/auth';
 import type { LocalAccount } from '../types';
 import { Seo } from '../components/Seo';
+
 
 declare global {
   interface Window {
@@ -34,6 +36,9 @@ declare global {
 }
 
 export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => void }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const redirectTarget = new URLSearchParams(location.search).get('redirect') || '/dashboard';
   const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot-password'>('login');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -251,6 +256,14 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
     };
     
     window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(mergedUser));
+    migrateGuestResumeToUser(mergedUser.id);
+  };
+
+  const completeAuthentication = (user: AuthUser, accessToken: string) => {
+    persistSignedInUser(user, accessToken);
+    migrateGuestResumeToUser(user.id);
+    onLoginSuccess(user);
+    navigate(redirectTarget, { replace: true });
   };
 
   const handleGoogleCredential = async (credential?: string) => {
@@ -264,8 +277,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
     setIsSubmitting(true);
     try {
       const response = await backendApi.googleLogin({ credential });
-      persistSignedInUser(response.user, response.accessToken);
-      onLoginSuccess(response.user);
+      completeAuthentication(response.user, response.accessToken);
     } catch (googleError) {
       setError(getGoogleAuthError(googleError instanceof Error ? googleError.message : 'Google sign-in failed.'));
     } finally {
@@ -331,8 +343,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
     setIsSubmitting(true);
     try {
       const response = await backendApi.login({ email: email.trim(), password });
-      persistSignedInUser(response.user, response.accessToken);
-      onLoginSuccess(response.user);
+      completeAuthentication(response.user, response.accessToken);
     } catch (signInError) {
       const message = signInError instanceof Error ? signInError.message : "";
       const normalizedEmail = email.trim().toLowerCase();
@@ -343,8 +354,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
         if (!accounts.some((account) => account.email.toLowerCase() === demoUser.email)) {
           writeLocalAccounts([...accounts, demoUser]);
         }
-        persistSignedInUser(demoUser, 'local-demo-token');
-        onLoginSuccess(demoUser);
+        completeAuthentication(demoUser, 'local-demo-token');
         return;
       }
 
@@ -363,8 +373,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
     }
     try {
       const response = await backendApi.verifyRegisterOtp({ sessionId: backendOtpSessionId, otp: enteredOtp.trim() });
-      persistSignedInUser(response.user, response.accessToken);
-      onLoginSuccess(response.user);
+      completeAuthentication(response.user, response.accessToken);
     } catch (verifyError) {
       setError(getFriendlyOtpError(verifyError instanceof Error ? verifyError.message : "", "Invalid OTP. Please try again."));
       return;
@@ -503,8 +512,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
         password,
         role,
       });
-      persistSignedInUser(response.user, response.accessToken);
-      onLoginSuccess(response.user);
+      completeAuthentication(response.user, response.accessToken);
     } catch (signUpError) {
       const accounts = readLocalAccounts();
       const alreadyExists = accounts.some((account) => account.email.toLowerCase() === email.trim().toLowerCase());

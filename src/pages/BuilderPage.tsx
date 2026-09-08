@@ -7,9 +7,9 @@ import { PrimaryButton, SecondaryButton } from '../components/Buttons';
 import { TemplatePreviewScaler } from '../components/TemplatePreviewScaler';
 import { TemplateVisualPreview } from '../components/TemplateVisualPreview';
 import { backendApi, type AtsScoreResponse, type AuthUser, type ImproveResumeResponse } from '../lib/backendApi';
-import { RESUME_DRAFT_STORAGE_KEY, RESUME_HISTORY_STORAGE_KEY, buildUserScopedStorageKey, getStoredAccessToken } from '../lib/auth';
+import { RESUME_DRAFT_STORAGE_KEY, RESUME_HISTORY_STORAGE_KEY, buildUserScopedStorageKey, getStoredAccessToken, migrateGuestResumeToUser } from '../lib/auth';
 import { templates, templatePreviewThemeById } from '../data/templates';
-import { resumeExamplePresets } from '../data/resumeExamples';
+import { resumeExamplePresets, getResumeExamplePreset } from '../data/resumeExamples';
 import { premiumFeatures } from '../data/premiumFeatures';
 import { generateResumeDocx } from '../lib/docxExport';
 import { downloadResumePdfFromHtml } from '../lib/resumePdfDownload';
@@ -209,6 +209,7 @@ export const ResumeBuilderPage = ({
 }) => {
   const locationRoute = useLocation();
   const routeTemplateId = useMemo(() => new URLSearchParams(locationRoute.search).get('template'), [locationRoute.search]);
+  const routeExampleParam = useMemo(() => new URLSearchParams(locationRoute.search).get('example'), [locationRoute.search]);
   interface ExperienceItem {
     title: string;
     dates: string;
@@ -415,11 +416,12 @@ export const ResumeBuilderPage = ({
   };
 
   useEffect(() => {
-    if (!selectedExample) return;
+    const targetExample = selectedExample || routeExampleParam;
+    if (!targetExample) return;
 
-    const preset = resumeExamplePresets[selectedExample];
+    const preset = getResumeExamplePreset(targetExample) || resumeExamplePresets[targetExample];
     if (!preset) {
-      setJobTitle(selectedExample);
+      setJobTitle(targetExample);
       return;
     }
 
@@ -455,8 +457,8 @@ export const ResumeBuilderPage = ({
     setImportantPlace('');
     setPhotoDataUrl('');
     setActiveSection('contact');
-    setHistoryMessage(`Loaded example: ${selectedExample} (${presetTemplate?.name ?? 'template'}).`);
-  }, [selectedExample]);
+    setHistoryMessage(`Loaded example: ${targetExample} (${presetTemplate?.name ?? 'template'}).`);
+  }, [selectedExample, routeExampleParam]);
 
   useEffect(() => {
     if (!routeTemplateId) return;
@@ -638,13 +640,34 @@ export const ResumeBuilderPage = ({
     try {
       const raw = window.localStorage.getItem(resumeHistoryStorageKey);
       if (!raw) {
-        setResumeHistory([]);
+        const snapshot = buildResumeHistorySnapshot();
+        const initialEntry: ResumeHistoryEntry = {
+          id: `resume-${Date.now()}`,
+          savedAt: new Date().toISOString(),
+          note: 'Initial version',
+          snapshot,
+        };
+        const initialList = [initialEntry];
+        persistResumeHistory(initialList);
+        setResumeHistory(initialList);
         setActiveHistoryId(null);
         return;
       }
       const parsed = JSON.parse(raw) as ResumeHistoryEntry[];
-      if (Array.isArray(parsed)) {
+      if (Array.isArray(parsed) && parsed.length > 0) {
         setResumeHistory(parsed.slice(0, MAX_RESUME_HISTORY_ITEMS));
+        setActiveHistoryId(null);
+      } else {
+        const snapshot = buildResumeHistorySnapshot();
+        const initialEntry: ResumeHistoryEntry = {
+          id: `resume-${Date.now()}`,
+          savedAt: new Date().toISOString(),
+          note: 'Initial version',
+          snapshot,
+        };
+        const initialList = [initialEntry];
+        persistResumeHistory(initialList);
+        setResumeHistory(initialList);
         setActiveHistoryId(null);
       }
     } catch {
@@ -875,7 +898,23 @@ export const ResumeBuilderPage = ({
 
   useEffect(() => {
     try {
-      const rawDraft = window.localStorage.getItem(resumeDraftStorageKey);
+      let rawDraft = window.localStorage.getItem(resumeDraftStorageKey);
+
+      // If user is logged in, but has no user draft yet, check guest draft fallback or run migration
+      if (!rawDraft && currentUser?.id) {
+        const migration = migrateGuestResumeToUser(currentUser.id);
+        if (migration.migrated && migration.draft) {
+          rawDraft = JSON.stringify(migration.draft);
+        } else {
+          const guestDraftKey = buildUserScopedStorageKey(RESUME_DRAFT_STORAGE_KEY, null);
+          const rawGuest = window.localStorage.getItem(guestDraftKey);
+          if (rawGuest) {
+            rawDraft = rawGuest;
+            window.localStorage.setItem(resumeDraftStorageKey, rawGuest);
+          }
+        }
+      }
+
       if (rawDraft) {
         const parsed = JSON.parse(rawDraft) as ResumeHistorySnapshot;
         if (parsed && typeof parsed === 'object') {
@@ -895,7 +934,7 @@ export const ResumeBuilderPage = ({
     } finally {
       setDraftHydrated(true);
     }
-  }, [resumeDraftStorageKey]);
+  }, [resumeDraftStorageKey, currentUser?.id]);
 
   const handleUndo = () => {
     setUndoStack((prev) => {
@@ -2904,53 +2943,6 @@ export const ResumeBuilderPage = ({
                 </div>
               </div>
 
-              <div id="builder-section-premium" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
-                <p className="text-xs uppercase tracking-[0.2em] text-zinc-400 font-semibold">Upgrade</p>
-                <h2 className="font-semibold text-zinc-900 mt-2">Premium tools inside builder</h2>
-                <p className="text-sm text-zinc-500 mt-2">Use all premium features directly while editing your resume.</p>
-
-                <div className="mt-5 grid md:grid-cols-2 gap-4">
-                  {premiumFeatures.map((feature) => (
-                    <div key={feature.id} className="rounded-xl border border-zinc-200 p-4 bg-zinc-50">
-                      <h3 className="font-semibold text-zinc-900">{feature.title}</h3>
-                      <p className="text-sm text-zinc-500 mt-1">{feature.desc}</p>
-
-                      <button
-                        onClick={() => handlePremiumFeatureInBuilder(feature.id)}
-                        disabled={premiumActionLoading === feature.id}
-                        className="mt-3 text-sm font-semibold text-primary disabled:cursor-wait disabled:opacity-60"
-                      >
-                        {premiumActionLoading === feature.id
-                          ? 'Working...'
-                          : feature.id === 'resume-shareable-link'
-                            ? shareLinkCopied
-                              ? 'Link copied'
-                              : 'Publish & copy link'
-                            : feature.id === 'qr-code-resume'
-                              ? 'Publish & generate QR'
-                              : 'Generate portfolio site'}
-                      </button>
-                      {feature.id === 'portfolio-website-generator' && (
-                        <button
-                          onClick={downloadPortfolioWebsiteHtml}
-                          className="mt-2 block text-xs font-semibold text-zinc-600 hover:text-zinc-900"
-                        >
-                          Download portfolio HTML
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-4 rounded-xl border border-zinc-200 p-3 text-sm bg-white">
-                  <p className="text-zinc-500">Live shareable URL</p>
-                  <p className="mt-1 break-all text-zinc-900">
-                    {publishedResumeUrl || 'Publish your resume to create a live URL.'}
-                  </p>
-                </div>
-                {premiumActionMessage && <p className="mt-3 text-sm text-primary font-medium">{premiumActionMessage}</p>}
-              </div>
-
               <div id="builder-section-experience" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <h2 className="font-semibold text-zinc-900">Work Experience</h2>
@@ -3192,6 +3184,53 @@ export const ResumeBuilderPage = ({
                     ))
                   )}
                 </div>
+              </div>
+
+              <div id="builder-section-premium" className="rounded-2xl border border-zinc-100 bg-white p-4 md:p-6">
+                <p className="text-xs uppercase tracking-[0.2em] text-zinc-400 font-semibold">Upgrade</p>
+                <h2 className="font-semibold text-zinc-900 mt-2">Premium tools inside builder</h2>
+                <p className="text-sm text-zinc-500 mt-2">Use all premium features directly while editing your resume.</p>
+
+                <div className="mt-5 grid md:grid-cols-2 gap-4">
+                  {premiumFeatures.map((feature) => (
+                    <div key={feature.id} className="rounded-xl border border-zinc-200 p-4 bg-zinc-50">
+                      <h3 className="font-semibold text-zinc-900">{feature.title}</h3>
+                      <p className="text-sm text-zinc-500 mt-1">{feature.desc}</p>
+
+                      <button
+                        onClick={() => handlePremiumFeatureInBuilder(feature.id)}
+                        disabled={premiumActionLoading === feature.id}
+                        className="mt-3 text-sm font-semibold text-primary disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {premiumActionLoading === feature.id
+                          ? 'Working...'
+                          : feature.id === 'resume-shareable-link'
+                            ? shareLinkCopied
+                              ? 'Link copied'
+                              : 'Publish & copy link'
+                            : feature.id === 'qr-code-resume'
+                              ? 'Publish & generate QR'
+                              : 'Generate portfolio site'}
+                      </button>
+                      {feature.id === 'portfolio-website-generator' && (
+                        <button
+                          onClick={downloadPortfolioWebsiteHtml}
+                          className="mt-2 block text-xs font-semibold text-zinc-600 hover:text-zinc-900"
+                        >
+                          Download portfolio HTML
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-4 rounded-xl border border-zinc-200 p-3 text-sm bg-white">
+                  <p className="text-zinc-500">Live shareable URL</p>
+                  <p className="mt-1 break-all text-zinc-900">
+                    {publishedResumeUrl || 'Publish your resume to create a live URL.'}
+                  </p>
+                </div>
+                {premiumActionMessage && <p className="mt-3 text-sm text-primary font-medium">{premiumActionMessage}</p>}
               </div>
             </div>
 
@@ -3526,7 +3565,14 @@ export const ResumeBuilderPage = ({
                 Create a free account or sign in to download your resume as PDF or DOCX.
               </p>
               <Link
-                to="/login"
+                to="/login?redirect=/builder"
+                onClick={() => {
+                  try {
+                    window.localStorage.setItem(resumeDraftStorageKey, currentBuilderSnapshotHash);
+                  } catch {
+                    // ignore
+                  }
+                }}
                 className="mt-6 flex w-full items-center justify-center rounded-2xl bg-primary px-5 py-3.5 text-sm font-bold text-white shadow-[0_12px_28px_rgba(177,18,23,0.22)] transition hover:opacity-90"
               >
                 Sign in / Create account

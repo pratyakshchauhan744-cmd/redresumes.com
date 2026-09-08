@@ -18,8 +18,7 @@ export const Footer = ({ currentUser }: { currentUser: AuthUser | null }) => (
       <div className="space-y-2 flex flex-col items-start">
         <p className="text-zinc-900 font-semibold mb-1">Company</p>
         <Link to="/about" className="block text-zinc-500 hover:text-zinc-900">About Us</Link>
-        <Link to="/blog" className="block text-zinc-500 hover:text-zinc-900">Blog</Link>
-        <Link to="/examples" className="block text-zinc-500 hover:text-zinc-900">Resume Examples</Link>
+        <Link to="/resume-examples" className="block text-zinc-500 hover:text-zinc-900">Resume Examples</Link>
         <Link to="/contact" className="block text-zinc-500 hover:text-zinc-900">Contact</Link>
         <Link to="/dashboard" className="block text-zinc-500 hover:text-zinc-900">Dashboard</Link>
       </div>

@@ -23,22 +23,18 @@ const pageSeo: Record<string, { title: string; description: string; type?: 'webs
     description:
       'Fill in your work history, education, and skills, get AI-suggested bullet points, then export an ATS-friendly resume as a free PDF. No sign-up needed.',
   },
+  '/resume-examples': {
+    title: 'Resume Examples & Writing Guides Hub (2026) | RedResumes',
+    description:
+      'Browse ATS-optimized resume examples and step-by-step writing guides for Software Engineers, Freshers, Entry Level, Marketing, Data Analysts, and more.',
+  },
   '/examples': {
-    title: 'Resume Examples & Optimization Presets | Red Resumes',
+    title: 'Resume Examples & Writing Guides Hub (2026) | RedResumes',
     description: 'Explore role-specific resume examples and optimize your layout to target key skills.',
   },
   '/job-finder': {
     title: 'Job Application Tools & Tracker | Red Resumes',
     description: 'Search jobs, track application status, and match your resume to target descriptions using our job application tools.',
-  },
-  '/blog': {
-    title: 'Career Tips & Resume Analysis | Red Resumes',
-    description: 'Expert advice on resume writing, ATS screening secrets, resume optimization, and mock interview preparation.',
-  },
-  '/blog/post': {
-    title: 'ATS Resume Optimization Guide | Red Resumes',
-    description: 'Detailed analysis on resume optimization, beating ATS systems, and using job application tools effectively.',
-    type: 'article',
   },
   '/contact': {
     title: 'Contact & Support | Red Resumes',

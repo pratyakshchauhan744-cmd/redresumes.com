@@ -1988,7 +1988,7 @@ export const ResumeBuilderPage = ({
           <title>${safePdfFileName}</title>
           <link rel="preconnect" href="https://fonts.googleapis.com">
           <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
           <style>
             @page { size: A4; margin: 12mm; }
             * { box-sizing: border-box; }
@@ -1996,8 +1996,9 @@ export const ResumeBuilderPage = ({
             body {
               width: 100%;
               margin: 0;
+              padding: 0;
               color: #111827;
-              background: #f8fafc;
+              background: ${previewMode ? '#f8fafc' : '#ffffff'};
               font-family: ${pdfTheme.font};
               line-height: 1.45;
               -webkit-print-color-adjust: exact;
@@ -2010,8 +2011,8 @@ export const ResumeBuilderPage = ({
               max-width: 186mm;
               margin: 0 auto;
               background: #fff;
-              border: 1px solid #e5e7eb;
-              border-radius: 12px;
+              border: ${previewMode ? '1px solid #e5e7eb' : 'none'};
+              border-radius: ${previewMode ? '12px' : '0'};
               overflow: hidden;
               ${previewMode ? 'transform: scale(0.34); transform-origin: top center;' : ''}
             }
@@ -2041,12 +2042,12 @@ export const ResumeBuilderPage = ({
             li { font-size: 11.4px; line-height: 1.43; color: #374151; margin-bottom: 1px; overflow-wrap: anywhere; }
             .tag { display: inline-block; border: 1px solid #d4d4d8; border-radius: 999px; padding: 2px 7px; margin: 0 5px 5px 0; font-size: 10.8px; line-height: 1.35; color: #1f2937; }
             @media print {
-              body { background: #fff; }
+              body { background: #fff; padding: 0; margin: 0; }
               .resume { max-width: none; border: none; border-radius: 0; box-shadow: none; }
               .content.two { grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.38fr); }
             }
             @media screen {
-              body { padding: 24px; }
+              body { padding: ${previewMode ? '24px' : '0'}; }
             }
           </style>
         </head>
@@ -3263,7 +3264,12 @@ export const ResumeBuilderPage = ({
                   {/* Template label header */}
                   <div className="flex items-center justify-between px-5 pt-4 pb-3 text-sm text-zinc-500">
                     <span>Template</span>
-                    <span className="font-bold text-zinc-900">{selectedTemplate.name}</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-zinc-500">
+                        Layout: {currentTheme.layout === 'two-column' ? 'Two-column' : 'Single-column'}
+                      </span>
+                      <span className="font-bold text-zinc-900">{selectedTemplate.name}</span>
+                    </div>
                   </div>
 
                   <div className="mx-3 mb-4 max-h-[700px] overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-2 [scrollbar-gutter:stable]">

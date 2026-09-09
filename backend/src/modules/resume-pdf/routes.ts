@@ -101,6 +101,13 @@ router.post("/pdf", pdfLimiter, async (req, res, next) => {
 
     const page = await browser.newPage();
 
+    // Set standard browser user agent so font CDNs (Google Fonts) don't block headless Chrome
+    if (typeof (page as any).setUserAgent === "function") {
+      await (page as any).setUserAgent(
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+      );
+    }
+
     // Disable JavaScript to block Server-Side XSS execution (CWE-79 mitigation)
     await page.setJavaScriptEnabled(false);
 

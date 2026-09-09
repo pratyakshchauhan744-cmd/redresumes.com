@@ -4,8 +4,14 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
-  ]
+  ],
+  "functions": {
+    "api/resume/pdf.ts": {
+      "memory": 1024,
+      "maxDuration": 60
+    }
+  }
 }

@@ -85,8 +85,17 @@ export async function downloadResumePdfFromHtml(html: string, fileName: string):
 }
 
 export function buildResumePdfHtmlFromElement(element: HTMLElement, fileName: string): string {
-  const styleMarkup = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
-    .map((node) => node.outerHTML)
+  const styleNodes = Array.from(
+    document.querySelectorAll<HTMLElement>('style, link[rel="stylesheet"], link[rel="preload"][as="style"]')
+  );
+  const styleMarkup = styleNodes
+    .map((node) => {
+      if (node.tagName.toLowerCase() === "link" && node.getAttribute("as") === "style") {
+        const href = node.getAttribute("href");
+        return `<link rel="stylesheet" href="${href}">`;
+      }
+      return node.outerHTML;
+    })
     .join("\n");
   const baseHref = `${window.location.origin}/`;
 
@@ -96,6 +105,9 @@ export function buildResumePdfHtmlFromElement(element: HTMLElement, fileName: st
     <meta charset="utf-8" />
     <base href="${baseHref}" />
     <title>${fileName}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Inter:wght@400;500;600&display=swap" />
     ${styleMarkup}
     <style>
       @page { size: A4; margin: 12mm; }

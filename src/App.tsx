@@ -1,10 +1,10 @@
-import { useEffect, useState, lazy, Suspense } from 'react';
+import { useEffect, useState, lazy, Suspense, type ReactNode } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';
 import { Seo } from './components/Seo';
-import { readStoredUser } from './lib/auth';
-import type { AuthUser } from './lib/backendApi';
+import { clearStoredAuthTokens, readStoredUser, USER_STORAGE_KEY } from './lib/auth';
+import { backendApi, sanitizeRedirectUrl, type AuthUser } from './lib/backendApi';
 
 import { templates } from './data/templates';
 import type { TemplateItem } from './types';
@@ -53,8 +53,18 @@ const RouteUiEffects = () => {
 
 const AuthenticatedLoginRedirect = () => {
   const location = useLocation();
-  const redirect = new URLSearchParams(location.search).get('redirect');
-  return <Navigate to={redirect || '/dashboard'} replace />;
+  const rawRedirect = new URLSearchParams(location.search).get('redirect');
+  const safeRedirect = sanitizeRedirectUrl(rawRedirect, '/dashboard');
+  return <Navigate to={safeRedirect} replace />;
+};
+
+const ProtectedRoute = ({ isAuthenticated, children }: { isAuthenticated: boolean; children: ReactNode }) => {
+  const location = useLocation();
+  if (!isAuthenticated) {
+    const currentPath = sanitizeRedirectUrl(location.pathname + location.search, '/dashboard');
+    return <Navigate to={`/login?redirect=${encodeURIComponent(currentPath)}`} replace />;
+  }
+  return <>{children}</>;
 };
 
 export const App = () => {
@@ -115,10 +125,15 @@ export const App = () => {
   }, [darkMode]);
 
   const handleLogout = () => {
-    window.sessionStorage.removeItem('redresumes_access_token');
-    window.localStorage.removeItem('redresumes_access_token');
-    window.localStorage.removeItem('redresumes_user');
+    void backendApi.logout().catch(() => {});
+    clearStoredAuthTokens();
+    window.localStorage.removeItem(USER_STORAGE_KEY);
     setCurrentUser(null);
+  };
+
+  const handleUserUpdated = (updatedUser: AuthUser) => {
+    window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(updatedUser));
+    setCurrentUser(updatedUser);
   };
 
   const isAuthenticated = Boolean(currentUser);
@@ -191,34 +206,34 @@ export const App = () => {
               {/* Auth Routes */}
               <Route path="/login" element={
                 isAuthenticated ? <AuthenticatedLoginRedirect /> : 
-                <LoginPage onLoginSuccess={(user) => setCurrentUser(user)} />
+                <LoginPage onLoginSuccess={(user) => handleUserUpdated(user)} />
               } />
 
               {/* Protected Routes */}
               <Route path="/dashboard" element={
-                isAuthenticated ? 
+                <ProtectedRoute isAuthenticated={isAuthenticated}>
                   <DashboardPage 
                     currentUser={currentUser!} 
                     onLogout={handleLogout} 
-                    onUserUpdated={setCurrentUser} 
-                  /> : 
-                  <Navigate to="/login" replace />
+                    onUserUpdated={handleUserUpdated} 
+                  />
+                </ProtectedRoute>
               } />
               
               <Route path="/interview/setup" element={
-                isAuthenticated ? 
-                  <InterviewSetupPage currentUser={currentUser} onUserUpdated={setCurrentUser} /> : 
-                  <Navigate to="/login" replace />
+                <ProtectedRoute isAuthenticated={isAuthenticated}>
+                  <InterviewSetupPage currentUser={currentUser} onUserUpdated={handleUserUpdated} />
+                </ProtectedRoute>
               } />
               <Route path="/interview/session/:id" element={
-                isAuthenticated ? 
-                  <InterviewSessionPage currentUser={currentUser} /> : 
-                  <Navigate to="/login" replace />
+                <ProtectedRoute isAuthenticated={isAuthenticated}>
+                  <InterviewSessionPage currentUser={currentUser} />
+                </ProtectedRoute>
               } />
               <Route path="/interview/report/:id" element={
-                isAuthenticated ? 
-                  <InterviewReportPage /> : 
-                  <Navigate to="/login" replace />
+                <ProtectedRoute isAuthenticated={isAuthenticated}>
+                  <InterviewReportPage />
+                </ProtectedRoute>
               } />
               
               {/* Admin Route */}

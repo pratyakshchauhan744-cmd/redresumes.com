@@ -5,7 +5,7 @@ import rateLimit from "express-rate-limit";
 import { createHash, randomBytes, randomInt } from "crypto";
 import nodemailer from "nodemailer";
 import { OAuth2Client } from "google-auth-library";
-import type { SignInMethod } from "@prisma/client";
+import type { SignInMethod, UserRole } from "@prisma/client";
 import { prisma } from "../../db/prisma.js";
 import { redisConnection } from "../../db/redis.js";
 import { env } from "../../config/env.js";
@@ -35,6 +35,12 @@ const otpStartLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
   max: 10,
   message: { message: "Too many OTP requests, please try again later" }
+});
+
+const passwordResetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { message: "Too many password reset attempts, please try again in 15 minutes" }
 });
 
 const registerSchema = z.object({
@@ -90,6 +96,7 @@ type PendingOtpLogin = {
   email: string;
   otp: string;
   expiresAt: number;
+  attempts?: number;
 };
 
 type PendingOtpSignup = {
@@ -97,9 +104,10 @@ type PendingOtpSignup = {
   name: string;
   email: string;
   password: string;
-  role: "candidate" | "employer" | "admin";
+  role: UserRole;
   otp: string;
   expiresAt: number;
+  attempts?: number;
 };
 
 type PendingOtpForgot = {
@@ -109,6 +117,8 @@ type PendingOtpForgot = {
   otp: string;
   verified: boolean;
   expiresAt: number;
+  attempts?: number;
+  isDummy?: boolean;
 };
 
 const pendingOtpLogins = new Map<string, PendingOtpLogin>();
@@ -459,7 +469,7 @@ async function recordSignIn(userId: string, method: SignInMethod): Promise<void>
 
 async function issueAuthResponse(
   res: Response,
-  user: { id: string; name: string; email: string; role: "candidate" | "employer" | "admin" },
+  user: { id: string; name: string; email: string; role: UserRole },
   method: SignInMethod
 ): Promise<void> {
   const payload = { sub: user.id, role: user.role, email: user.email };
@@ -624,6 +634,13 @@ router.post("/register/verify", otpVerifyLimiter, async (req, res, next) => {
       return;
     }
     if (pending.otp !== body.otp) {
+      pending.attempts = (pending.attempts ?? 0) + 1;
+      if (pending.attempts >= 5) {
+        await deleteOtpSession(pendingOtpSignups, "signup", body.sessionId);
+        res.status(429).json({ message: "Too many failed attempts. Please create account again." });
+        return;
+      }
+      await saveOtpSession(pendingOtpSignups, "signup", body.sessionId, pending);
       res.status(401).json({ message: "Invalid OTP." });
       return;
     }
@@ -691,6 +708,11 @@ router.post("/login", loginLimiter, async (req, res, next) => {
       return;
     }
 
+    if (!user.isActive) {
+      res.status(403).json({ message: "Account has been deactivated. Please contact support." });
+      return;
+    }
+
     const isValid = await bcrypt.compare(body.password, user.passwordHash);
     if (!isValid) {
       res.status(401).json({ message: "Invalid credentials" });
@@ -732,6 +754,12 @@ router.post("/google", loginLimiter, async (req, res, next) => {
     const email = normalizedEmail(payload.email);
     const displayName = payload.name?.trim() || email.split("@")[0] || "Google User";
     const existing = await prisma.user.findUnique({ where: { email } });
+
+    if (existing && !existing.isActive) {
+      res.status(403).json({ message: "Account has been deactivated. Please contact support." });
+      return;
+    }
+
     const user = existing ?? await prisma.user.create({
       data: {
         name: displayName,
@@ -754,6 +782,11 @@ router.post("/login/start", otpStartLimiter, async (req, res, next) => {
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
       res.status(401).json({ message: "Invalid credentials" });
+      return;
+    }
+
+    if (!user.isActive) {
+      res.status(403).json({ message: "Account has been deactivated. Please contact support." });
       return;
     }
 
@@ -811,6 +844,13 @@ router.post("/login/verify", otpVerifyLimiter, async (req, res, next) => {
       return;
     }
     if (pending.otp !== body.otp) {
+      pending.attempts = (pending.attempts ?? 0) + 1;
+      if (pending.attempts >= 5) {
+        await deleteOtpSession(pendingOtpLogins, "login", body.sessionId);
+        res.status(429).json({ message: "Too many failed attempts. Please login again." });
+        return;
+      }
+      await saveOtpSession(pendingOtpLogins, "login", body.sessionId, pending);
       res.status(401).json({ message: "Invalid OTP." });
       return;
     }
@@ -819,6 +859,11 @@ router.post("/login/verify", otpVerifyLimiter, async (req, res, next) => {
     const user = await prisma.user.findUnique({ where: { id: pending.userId } });
     if (!user) {
       res.status(401).json({ message: "User not found." });
+      return;
+    }
+
+    if (!user.isActive) {
+      res.status(403).json({ message: "Account has been deactivated. Please contact support." });
       return;
     }
 
@@ -838,7 +883,7 @@ router.post("/refresh", async (req, res, next) => {
 
     let payload;
     try {
-      payload = verifyToken(refreshToken);
+      payload = verifyToken(refreshToken, "refresh");
     } catch (err) {
       res.status(401).json({ message: "Invalid or expired refresh token" });
       return;
@@ -848,15 +893,25 @@ router.post("/refresh", async (req, res, next) => {
         userId: payload.sub,
         tokenHash: tokenHash(refreshToken),
         expiresAt: { gt: new Date() }
+      },
+      include: {
+        user: {
+          select: { id: true, isActive: true, role: true, email: true }
+        }
       }
     });
 
-    if (!stored) {
+    if (!stored || !stored.user) {
       res.status(401).json({ message: "Invalid refresh token" });
       return;
     }
 
-    const accessToken = signAccessToken({ sub: payload.sub, role: payload.role, email: payload.email });
+    if (!stored.user.isActive) {
+      res.status(403).json({ message: "Account has been deactivated. Please contact support." });
+      return;
+    }
+
+    const accessToken = signAccessToken({ sub: stored.user.id, role: stored.user.role, email: stored.user.email });
     res.json({ accessToken });
   } catch (error) {
     next(error);
@@ -902,8 +957,19 @@ router.post("/forgot-password/start", otpStartLimiter, async (req, res, next) =>
     const email = normalizedEmail(body.email);
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      // To prevent email enumeration, simulate success
-      res.json({ message: "If that email is registered, we have sent an OTP.", sessionId: "dummy", expiresInSeconds: OTP_TTL_MS / 1000 });
+      // To prevent email enumeration, simulate success with a valid-format sessionId
+      const dummySessionId = randomBytes(24).toString("hex");
+      const dummyOtp = generateOtp();
+      await saveOtpSession(pendingOtpForgot, "forgot", dummySessionId, {
+        sessionId: dummySessionId,
+        userId: "dummy",
+        email,
+        otp: dummyOtp,
+        verified: false,
+        expiresAt: Date.now() + OTP_TTL_MS,
+        isDummy: true
+      });
+      res.json({ message: "If that email is registered, we have sent an OTP.", sessionId: dummySessionId, expiresInSeconds: OTP_TTL_MS / 1000 });
       return;
     }
 
@@ -949,7 +1015,15 @@ router.post("/forgot-password/verify", otpVerifyLimiter, async (req, res, next) 
       res.status(401).json({ message: "OTP expired. Please request a new OTP." });
       return;
     }
-    if (pending.otp !== body.otp) {
+
+    if (pending.isDummy || pending.otp !== body.otp) {
+      pending.attempts = (pending.attempts ?? 0) + 1;
+      if (pending.attempts >= 5) {
+        await deleteOtpSession(pendingOtpForgot, "forgot", body.sessionId);
+        res.status(429).json({ message: "Too many failed attempts. Please request a new OTP." });
+        return;
+      }
+      await saveOtpSession(pendingOtpForgot, "forgot", body.sessionId, pending);
       res.status(401).json({ message: "Invalid OTP." });
       return;
     }
@@ -962,11 +1036,11 @@ router.post("/forgot-password/verify", otpVerifyLimiter, async (req, res, next) 
   }
 });
 
-router.post("/forgot-password/reset", async (req, res, next) => {
+router.post("/forgot-password/reset", passwordResetLimiter, async (req, res, next) => {
   try {
     const body = forgotPasswordResetSchema.parse(req.body);
     const pending = await getOtpSession(pendingOtpForgot, "forgot", body.sessionId);
-    if (!pending || !pending.verified) {
+    if (!pending || !pending.verified || pending.isDummy || pending.userId === "dummy") {
       res.status(401).json({ message: "Unauthorized or session expired. Please verify OTP first." });
       return;
     }

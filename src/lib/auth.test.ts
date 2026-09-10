@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseGoogleJwt } from './auth';
+import { parseGoogleJwt, sanitizeRedirectUrl } from './auth';
 
 describe('parseGoogleJwt', () => {
   it('correctly decodes a valid Google JWT ID token', () => {
@@ -44,5 +44,42 @@ describe('parseGoogleJwt', () => {
   it('returns null for malformed token', () => {
     expect(parseGoogleJwt('not-a-jwt')).toBeNull();
     expect(parseGoogleJwt('')).toBeNull();
+  });
+});
+
+describe('sanitizeRedirectUrl', () => {
+  it('allows safe relative paths', () => {
+    expect(sanitizeRedirectUrl('/dashboard')).toBe('/dashboard');
+    expect(sanitizeRedirectUrl('/interview/setup')).toBe('/interview/setup');
+    expect(sanitizeRedirectUrl('/builder?template=modern&draft=1')).toBe('/builder?template=modern&draft=1');
+  });
+
+  it('blocks absolute URLs and returns fallback', () => {
+    expect(sanitizeRedirectUrl('https://evil.com')).toBe('/dashboard');
+    expect(sanitizeRedirectUrl('http://evil.com/phish')).toBe('/dashboard');
+    expect(sanitizeRedirectUrl('https://redresumes.com.attacker.com')).toBe('/dashboard');
+  });
+
+  it('blocks protocol-relative URLs (//evil.com)', () => {
+    expect(sanitizeRedirectUrl('//evil.com')).toBe('/dashboard');
+    expect(sanitizeRedirectUrl('//evil.com/login')).toBe('/dashboard');
+  });
+
+  it('blocks backslash bypass attempts (/\\evil.com)', () => {
+    expect(sanitizeRedirectUrl('/\\evil.com')).toBe('/dashboard');
+    expect(sanitizeRedirectUrl('/\\/evil.com')).toBe('/dashboard');
+  });
+
+  it('blocks javascript: and data: URI schemes', () => {
+    expect(sanitizeRedirectUrl('javascript:alert(1)')).toBe('/dashboard');
+    expect(sanitizeRedirectUrl('data:text/html,<script>alert(1)</script>')).toBe('/dashboard');
+  });
+
+  it('handles empty, null, and undefined values with fallback', () => {
+    expect(sanitizeRedirectUrl(null)).toBe('/dashboard');
+    expect(sanitizeRedirectUrl(undefined)).toBe('/dashboard');
+    expect(sanitizeRedirectUrl('')).toBe('/dashboard');
+    expect(sanitizeRedirectUrl('   ')).toBe('/dashboard');
+    expect(sanitizeRedirectUrl(null, '/home')).toBe('/home');
   });
 });

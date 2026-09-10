@@ -1,4 +1,5 @@
-import { setStoredAuthTokens, clearStoredAuthTokens, getStoredAccessToken, isLocalAccessToken } from "./auth";
+import { setStoredAuthTokens, clearStoredAuthTokens, getStoredAccessToken, isLocalAccessToken, sanitizeRedirectUrl } from "./auth";
+export { sanitizeRedirectUrl } from "./auth";
 
 const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
 const isBrowser = typeof window !== "undefined";
@@ -87,7 +88,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   let token = (options.token && options.token !== "") ? options.token : getStoredAccessToken();
 
-  if (!token && path !== "/api/auth/refresh" && path !== "/api/auth/login" && path !== "/api/auth/register") {
+  if (!token && !path.startsWith("/api/auth/")) {
     if (typeof window !== "undefined" && window.localStorage.getItem("redresumes_user")) {
       try {
         const refreshResponse = await fetch(`${baseUrl}/api/auth/refresh`, {
@@ -121,8 +122,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     throw new Error(`Cannot reach backend at ${baseUrl || "same-origin"}. Start backend server and verify VITE_API_BASE_URL.`);
   }
 
-  // Silent automatic token refresh on 401
-  if (response.status === 401 && path !== "/api/auth/refresh" && path !== "/api/auth/login" && path !== "/api/auth/register") {
+  // Silent automatic token refresh on 401 for protected non-auth endpoints
+  if (response.status === 401 && !path.startsWith("/api/auth/")) {
     if (isLocalAccessToken(token)) {
       throw new Error("This action needs a live backend session. Please sign in with a server-backed account.");
     }
@@ -142,7 +143,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
         clearStoredAuthTokens();
         if (typeof window !== "undefined") {
           window.localStorage.removeItem("redresumes_user");
-          window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+          const safeRedirect = sanitizeRedirectUrl(window.location.pathname + window.location.search, "/dashboard");
+          window.location.href = `/login?redirect=${encodeURIComponent(safeRedirect)}`;
         }
       }
     } catch (refreshErr) {

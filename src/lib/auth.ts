@@ -46,6 +46,22 @@ export const clearStoredAuthTokens = () => {
 export const buildUserScopedStorageKey = (baseKey: string, userId?: string | null): string =>
   userId ? `${baseKey}:${userId}` : `${baseKey}:guest`;
 
+export const sanitizeRedirectUrl = (target?: string | null, fallback = '/dashboard'): string => {
+  if (!target || typeof target !== 'string') {
+    return fallback;
+  }
+  const trimmed = target.trim();
+  // Must start with exactly one forward slash, not '//' or '/\' (protocol-relative or Windows-path open redirects)
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//') || trimmed.startsWith('/\\')) {
+    return fallback;
+  }
+  // Must not contain schemes like javascript:, data:, https:, etc.
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
+    return fallback;
+  }
+  return trimmed;
+};
+
 export interface GoogleJwtPayload {
   iss?: string;
   aud?: string;

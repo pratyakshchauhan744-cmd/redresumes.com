@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, ArrowRight, Copy, Check, Download, ExternalLink } from 'lucide-react';
+import { Sparkles, Copy, Check } from 'lucide-react';
 import { useState } from 'react';
 import type { RoleGuideResumeData } from '../../data/roleGuides';
 
@@ -57,20 +57,12 @@ export const RoleGuideResumeMockup = ({
 
       {/* Styled Paper Resume Mockup */}
       <div className="relative overflow-hidden rounded-2xl border border-zinc-300 bg-white p-6 sm:p-10 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-        {/* Floating Top-Right Action Banner */}
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 pb-4 dark:border-zinc-800">
+        {/* ATS score tag */}
+        <div className="mb-6 flex items-center justify-between border-b border-zinc-100 pb-4 dark:border-zinc-800">
           <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
             ATS Tested &bull; 95/100 Score
           </span>
-
-          <button
-            onClick={handleUseTemplate}
-            className="inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline dark:text-red-400"
-          >
-            <span>Open in Interactive Editor</span>
-            <ExternalLink className="h-3.5 w-3.5" />
-          </button>
         </div>
 
         {/* Structured Resume Content */}
@@ -201,17 +193,6 @@ export const RoleGuideResumeMockup = ({
             </div>
           )}
         </article>
-
-        {/* Bottom Bar within Mockup */}
-        <div className="mt-8 rounded-xl bg-zinc-50 p-4 text-center dark:bg-zinc-800/60">
-          <button
-            onClick={handleUseTemplate}
-            className="inline-flex items-center gap-2 font-bold text-primary hover:text-red-700 text-sm dark:text-red-400"
-          >
-            <span>Click here to customize and download this {roleTitle} resume in PDF</span>
-            <ArrowRight className="h-4 w-4" />
-          </button>
-        </div>
       </div>
     </section>
   );

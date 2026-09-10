@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Check } from 'lucide-react';
 import { backendApi, type AuthUser } from '../lib/backendApi';
-import { LOCAL_ACCOUNTS_STORAGE_KEY, setStoredAuthTokens, USER_STORAGE_KEY, migrateGuestResumeToUser, parseGoogleJwt } from '../lib/auth';
+import { LOCAL_ACCOUNTS_STORAGE_KEY, setStoredAuthTokens, USER_STORAGE_KEY, migrateGuestResumeToUser, parseGoogleJwt, sanitizeRedirectUrl } from '../lib/auth';
 import type { LocalAccount } from '../types';
 import { Seo } from '../components/Seo';
 
@@ -38,7 +38,7 @@ declare global {
 export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => void }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const redirectTarget = new URLSearchParams(location.search).get('redirect') || '/dashboard';
+  const redirectTarget = sanitizeRedirectUrl(new URLSearchParams(location.search).get('redirect'), '/dashboard');
   const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot-password'>('login');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -540,8 +540,8 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
     setError(null);
     setSuccessMessage(null);
 
-    if (!fullName.trim()) {
-      setError('Please enter your full name.');
+    if (fullName.trim().length < 2) {
+      setError('Please enter your full name (at least 2 characters).');
       return;
     }
     if (!isValidEmail(email)) {
@@ -569,45 +569,46 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       });
       completeAuthentication(response.user, response.accessToken);
     } catch (signUpError) {
-      const accounts = readLocalAccounts();
+      const rawErrorMsg = signUpError instanceof Error ? signUpError.message : '';
+      const lower = rawErrorMsg.toLowerCase();
       const normalizedEmail = email.trim().toLowerCase();
-      const alreadyExists = accounts.some((account) => account.email.toLowerCase() === normalizedEmail);
 
-      if (alreadyExists) {
+      if (
+        lower.includes('already registered') ||
+        lower.includes('already exists') ||
+        lower.includes('conflict') ||
+        lower.includes('409')
+      ) {
         setError('An account with this email already exists. Try signing in instead.');
-        setIsSubmitting(false);
         return;
       }
 
-      // If backend is unavailable or returns 405/404, fall back to creating a local account
-      try {
-        const rawAccounts = window.localStorage.getItem(LOCAL_ACCOUNTS_STORAGE_KEY);
-        let parsedAccounts: Array<LocalAccount & { password?: string }> = [];
-        if (rawAccounts) {
-          parsedAccounts = JSON.parse(rawAccounts);
+      // If backend is strictly unreachable due to network/server outage, permit offline session without storing plaintext passwords
+      if (isBackendUnavailableError(rawErrorMsg)) {
+        try {
+          const accounts = readLocalAccounts();
+          const existing = accounts.find((acc) => acc.email.toLowerCase() === normalizedEmail);
+          const localUser: LocalAccount = existing ?? {
+            id: `local-user-${Date.now()}`,
+            name: fullName.trim(),
+            email: normalizedEmail,
+            role,
+            createdAt: new Date().toISOString(),
+            credits: 10,
+          };
+
+          if (!existing) {
+            writeLocalAccounts([...accounts, localUser]);
+          }
+
+          completeAuthentication(localUser, `local-token-${localUser.id}`);
+          return;
+        } catch (e) {
+          console.error('Failed to create offline account:', e);
         }
-
-        const newLocalUser: LocalAccount & { password?: string } = {
-          id: `local-user-${Date.now()}`,
-          name: fullName.trim(),
-          email: normalizedEmail,
-          role,
-          password,
-          createdAt: new Date().toISOString(),
-          credits: 10,
-        };
-
-        parsedAccounts.push(newLocalUser);
-        window.localStorage.setItem(LOCAL_ACCOUNTS_STORAGE_KEY, JSON.stringify(parsedAccounts));
-
-        const { password: _, ...cleanUser } = newLocalUser;
-        completeAuthentication(cleanUser, `local-token-${newLocalUser.id}`);
-        return;
-      } catch (e) {
-        console.error('Failed to create local account:', e);
       }
 
-      setError(getFriendlyRegisterError(signUpError instanceof Error ? signUpError.message : 'Unable to create account.'));
+      setError(getFriendlyRegisterError(rawErrorMsg));
     } finally {
       setIsSubmitting(false);
     }
@@ -635,6 +636,8 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                   setAuthMode(item.id as 'login' | 'signup');
                   setError(null);
                   setSuccessMessage(null);
+                  setPassword('');
+                  setConfirmPassword('');
                   setSignupStep('form');
                   setBackendOtpSessionId(null);
                   setEnteredOtp('');
@@ -683,6 +686,11 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                   placeholder="6-digit OTP"
                   value={enteredOtp}
                   onChange={(event) => setEnteredOtp(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !isSubmitting) {
+                      void verifySignupOtp();
+                    }
+                  }}
                 />
                 {otpMessage && <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{otpMessage}</p>}
                 <div className="mt-4 flex flex-wrap gap-3">
@@ -743,6 +751,11 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                   placeholder="Enter your full name"
                   value={fullName}
                   onChange={(event) => setFullName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !isSubmitting) {
+                      void (authMode === 'login' ? signIn() : signUp());
+                    }
+                  }}
                 />
               </div>
             )}
@@ -815,6 +828,11 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                       type={showConfirmPassword ? 'text' : 'password'}
                       value={confirmPassword}
                       onChange={(event) => setConfirmPassword(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && !isSubmitting) {
+                          void signUp();
+                        }
+                      }}
                     />
                     <button
                       type="button"
@@ -855,6 +873,11 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                       placeholder="Enter your email"
                       value={email}
                       onChange={(event) => setEmail(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && !isSubmitting) {
+                          void startForgotPassword();
+                        }
+                      }}
                     />
                     <div className="mt-4 grid gap-3 sm:flex">
                       <button
@@ -889,6 +912,11 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                       placeholder="6-digit OTP"
                       value={enteredOtp}
                       onChange={(event) => setEnteredOtp(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && !isSubmitting) {
+                          void verifyForgotPassword();
+                        }
+                      }}
                     />
                     {otpMessage && <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{otpMessage}</p>}
                     <div className="mt-4 grid gap-3 sm:flex">
@@ -921,6 +949,11 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                         type={showPassword ? 'text' : 'password'}
                         value={password}
                         onChange={(event) => setPassword(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' && !isSubmitting) {
+                            void doResetPassword();
+                          }
+                        }}
                       />
                       <button
                         type="button"
@@ -940,6 +973,11 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                         type={showConfirmPassword ? 'text' : 'password'}
                         value={confirmPassword}
                         onChange={(event) => setConfirmPassword(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' && !isSubmitting) {
+                            void doResetPassword();
+                          }
+                        }}
                       />
                       <button
                         type="button"

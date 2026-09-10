@@ -1,9 +1,10 @@
 import jwt from "jsonwebtoken";
+import type { UserRole } from "@prisma/client";
 import { env } from "../config/env.js";
 
 export type JwtPayload = {
   sub: string;
-  role: "candidate" | "employer" | "admin";
+  role: UserRole;
   email: string;
   type?: "access" | "refresh";
 };

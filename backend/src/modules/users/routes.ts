@@ -13,6 +13,7 @@ router.get("/me", requireAuth, async (req, res, next) => {
         name: true,
         email: true,
         role: true,
+        isActive: true,
         createdAt: true,
         phone: true,
         location: true,
@@ -28,6 +29,11 @@ router.get("/me", requireAuth, async (req, res, next) => {
 
     if (!user) {
       res.status(404).json({ message: "User not found" });
+      return;
+    }
+
+    if (!user.isActive) {
+      res.status(403).json({ message: "Account has been deactivated. Please contact support." });
       return;
     }
 

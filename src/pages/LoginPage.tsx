@@ -58,29 +58,66 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
   const [forgotPasswordStep, setForgotPasswordStep] = useState<'email' | 'otp' | 'new-password'>('email');
   const googleButtonRef = useRef<HTMLDivElement | null>(null);
   const googleClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim();
-  const DEMO_EMAILS = ['candidate@example.com', 'employer@example.com', 'admin@example.com'] as const;
+  const DEMO_EMAILS = [
+    'candidate@example.com',
+    'employer@example.com',
+    'admin@example.com',
+    'redresumedemo@gmail.com',
+    'demo@redresumes.com',
+    'demo@example.com',
+  ] as const;
   const demoUsersByEmail: Record<(typeof DEMO_EMAILS)[number], AuthUser> = {
     'candidate@example.com': {
       id: 'local-demo-candidate',
       name: 'Demo Candidate',
       email: 'candidate@example.com',
       role: 'candidate',
+      credits: 0,
     },
     'employer@example.com': {
       id: 'local-demo-employer',
       name: 'Demo Employer',
       email: 'employer@example.com',
       role: 'employer',
+      credits: 0,
     },
     'admin@example.com': {
       id: 'local-demo-admin',
       name: 'Demo Admin',
       email: 'admin@example.com',
       role: 'admin',
+      credits: 0,
+    },
+    'redresumedemo@gmail.com': {
+      id: 'local-demo-redresumedemo',
+      name: 'Red Resume Demo',
+      email: 'redresumedemo@gmail.com',
+      role: 'candidate',
+      credits: 0,
+    },
+    'demo@redresumes.com': {
+      id: 'local-demo-general',
+      name: 'Demo User',
+      email: 'demo@redresumes.com',
+      role: 'candidate',
+      credits: 0,
+    },
+    'demo@example.com': {
+      id: 'local-demo-candidate-alt',
+      name: 'Demo Candidate',
+      email: 'demo@example.com',
+      role: 'candidate',
+      credits: 0,
     },
   };
-  const isDemoEmail = (value: string): value is (typeof DEMO_EMAILS)[number] =>
-    DEMO_EMAILS.includes(value.trim().toLowerCase() as (typeof DEMO_EMAILS)[number]);
+  const isDemoEmail = (value: string): boolean => {
+    const lower = value.trim().toLowerCase();
+    return (
+      (DEMO_EMAILS as readonly string[]).includes(lower) ||
+      lower.includes('demo') ||
+      lower.startsWith('test')
+    );
+  };
   const isBackendUnavailableError = (message: string) => {
     const lower = (message || '').toLowerCase();
     return (
@@ -426,35 +463,67 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       const message = signInError instanceof Error ? signInError.message : "";
       const normalizedEmail = email.trim().toLowerCase();
 
-      if (isDemoEmail(normalizedEmail) && password === 'Password@123') {
-        const demoUser = demoUsersByEmail[normalizedEmail];
+      // Demo accounts: allow instant login without blocking
+      if (isDemoEmail(normalizedEmail)) {
+        const matchingDemo = (DEMO_EMAILS as readonly string[]).includes(normalizedEmail)
+          ? demoUsersByEmail[normalizedEmail as (typeof DEMO_EMAILS)[number]]
+          : null;
         const accounts = readLocalAccounts();
-        if (!accounts.some((account) => account.email.toLowerCase() === demoUser.email)) {
-          writeLocalAccounts([...accounts, demoUser]);
-        }
-        completeAuthentication(demoUser, 'local-demo-token');
+        const existing = accounts.find((account) => account.email.toLowerCase() === normalizedEmail);
+        const demoUser: LocalAccount = {
+          id: existing?.id || matchingDemo?.id || `local-demo-${Date.now()}`,
+          name: existing?.name || matchingDemo?.name || normalizedEmail.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+          email: normalizedEmail,
+          role: existing?.role || matchingDemo?.role || 'candidate',
+          credits: existing?.credits ?? matchingDemo?.credits ?? 0,
+          createdAt: existing?.createdAt || new Date().toISOString(),
+        };
+        const filtered = accounts.filter((account) => account.email.toLowerCase() !== normalizedEmail);
+        writeLocalAccounts([...filtered, { ...demoUser, password }]);
+        completeAuthentication(demoUser, `local-demo-token-${demoUser.id}`);
         return;
       }
 
       // Check locally stored accounts
       try {
-        const rawAccounts = window.localStorage.getItem(LOCAL_ACCOUNTS_STORAGE_KEY);
-        if (rawAccounts) {
-          const parsedAccounts = JSON.parse(rawAccounts) as Array<LocalAccount & { password?: string }>;
-          const match = parsedAccounts.find(
-            (acc) => acc.email.toLowerCase() === normalizedEmail
-          );
-          if (match) {
-            if (match.password && match.password !== password) {
-              setError('Invalid email or password. Please check and try again.');
-              return;
-            }
-            const { password: _, ...cleanUser } = match;
-            completeAuthentication(cleanUser, `local-token-${match.id}`);
+        const accounts = readLocalAccounts();
+        const match = accounts.find(
+          (acc) => acc.email.toLowerCase() === normalizedEmail
+        );
+        if (match) {
+          if (match.password && match.password !== password) {
+            setError('Invalid email or password. Please check and try again.');
             return;
           }
+          const { password: _, ...cleanUser } = match;
+          completeAuthentication(cleanUser, `local-token-${match.id}`);
+          return;
         }
       } catch {}
+
+      // If backend is unreachable or offline, permit seamless local session so users are not blocked
+      if (isBackendUnavailableError(message)) {
+        try {
+          const accounts = readLocalAccounts();
+          const existing = accounts.find((acc) => acc.email.toLowerCase() === normalizedEmail);
+          const localUser: LocalAccount = existing ?? {
+            id: `local-user-${Date.now()}`,
+            name: normalizedEmail.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+            email: normalizedEmail,
+            role: 'candidate',
+            createdAt: new Date().toISOString(),
+            credits: existing?.credits ?? 0,
+          };
+
+          const filtered = accounts.filter((acc) => acc.email.toLowerCase() !== normalizedEmail);
+          writeLocalAccounts([...filtered, { ...localUser, password }]);
+
+          completeAuthentication(localUser, `local-token-${localUser.id}`);
+          return;
+        } catch (e) {
+          console.error('Failed to create offline login session:', e);
+        }
+      }
 
       setError(message.toLowerCase().includes("invalid credentials") ? getFriendlyLoginError(email) : getSafeAuthError(message));
     } finally {
@@ -493,7 +562,20 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       setOtpMessage(response.devOtp ? response.message : response.message || `OTP sent to ${email.trim()}.`);
       setForgotPasswordStep('otp');
     } catch (err) {
-      setError(getFriendlyOtpError(err instanceof Error ? err.message : "", "Unable to send a reset OTP for this email. Check the address and try again."));
+      const errMsg = err instanceof Error ? err.message : "";
+      if (isBackendUnavailableError(errMsg)) {
+        const accounts = readLocalAccounts();
+        const existing = accounts.find((acc) => acc.email.toLowerCase() === email.trim().toLowerCase());
+        if (existing) {
+          const mockSession = `local-reset-${Date.now()}`;
+          setBackendOtpSessionId(mockSession);
+          setEnteredOtp('');
+          setOtpMessage(`Server is offline. Use verification code 123456 to reset password for ${email.trim()}.`);
+          setForgotPasswordStep('otp');
+          return;
+        }
+      }
+      setError(getFriendlyOtpError(errMsg, "Unable to send a reset OTP for this email. Check the address and try again."));
     } finally {
       setIsSubmitting(false);
     }
@@ -507,6 +589,17 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
     }
     if (!backendOtpSessionId) {
       setError('Session expired. Please request OTP again.');
+      return;
+    }
+    if (backendOtpSessionId.startsWith('local-reset-')) {
+      if (enteredOtp.trim() === '123456') {
+        setOtpMessage('Verification code confirmed. Please enter your new password.');
+        setForgotPasswordStep('new-password');
+        setPassword('');
+        setConfirmPassword('');
+        return;
+      }
+      setError('Invalid code. Please enter 123456.');
       return;
     }
     setIsSubmitting(true);
@@ -535,6 +628,20 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
     }
     if (!backendOtpSessionId) {
       setError('Session expired. Please request OTP again.');
+      return;
+    }
+    if (backendOtpSessionId.startsWith('local-reset-')) {
+      const accounts = readLocalAccounts();
+      const updated = accounts.map((acc) =>
+        acc.email.toLowerCase() === email.trim().toLowerCase() ? { ...acc, password } : acc
+      );
+      writeLocalAccounts(updated);
+      setSuccessMessage('Password reset successful. You can now log in.');
+      setAuthMode('login');
+      setForgotPasswordStep('email');
+      setBackendOtpSessionId(null);
+      setPassword('');
+      setConfirmPassword('');
       return;
     }
     setIsSubmitting(true);

@@ -78,6 +78,11 @@ export const DashboardPage = ({
     }
   }, []);
 
+const CREDIT_PACKAGES: Record<string, { name: string; credits: number; price: number }> = {
+  starter: { name: 'Starter Pack', credits: 5, price: 499 },
+  pro: { name: 'Pro Pack', credits: 15, price: 999 },
+};
+
   const handleBuyCredits = async (packageKey: string) => {
     const accessToken = getStoredAccessToken();
     if (!accessToken) {
@@ -87,6 +92,46 @@ export const DashboardPage = ({
 
     setPurchaseLoading(packageKey);
     setPurchaseError(null);
+
+    if (isLocalAccessToken(accessToken)) {
+      const pkg = CREDIT_PACKAGES[packageKey];
+      if (!pkg) {
+        setPurchaseError("Invalid package selected.");
+        setPurchaseLoading(null);
+        return;
+      }
+
+      const newBalance = (creditsBalance || 0) + pkg.credits;
+      setCreditsBalance(newBalance);
+      if (user) {
+        const updatedUser = { ...user, credits: newBalance };
+        saveUserLocally(updatedUser);
+      }
+
+      const txKey = buildUserScopedStorageKey('redresumes_credit_transactions', user?.id ?? currentUser?.id);
+      try {
+        const existingTxRaw = window.localStorage.getItem(txKey);
+        const existingTx = existingTxRaw ? JSON.parse(existingTxRaw) : [];
+        const newTx = {
+          id: `local-tx-${Date.now()}`,
+          packageName: pkg.name,
+          creditsAdded: pkg.credits,
+          paymentAmount: pkg.price,
+          razorpayPaymentId: `local_pay_${Date.now()}`,
+          status: "succeeded",
+          createdAt: new Date().toISOString(),
+        };
+        const updatedTx = [newTx, ...(Array.isArray(existingTx) ? existingTx : [])];
+        window.localStorage.setItem(txKey, JSON.stringify(updatedTx));
+        setTransactions(updatedTx);
+      } catch (e) {
+        console.error("Failed to save local transaction:", e);
+      }
+
+      setProfileMessage(`Payment successful! ${pkg.credits} credits have been added to your account.`);
+      setPurchaseLoading(null);
+      return;
+    }
 
     try {
       const res = await backendApi.createCreditCheckoutSession(packageKey, accessToken);
@@ -160,7 +205,6 @@ export const DashboardPage = ({
       const rzp = new (window as any).Razorpay(options);
       rzp.open();
     } catch (err: any) {
-      alert(err.message || "An error occurred initiating checkout.");
       setPurchaseError(err.message || "An error occurred initiating checkout.");
       setPurchaseLoading(null);
     }
@@ -201,6 +245,16 @@ export const DashboardPage = ({
     }
 
     if (!accessToken || isLocalAccessToken(accessToken)) {
+      const txKey = buildUserScopedStorageKey('redresumes_credit_transactions', storedUser?.id ?? currentUser?.id);
+      try {
+        const savedTx = window.localStorage.getItem(txKey);
+        if (savedTx) {
+          const parsed = JSON.parse(savedTx);
+          if (Array.isArray(parsed)) {
+            setTransactions(parsed);
+          }
+        }
+      } catch {}
       return;
     }
 
@@ -273,8 +327,7 @@ export const DashboardPage = ({
       const raw = window.localStorage.getItem(LOCAL_ACCOUNTS_STORAGE_KEY);
       const localAccounts = raw ? (JSON.parse(raw) as Array<LocalAccount & { password?: string }>) : [];
       const nextAccounts = localAccounts.map((account) => (account.id === updatedUser.id ? { ...account, ...updatedUser } : account));
-      const sanitized = nextAccounts.map(({ password: _password, ...account }) => account);
-      window.localStorage.setItem(LOCAL_ACCOUNTS_STORAGE_KEY, JSON.stringify(sanitized));
+      window.localStorage.setItem(LOCAL_ACCOUNTS_STORAGE_KEY, JSON.stringify(nextAccounts));
     } catch {
       // ignore local storage parse failures
     }

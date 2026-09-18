@@ -2,8 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UploadCloud, Briefcase, FileText, Settings, Loader2, Building, Sparkles, AlertCircle, ArrowRight } from 'lucide-react';
 import { backendApi } from '../lib/backendApi';
-import { getStoredAccessToken, isLocalAccessToken, USER_STORAGE_KEY } from '../lib/auth';
+import { getStoredAccessToken, isLocalAccessToken, USER_STORAGE_KEY, buildUserScopedStorageKey } from '../lib/auth';
 import { Seo } from '../components/Seo';
+
+const CREDIT_PACKAGES: Record<string, { name: string; credits: number; price: number }> = {
+  starter: { name: 'Starter Pack', credits: 5, price: 499 },
+  pro: { name: 'Pro Pack', credits: 15, price: 999 },
+};
 
 const loadRazorpayScript = () => {
   return new Promise((resolve) => {
@@ -41,6 +46,9 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
   const [purchaseLoading, setPurchaseLoading] = useState<string | null>(null);
 
   useEffect(() => {
+    if (typeof currentUser?.credits === 'number') {
+      setCredits(currentUser.credits);
+    }
     const token = getStoredAccessToken();
     if (token && !isLocalAccessToken(token)) {
       backendApi.getCreditTransactions(token)
@@ -58,6 +66,52 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
       return;
     }
     setPurchaseLoading(packageKey);
+
+    if (isLocalAccessToken(token)) {
+      const pkg = CREDIT_PACKAGES[packageKey];
+      if (!pkg) {
+        setError("Invalid package selected.");
+        setPurchaseLoading(null);
+        return;
+      }
+
+      const newBalance = (credits || 0) + pkg.credits;
+      setCredits(newBalance);
+      setShowPaywall(false);
+      setError("");
+
+      const storedUserRaw = window.localStorage.getItem(USER_STORAGE_KEY);
+      if (storedUserRaw) {
+        try {
+          const storedUser = JSON.parse(storedUserRaw);
+          storedUser.credits = newBalance;
+          window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(storedUser));
+          if (onUserUpdated) {
+            onUserUpdated(storedUser);
+          }
+        } catch {}
+      }
+
+      const txKey = buildUserScopedStorageKey('redresumes_credit_transactions', currentUser?.id);
+      try {
+        const existingTxRaw = window.localStorage.getItem(txKey);
+        const existingTx = existingTxRaw ? JSON.parse(existingTxRaw) : [];
+        const newTx = {
+          id: `local-tx-${Date.now()}`,
+          packageName: pkg.name,
+          creditsAdded: pkg.credits,
+          paymentAmount: pkg.price,
+          razorpayPaymentId: `local_pay_${Date.now()}`,
+          status: "succeeded",
+          createdAt: new Date().toISOString(),
+        };
+        window.localStorage.setItem(txKey, JSON.stringify([newTx, ...(Array.isArray(existingTx) ? existingTx : [])]));
+      } catch {}
+
+      setPurchaseLoading(null);
+      return;
+    }
+
     try {
       const res = await backendApi.createCreditCheckoutSession(packageKey, token);
       

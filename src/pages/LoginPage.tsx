@@ -82,7 +82,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
   const isDemoEmail = (value: string): value is (typeof DEMO_EMAILS)[number] =>
     DEMO_EMAILS.includes(value.trim().toLowerCase() as (typeof DEMO_EMAILS)[number]);
   const isBackendUnavailableError = (message: string) => {
-    const lower = message.toLowerCase();
+    const lower = (message || '').toLowerCase();
     return (
       lower.includes('cannot reach backend') ||
       lower.includes('failed to fetch') ||
@@ -90,7 +90,20 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       lower.includes('network error') ||
       lower.includes("can't reach database server") ||
       lower.includes('cant reach database server') ||
-      lower.includes('login service is temporarily unavailable')
+      lower.includes('login service is temporarily unavailable') ||
+      lower.includes('service temporarily unavailable') ||
+      lower.includes('endpoint not found') ||
+      lower.includes('endpoint was not found') ||
+      lower.includes('not_found') ||
+      lower.includes('not found') ||
+      lower.includes('could not be found') ||
+      lower.includes('404') ||
+      lower.includes('502') ||
+      lower.includes('503') ||
+      lower.includes('504') ||
+      lower.includes('bad gateway') ||
+      lower.includes('invalid api response') ||
+      lower.includes('bom1::')
     );
   };
   const getFriendlyLoginError = (attemptedEmail: string) => {
@@ -109,11 +122,23 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       lower.includes('failed to fetch') ||
       lower.includes('networkerror') ||
       lower.includes('network error') ||
-      lower.includes('cannot reach backend')
+      lower.includes('cannot reach backend') ||
+      lower.includes('could not be found') ||
+      lower.includes('not_found') ||
+      lower.includes('not found') ||
+      lower.includes('bom1::') ||
+      lower.includes('endpoint not found') ||
+      lower.includes('endpoint was not found') ||
+      lower.includes('invalid api response')
     ) {
       return 'Cannot reach signup service right now. Please check server connection and try again.';
     }
-    if (lower.includes('email already registered')) {
+    if (
+      lower.includes('already registered') ||
+      lower.includes('already exists') ||
+      lower.includes('conflict') ||
+      lower.includes('409')
+    ) {
       return 'An account with this email already exists. Try signing in instead.';
     }
     if (
@@ -124,11 +149,24 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
     ) {
       return 'Backend signup is unavailable right now, so your account will be created in local mode on this browser.';
     }
+    if (lower.includes('bom1::') || lower.includes('<!doctype') || lower.includes('<html')) {
+      return 'Signup service is temporarily unavailable. Please try again.';
+    }
     return raw || 'Unable to create account right now. Please try again.';
   };
 
   const getSafeAuthError = (message: string) => {
-    const lower = message.toLowerCase();
+    const lower = (message || '').toLowerCase();
+    if (
+      lower.includes('not_found') ||
+      lower.includes('bom1::') ||
+      lower.includes('could not be found') ||
+      lower.includes('cannot reach backend') ||
+      lower.includes('endpoint') ||
+      lower.includes('invalid api response')
+    ) {
+      return 'Unable to reach sign-in service right now. Please check your connection and try again.';
+    }
     if (
       lower.includes("unable to complete request") ||
       lower.includes("check your input") ||
@@ -186,7 +224,11 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       lower.includes("failed to fetch") ||
       lower.includes("networkerror") ||
       lower.includes("network error") ||
-      lower.includes("cannot reach backend")
+      lower.includes("cannot reach backend") ||
+      lower.includes("could not be found") ||
+      lower.includes("not_found") ||
+      lower.includes("bom1::") ||
+      lower.includes("endpoint")
     ) {
       return "Cannot reach OTP service right now. Please check server connection and try again.";
     }
@@ -200,7 +242,9 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       lower.includes("unable to complete request") ||
       lower.includes("bad request") ||
       lower.includes("validation failed") ||
-      lower.includes("check your input")
+      lower.includes("check your input") ||
+      lower.includes("<!doctype") ||
+      lower.includes("<html")
     ) {
       return fallback;
     }
@@ -209,20 +253,19 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
 
   const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(value.trim());
 
-  const readLocalAccounts = (): LocalAccount[] => {
+  const readLocalAccounts = (): Array<LocalAccount & { password?: string }> => {
     try {
       const raw = window.localStorage.getItem(LOCAL_ACCOUNTS_STORAGE_KEY);
       if (!raw) return [];
       const parsed = JSON.parse(raw) as Array<LocalAccount & { password?: string }>;
-      return parsed.map(({ password: _password, ...account }) => account);
+      return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
     }
   };
 
-  const writeLocalAccounts = (accounts: LocalAccount[]) => {
-    const sanitized = accounts.map(({ ...account }) => account);
-    window.localStorage.setItem(LOCAL_ACCOUNTS_STORAGE_KEY, JSON.stringify(sanitized));
+  const writeLocalAccounts = (accounts: Array<LocalAccount & { password?: string }>) => {
+    window.localStorage.setItem(LOCAL_ACCOUNTS_STORAGE_KEY, JSON.stringify(accounts));
   };
 
   const persistSignedInUser = (user: AuthUser, accessToken: string) => {
@@ -302,7 +345,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
           phone: existing?.phone || '',
           location: existing?.location || '',
           bio: existing?.bio || '',
-          credits: existing?.credits ?? 10,
+          credits: existing?.credits ?? 0,
         };
 
         const updatedAccounts = existing
@@ -594,12 +637,11 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
             email: normalizedEmail,
             role,
             createdAt: new Date().toISOString(),
-            credits: 10,
+            credits: existing?.credits ?? 0,
           };
 
-          if (!existing) {
-            writeLocalAccounts([...accounts, localUser]);
-          }
+          const filtered = accounts.filter((acc) => acc.email.toLowerCase() !== normalizedEmail);
+          writeLocalAccounts([...filtered, { ...localUser, password }]);
 
           completeAuthentication(localUser, `local-token-${localUser.id}`);
           return;

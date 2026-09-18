@@ -152,15 +152,35 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     }
   }
 
+function isRawHtmlOrEdgeResponse(value: string): boolean {
+  const lower = value.toLowerCase();
+  return (
+    lower.startsWith("<!doctype") ||
+    lower.startsWith("<html") ||
+    lower.includes("<head>") ||
+    lower.includes("<body>") ||
+    lower.includes("not_found") ||
+    lower.includes("bom1::") ||
+    lower.includes("the page could not be found") ||
+    lower.includes("502 bad gateway") ||
+    lower.includes("504 gateway time-out") ||
+    lower.includes("503 service temporarily unavailable") ||
+    lower.includes("cloudflare")
+  );
+}
+
   if (!response.ok) {
     const fallbackByStatus: Record<number, string> = {
       400: "Bad request. Please check the form and try again.",
       401: "Unauthorized. Please sign in again.",
       403: "Forbidden. You do not have permission for this action.",
-      404: "Requested endpoint was not found.",
+      404: "Requested endpoint was not found or backend is offline.",
       409: "This request conflicts with existing data.",
       422: "Validation failed. Please check your input.",
-      429: "Too many requests. Please wait and try again."
+      429: "Too many requests. Please wait and try again.",
+      502: "Backend service gateway error. Please try again shortly.",
+      503: "Service temporarily unavailable. Please try again shortly.",
+      504: "Backend gateway timed out. Please try again shortly."
     };
 
     let errorMessage = fallbackByStatus[response.status]
@@ -173,22 +193,28 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       if (raw) {
         try {
           const parsed = JSON.parse(raw) as unknown;
-          if (typeof parsed === "string") {
-            errorMessage = parsed;
+          if (typeof parsed === "string" && parsed.trim() && !isRawHtmlOrEdgeResponse(parsed)) {
+            errorMessage = parsed.trim();
           } else if (isObject(parsed)) {
             const message = parsed.message;
             const error = parsed.error;
             const detail = parsed.detail;
-            if (typeof message === "string" && message.trim()) {
-              errorMessage = message;
-            } else if (typeof error === "string" && error.trim()) {
-              errorMessage = error;
-            } else if (typeof detail === "string" && detail.trim()) {
-              errorMessage = detail;
+            if (typeof message === "string" && message.trim() && !isRawHtmlOrEdgeResponse(message)) {
+              errorMessage = message.trim();
+            } else if (typeof error === "string" && error.trim() && !isRawHtmlOrEdgeResponse(error)) {
+              errorMessage = error.trim();
+            } else if (typeof detail === "string" && detail.trim() && !isRawHtmlOrEdgeResponse(detail)) {
+              errorMessage = detail.trim();
             }
           }
         } catch {
-          if (raw.trim()) errorMessage = raw.trim();
+          if (response.status === 404) {
+            errorMessage = "Requested endpoint was not found or backend is offline.";
+          } else if (response.status >= 500) {
+            errorMessage = "Service temporarily unavailable. Please try again shortly.";
+          } else if (!isRawHtmlOrEdgeResponse(raw) && raw.trim().length > 0 && raw.trim().length < 200) {
+            errorMessage = raw.trim();
+          }
         }
       }
     } catch {
@@ -202,7 +228,12 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     return undefined as T;
   }
 
-  return response.json() as Promise<T>;
+  const raw = await response.text();
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    throw new Error("Cannot reach backend service. Invalid API response format.");
+  }
 }
 
 export type BackendJob = {
@@ -326,7 +357,7 @@ function parseAuthUser(value: unknown): AuthUser {
     phone: typeof obj.phone === "string" ? obj.phone : undefined,
     location: typeof obj.location === "string" ? obj.location : undefined,
     bio: typeof obj.bio === "string" ? obj.bio : undefined,
-    credits: typeof obj.credits === "number" ? obj.credits : undefined
+    credits: typeof obj.credits === "number" ? obj.credits : 0
   };
 }
 

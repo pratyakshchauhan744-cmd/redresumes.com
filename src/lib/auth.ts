@@ -18,6 +18,7 @@ export const AUTH_TOKEN_STORAGE = typeof window !== 'undefined' ? window.session
 } as unknown as Storage;
 
 export const readStoredUser = (): AuthUser | null => {
+  if (typeof window === 'undefined') return null;
   try {
     const raw = window.localStorage.getItem(USER_STORAGE_KEY);
     return raw ? (JSON.parse(raw) as AuthUser) : null;
@@ -27,12 +28,14 @@ export const readStoredUser = (): AuthUser | null => {
 };
 
 export const getStoredAccessToken = (): string | null => {
-  return AUTH_TOKEN_STORAGE.getItem(ACCESS_TOKEN_STORAGE_KEY) ?? window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+  return AUTH_TOKEN_STORAGE.getItem(ACCESS_TOKEN_STORAGE_KEY) ?? (typeof window !== 'undefined' ? window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) : null);
 };
 
 export const setStoredAuthTokens = (accessToken: string) => {
   AUTH_TOKEN_STORAGE.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
-  window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
+  }
 };
 
 export const isLocalAccessToken = (accessToken?: string | null): boolean =>
@@ -40,7 +43,9 @@ export const isLocalAccessToken = (accessToken?: string | null): boolean =>
 
 export const clearStoredAuthTokens = () => {
   AUTH_TOKEN_STORAGE.removeItem(ACCESS_TOKEN_STORAGE_KEY);
-  window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+  if (typeof window !== 'undefined') {
+    window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+  }
 };
 
 export const buildUserScopedStorageKey = (baseKey: string, userId?: string | null): string =>
@@ -224,7 +229,9 @@ export const migrateGuestResumeToUser = (userId: string): MigrateGuestResumeResu
 };
 
 export const persistSignedInUser = (user: AuthUser, accessToken: string) => {
-  window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+  }
   setStoredAuthTokens(accessToken);
   if (user?.id) {
     migrateGuestResumeToUser(user.id);

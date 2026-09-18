@@ -465,6 +465,12 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
 
       // Demo accounts: allow instant login without blocking
       if (isDemoEmail(normalizedEmail)) {
+        try {
+          const liveDemoResponse = await backendApi.login({ email: normalizedEmail, password: 'Password@123' });
+          completeAuthentication(liveDemoResponse.user, liveDemoResponse.accessToken);
+          return;
+        } catch {}
+
         const matchingDemo = (DEMO_EMAILS as readonly string[]).includes(normalizedEmail)
           ? demoUsersByEmail[normalizedEmail as (typeof DEMO_EMAILS)[number]]
           : null;

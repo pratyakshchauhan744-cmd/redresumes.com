@@ -3,7 +3,7 @@ import { FileText, Clock, Settings, User, Trash2, Edit3, Save, ExternalLink, QrC
 import { Section } from '../components/Section';
 import { Seo } from '../components/Seo';
 import { PrimaryButton, SecondaryButton } from '../components/Buttons';
-import { APPLIED_JOBS_STORAGE_KEY, LOCAL_ACCOUNTS_STORAGE_KEY, RESUME_DRAFT_STORAGE_KEY, RESUME_HISTORY_STORAGE_KEY, SAVED_JOBS_STORAGE_KEY, USER_STORAGE_KEY, buildUserScopedStorageKey, clearStoredAuthTokens, getStoredAccessToken, isLocalAccessToken, readStoredUser } from '../lib/auth';
+import { APPLIED_JOBS_STORAGE_KEY, LOCAL_ACCOUNTS_STORAGE_KEY, RESUME_DRAFT_STORAGE_KEY, RESUME_HISTORY_STORAGE_KEY, SAVED_JOBS_STORAGE_KEY, USER_STORAGE_KEY, buildUserScopedStorageKey, clearStoredAuthTokens, setStoredAuthTokens, getStoredAccessToken, isLocalAccessToken, readStoredUser } from '../lib/auth';
 import { backendApi, type AuthUser } from '../lib/backendApi';
 import type { LocalAccount } from '../types';
 import type { Page } from '../types';
@@ -245,6 +245,22 @@ const CREDIT_PACKAGES: Record<string, { name: string; credits: number; price: nu
     }
 
     if (!accessToken || isLocalAccessToken(accessToken)) {
+      if (storedUser?.email) {
+        backendApi
+          .login({ email: storedUser.email.toLowerCase().trim(), password: 'Password@123' })
+          .then((res) => {
+            setStoredAuthTokens(res.accessToken);
+            const upgraded = { ...storedUser, ...res.user };
+            window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(upgraded));
+            setUser(upgraded);
+            if (typeof res.user.credits === 'number') {
+              setCreditsBalance(res.user.credits);
+            }
+            onUserUpdated(upgraded);
+          })
+          .catch(() => {});
+      }
+
       const txKey = buildUserScopedStorageKey('redresumes_credit_transactions', storedUser?.id ?? currentUser?.id);
       try {
         const savedTx = window.localStorage.getItem(txKey);

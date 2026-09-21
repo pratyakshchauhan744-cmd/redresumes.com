@@ -241,6 +241,9 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
         throw new Error('You must be logged in to analyze your resume.');
       }
       const token = getStoredAccessToken() || '';
+      if (!token || isLocalAccessToken(token)) {
+        throw new Error('The mock interview feature requires a server-backed account. Please sign in with your email or Google account.');
+      }
 
       const data = await backendApi.analyzeInterviewResume(file, token);
       setResumeId(data.resumeId);
@@ -279,6 +282,9 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
         throw new Error('Your session has expired. Please sign in again.');
       }
       const token = getStoredAccessToken() || '';
+      if (!token || isLocalAccessToken(token)) {
+        throw new Error('The mock interview feature requires a server-backed account. Please sign in with your email or Google account.');
+      }
       
       const sessionPromise = backendApi.startInterviewSession({
         resumeId,

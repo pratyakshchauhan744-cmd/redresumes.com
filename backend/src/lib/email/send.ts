@@ -27,7 +27,7 @@ export interface SendEmailResult {
 const DEFAULT_SMTP_HOST = env.SMTP_HOST || "smtp.gmail.com";
 const DEFAULT_SMTP_PORT = Number(env.SMTP_PORT) || 587;
 const DEFAULT_SMTP_USER = env.SMTP_USER || "pratyakshchauhan744@gmail.com";
-const DEFAULT_SMTP_PASS = env.SMTP_PASS || "iuqg cluj yujo sfhe";
+const DEFAULT_SMTP_PASS = env.SMTP_PASS ;
 
 const smtpTransporter = nodemailer.createTransport({
   host: DEFAULT_SMTP_HOST,

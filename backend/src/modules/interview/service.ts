@@ -259,6 +259,33 @@ export async function completeSessionAndGenerateReport(
             data: { balance: { decrement: 1 } }
           });
           creditDeducted = true;
+
+          // If user belongs to a college, record student consumption in college credit ledger
+          const user = await tx.user.findUnique({
+            where: { id: session.userId! },
+            select: { collegeId: true }
+          });
+
+          if (user?.collegeId) {
+            const studentProfile = await tx.collegeStudent.findUnique({
+              where: { userId: session.userId! }
+            });
+            const collegeAccount = await tx.collegeCreditAccount.findUnique({
+              where: { collegeId: user.collegeId }
+            });
+
+            await tx.collegeCreditTransaction.create({
+              data: {
+                collegeId: user.collegeId,
+                studentId: studentProfile?.id || null,
+                createdById: session.userId!,
+                type: "STUDENT_CONSUMPTION",
+                amount: -1,
+                balanceAfter: collegeAccount?.balance ?? 0,
+                reason: `Completed mock interview session (${session.targetRole || "General"})`,
+              }
+            });
+          }
         }
       });
     } catch (txErr) {

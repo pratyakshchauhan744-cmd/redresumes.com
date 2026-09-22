@@ -26,6 +26,7 @@ const InterviewSetupPage = lazy(() => import('./pages/InterviewSetupPage').then(
 const InterviewSessionPage = lazy(() => import('./pages/InterviewSessionPage').then(m => ({ default: m.InterviewSessionPage })));
 const InterviewReportPage = lazy(() => import('./pages/InterviewReportPage').then(m => ({ default: m.InterviewReportPage })));
 const AboutPage = lazy(() => import('./pages/AboutPage').then(m => ({ default: m.AboutPage })));
+const EnterpriseDashboardPage = lazy(() => import('./pages/EnterpriseDashboardPage'));
 
 const RouteUiEffects = () => {
   const location = useLocation();
@@ -51,10 +52,14 @@ const RouteUiEffects = () => {
   );
 };
 
-const AuthenticatedLoginRedirect = () => {
+const AuthenticatedLoginRedirect = ({ currentUser }: { currentUser: AuthUser | null }) => {
   const location = useLocation();
   const rawRedirect = new URLSearchParams(location.search).get('redirect');
-  const safeRedirect = sanitizeRedirectUrl(rawRedirect, '/dashboard');
+  const defaultPath =
+    currentUser?.role === 'college_main_faculty' || currentUser?.role === 'college_faculty'
+      ? '/enterprise'
+      : '/dashboard';
+  const safeRedirect = sanitizeRedirectUrl(rawRedirect, defaultPath);
   return <Navigate to={safeRedirect} replace />;
 };
 
@@ -205,9 +210,18 @@ export const App = () => {
               
               {/* Auth Routes */}
               <Route path="/login" element={
-                isAuthenticated ? <AuthenticatedLoginRedirect /> : 
+                isAuthenticated ? <AuthenticatedLoginRedirect currentUser={currentUser} /> : 
                 <LoginPage onLoginSuccess={(user) => handleUserUpdated(user)} />
               } />
+
+              {/* Enterprise Multi-Tenant Campus Routes */}
+              <Route path="/enterprise" element={
+                <ProtectedRoute isAuthenticated={isAuthenticated}>
+                  <EnterpriseDashboardPage user={currentUser!} token="" />
+                </ProtectedRoute>
+              } />
+              <Route path="/faculty-dashboard" element={<Navigate to="/enterprise" replace />} />
+              <Route path="/college-dashboard" element={<Navigate to="/enterprise" replace />} />
 
               {/* Protected Routes */}
               <Route path="/dashboard" element={

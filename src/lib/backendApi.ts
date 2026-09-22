@@ -320,6 +320,12 @@ export type AuthUser = {
   location?: string;
   bio?: string;
   credits?: number;
+  collegeId?: string | null;
+  permissions?: string[];
+  isMainFaculty?: boolean;
+  college?: any;
+  facultyProfile?: any;
+  studentProfile?: any;
 };
 
 export type TranslateResumeResponse = {
@@ -357,7 +363,13 @@ function parseAuthUser(value: unknown): AuthUser {
     phone: typeof obj.phone === "string" ? obj.phone : undefined,
     location: typeof obj.location === "string" ? obj.location : undefined,
     bio: typeof obj.bio === "string" ? obj.bio : undefined,
-    credits: typeof obj.credits === "number" ? obj.credits : 0
+    credits: typeof obj.credits === "number" ? obj.credits : 0,
+    collegeId: (obj.collegeId as string | null) ?? undefined,
+    permissions: Array.isArray(obj.permissions) ? (obj.permissions as string[]) : undefined,
+    isMainFaculty: typeof obj.isMainFaculty === "boolean" ? obj.isMainFaculty : undefined,
+    college: obj.college,
+    facultyProfile: obj.facultyProfile,
+    studentProfile: obj.studentProfile
   };
 }
 
@@ -650,7 +662,279 @@ export const backendApi = {
     request<{ success: boolean; message: string }>("/api/support/contact", {
       method: "POST",
       body
-    })
+    }),
+
+  enterprise: {
+    getFilterOptions: (token?: string) =>
+      request<{
+        programs: string[];
+        courses: string[];
+        sections: string[];
+        batches: string[];
+        departments: string[];
+      }>("/api/enterprise/filter-options", { token }),
+
+    getStats: (token?: string) =>
+      request<{
+        students: { total: number; active: number };
+        faculty: { total: number; active: number };
+        credits: { balance: number; totalAllocated: number; totalDistributed: number };
+        interviews: { totalSessions: number; completedSessions: number; avgScore: number };
+      }>("/api/enterprise/stats", { token }),
+
+    listFaculty: (params: { page?: number; limit?: number; search?: string } = {}, token?: string) => {
+      const q = new URLSearchParams();
+      if (params.page) q.set("page", String(params.page));
+      if (params.limit) q.set("limit", String(params.limit));
+      if (params.search) q.set("search", params.search);
+      return request<{ faculty: any[]; total: number; page: number; limit: number }>(
+        `/api/enterprise/faculty?${q.toString()}`,
+        { token }
+      );
+    },
+
+    createFaculty: (body: {
+      name: string;
+      email: string;
+      phone?: string;
+      employeeId?: string;
+      department?: string;
+      designation?: string;
+      isMainFaculty?: boolean;
+      permissions?: string[];
+      programAccess?: string[];
+      courseAccess?: string[];
+      sectionAccess?: string[];
+    }, token?: string) =>
+      request<any>("/api/enterprise/faculty", {
+        method: "POST",
+        token,
+        body
+      }),
+
+    updateFaculty: (id: string, body: any, token?: string) =>
+      request<any>(`/api/enterprise/faculty/${id}`, {
+        method: "PUT",
+        token,
+        body
+      }),
+
+    deleteFaculty: (id: string, token?: string) =>
+      request<any>(`/api/enterprise/faculty/${id}`, {
+        method: "DELETE",
+        token
+      }),
+
+    listStudents: (params: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      program?: string;
+      course?: string;
+      section?: string;
+      batch?: string;
+      status?: string;
+    } = {}, token?: string) => {
+      const q = new URLSearchParams();
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
+      });
+      return request<{ students: any[]; total: number; page: number; limit: number; totalPages: number }>(
+        `/api/enterprise/students?${q.toString()}`,
+        { token }
+      );
+    },
+
+    createStudent: (body: {
+      name: string;
+      email: string;
+      phone?: string;
+      enrollmentNumber: string;
+      program: string;
+      course: string;
+      department?: string;
+      section: string;
+      batch: string;
+      academicYear?: string;
+      semester?: number;
+      gender?: string;
+      initialCredits?: number;
+    }, token?: string) =>
+      request<any>("/api/enterprise/students", {
+        method: "POST",
+        token,
+        body
+      }),
+
+    bulkImportStudents: (students: any[], token?: string) =>
+      request<{
+        success: boolean;
+        results: {
+          totalRows: number;
+          createdCount: number;
+          skippedCount: number;
+          errors: string[];
+          createdStudents: any[];
+        };
+      }>("/api/enterprise/students/bulk-import", {
+        method: "POST",
+        token,
+        body: { students }
+      }),
+
+    getStudentDetails: (id: string, token?: string) =>
+      request<any>(`/api/enterprise/students/${id}`, { token }),
+
+    updateStudent: (id: string, body: any, token?: string) =>
+      request<any>(`/api/enterprise/students/${id}`, {
+        method: "PUT",
+        token,
+        body
+      }),
+
+    deleteStudent: (id: string, token?: string) =>
+      request<any>(`/api/enterprise/students/${id}`, {
+        method: "DELETE",
+        token
+      }),
+
+    previewCreditDistribution: (body: {
+      creditsPerStudent: number;
+      program?: string;
+      course?: string;
+      section?: string;
+      batch?: string;
+    }, token?: string) =>
+      request<{
+        matchingStudentsCount: number;
+        creditsPerStudent: number;
+        totalCreditsNeeded: number;
+        currentCollegeBalance: number;
+        hasSufficientBalance: boolean;
+        balanceAfterDistribution: number;
+      }>("/api/enterprise/credits/preview-distribution", {
+        method: "POST",
+        token,
+        body
+      }),
+
+    distributeCredits: (body: {
+      creditsPerStudent: number;
+      reason: string;
+      program?: string;
+      course?: string;
+      section?: string;
+      batch?: string;
+    }, token?: string) =>
+      request<{
+        success: boolean;
+        message: string;
+        creditedCount: number;
+        totalCreditsDeducted: number;
+        newCollegeBalance: number;
+      }>("/api/enterprise/credits/distribute", {
+        method: "POST",
+        token,
+        body
+      }),
+
+    assignStudentCredits: (body: {
+      studentId: string;
+      amount: number;
+      reason: string;
+    }, token?: string) =>
+      request<any>("/api/enterprise/credits/assign-student", {
+        method: "POST",
+        token,
+        body
+      }),
+
+    getCreditLedger: (params: {
+      page?: number;
+      limit?: number;
+      type?: string;
+      studentId?: string;
+      startDate?: string;
+      endDate?: string;
+    } = {}, token?: string) => {
+      const q = new URLSearchParams();
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
+      });
+      return request<{
+        transactions: any[];
+        total: number;
+        page: number;
+        limit: number;
+        collegeBalance: number;
+      }>(`/api/enterprise/credits/ledger?${q.toString()}`, { token });
+    },
+
+    getReports: (params: {
+      page?: number;
+      limit?: number;
+      program?: string;
+      course?: string;
+      section?: string;
+      batch?: string;
+      minScore?: number;
+      maxScore?: number;
+      search?: string;
+      startDate?: string;
+      endDate?: string;
+    } = {}, token?: string) => {
+      const q = new URLSearchParams();
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
+      });
+      return request<{
+        reports: any[];
+        total: number;
+        page: number;
+        limit: number;
+        totalPages: number;
+      }>(`/api/enterprise/reports?${q.toString()}`, { token });
+    },
+
+    getReportSummary: (params: {
+      program?: string;
+      course?: string;
+      section?: string;
+      batch?: string;
+    } = {}, token?: string) => {
+      const q = new URLSearchParams();
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
+      });
+      return request<{
+        totalReports: number;
+        averageOverallScore: number;
+        scoreDistribution: { label: string; count: number }[];
+      }>(`/api/enterprise/reports/summary?${q.toString()}`, { token });
+    },
+
+    verifyInvitation: (tokenHash: string) =>
+      request<{
+        valid: boolean;
+        invitation: {
+          email: string;
+          role: string;
+          collegeName: string;
+          metadata?: any;
+        };
+      }>(`/api/auth/invitations/verify/${tokenHash}`),
+
+    acceptInvitation: (body: { tokenHash: string; password?: string; name?: string }) =>
+      request<{
+        success: boolean;
+        message: string;
+        accessToken: string;
+        user: AuthUser;
+      }>("/api/auth/invitations/accept", {
+        method: "POST",
+        body
+      })
+  }
 };
 
 export function mapBackendJobToUiJob(job: BackendJob): {

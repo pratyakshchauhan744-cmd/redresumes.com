@@ -95,8 +95,14 @@ if (env.NODE_ENV !== "production") {
 import supportRoutes from "./modules/support/routes.js";
 import onboardingRoutes from "./modules/onboarding/routes.js";
 import { inngestMiddleware } from "./modules/onboarding/inngest-handler.js";
+import collegeRoutes from "./modules/admin/college-routes.js";
+import enterpriseRoutes from "./modules/enterprise/routes.js";
+import invitationRoutes from "./modules/auth/invitation-routes.js";
 
 app.use("/api/auth", authRoutes);
+app.use("/api/auth/invitations", invitationRoutes);
+app.use("/api/admin/colleges", collegeRoutes);
+app.use("/api/enterprise", enterpriseRoutes);
 app.use("/api/jobs", jobsRoutes);
 app.use("/api/companies", companiesRoutes);
 app.use("/api", applicationsRoutes);

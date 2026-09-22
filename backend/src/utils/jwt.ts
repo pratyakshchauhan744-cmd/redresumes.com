@@ -6,6 +6,9 @@ export type JwtPayload = {
   sub: string;
   role: UserRole;
   email: string;
+  collegeId?: string | null;
+  isMainFaculty?: boolean;
+  permissions?: string[];
   type?: "access" | "refresh";
 };
 

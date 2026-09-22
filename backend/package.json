@@ -12,7 +12,9 @@
     "prisma:generate": "prisma generate --schema=prisma/schema.prisma",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:seed": "tsx prisma/seed.ts",
+    "test:enterprise": "tsx src/tests/test-multi-tenant.ts",
+    "test:security": "tsx src/tests/test-security-isolation.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

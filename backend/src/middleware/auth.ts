@@ -9,6 +9,9 @@ declare global {
         id: string;
         role: UserRole;
         email: string;
+        collegeId?: string | null;
+        isMainFaculty?: boolean;
+        permissions?: string[];
       };
     }
   }
@@ -29,7 +32,10 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     req.user = {
       id: payload.sub,
       role: payload.role,
-      email: payload.email
+      email: payload.email,
+      collegeId: payload.collegeId,
+      isMainFaculty: payload.isMainFaculty,
+      permissions: payload.permissions,
     };
     next();
   } catch (err: any) {

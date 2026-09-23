@@ -34,7 +34,7 @@ interface EnterpriseDashboardPageProps {
   token: string;
 }
 
-type TabType = "overview" | "students" | "faculty" | "credits" | "reports";
+type TabType = "overview" | "students" | "faculty" | "credits" | "reports" | "audit";
 
 export default function EnterpriseDashboardPage({ user, token }: EnterpriseDashboardPageProps) {
   const [activeTab, setActiveTab] = useState<TabType>("overview");
@@ -94,6 +94,14 @@ export default function EnterpriseDashboardPage({ user, token }: EnterpriseDashb
   const [reportBatch, setReportBatch] = useState("");
   const [reportSearch, setReportSearch] = useState("");
 
+  // Audit logs tab state
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [auditTotal, setAuditTotal] = useState(0);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditActionFilter, setAuditActionFilter] = useState("");
+  const [auditSearch, setAuditSearch] = useState("");
+  const [auditLoading, setAuditLoading] = useState(false);
+
   // Student Form Data
   const [studentForm, setStudentForm] = useState({
     name: "",
@@ -125,6 +133,19 @@ export default function EnterpriseDashboardPage({ user, token }: EnterpriseDashb
   // Single assign form
   const [singleAssignAmount, setSingleAssignAmount] = useState(1);
   const [singleAssignReason, setSingleAssignReason] = useState("Bonus mock interview credit");
+
+  // Bulk import state
+  const [bulkImportFile, setBulkImportFile] = useState<File | null>(null);
+  const [bulkImportAtomic, setBulkImportAtomic] = useState(false);
+  const [bulkImportCredits, setBulkImportCredits] = useState(0);
+  const [bulkImportLoading, setBulkImportLoading] = useState(false);
+  const [bulkImportResult, setBulkImportResult] = useState<{
+    totalProcessed: number;
+    totalCreated: number;
+    totalFailed: number;
+    errors: Array<{ row: number; email?: string; enrollmentNumber?: string; reason: string }>;
+  } | null>(null);
+  const [resendingStudentId, setResendingStudentId] = useState<string | null>(null);
 
   const canManageFaculty = user.isMainFaculty || user.permissions?.includes("all") || user.permissions?.includes("manageFaculty");
   const canDistributeCredits = user.isMainFaculty || user.permissions?.includes("all") || user.permissions?.includes("distributeCredits");
@@ -254,6 +275,34 @@ export default function EnterpriseDashboardPage({ user, token }: EnterpriseDashb
     }
   }, [activeTab, reportPage, reportProgram, reportCourse, reportSection, reportBatch, reportSearch]);
 
+  // Load Audit Logs
+  const loadAuditLogs = async () => {
+    try {
+      setAuditLoading(true);
+      const res = await backendApi.enterprise.getAuditLogs(
+        {
+          page: auditPage,
+          limit: 15,
+          action: auditActionFilter || undefined,
+          search: auditSearch || undefined,
+        },
+        token
+      );
+      setAuditLogs(res.logs || []);
+      setAuditTotal(res.total || 0);
+    } catch (err: any) {
+      console.error("Failed to load audit logs:", err);
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "audit") {
+      loadAuditLogs();
+    }
+  }, [activeTab, auditPage, auditActionFilter, auditSearch]);
+
   // Handle preview calculation
   const handleCalculatePreview = async () => {
     try {
@@ -338,6 +387,77 @@ export default function EnterpriseDashboardPage({ user, token }: EnterpriseDashb
     }
   };
 
+  // Handle bulk import file upload
+  const handleBulkImportFileSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bulkImportFile) return;
+    try {
+      setBulkImportLoading(true);
+      setBulkImportResult(null);
+      const res = await backendApi.enterprise.bulkImportFile(
+        bulkImportFile,
+        { atomic: bulkImportAtomic, initialCredits: bulkImportCredits },
+        token
+      );
+      setBulkImportResult({
+        totalProcessed: res.totalProcessed,
+        totalCreated: res.totalCreated,
+        totalFailed: res.totalFailed,
+        errors: res.errors || [],
+      });
+      if (res.totalCreated > 0) {
+        setFeedback({
+          type: "success",
+          message: `Successfully created ${res.totalCreated} student accounts. Welcome credentials dispatched via email.`,
+        });
+        loadStudents();
+        loadInitialData();
+      } else if (res.totalFailed > 0) {
+        setFeedback({
+          type: "error",
+          message: `Bulk import completed with ${res.totalFailed} failure(s). Please review the errors below.`,
+        });
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message || "Failed to process bulk import file." });
+    } finally {
+      setBulkImportLoading(false);
+    }
+  };
+
+  // Handle resend student invitation credentials
+  const handleResendInvite = async (student: any) => {
+    try {
+      setResendingStudentId(student.id);
+      await backendApi.enterprise.resendStudentInvite(student.id, token);
+      setFeedback({
+        type: "success",
+        message: `Welcome credentials resent to ${student.user?.name || student.name} (${student.user?.email || student.email}).`,
+      });
+      loadStudents();
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message || "Failed to resend invite credentials." });
+    } finally {
+      setResendingStudentId(null);
+    }
+  };
+
+  // Download Sample Template CSV
+  const downloadSampleTemplate = () => {
+    const csvContent =
+      "data:text/csv;charset=utf-8," +
+      "Name,Email,Enrollment Number,Program,Course,Section,Batch,Phone,Gender,Initial Credits\n" +
+      "Aarav Sharma,aarav.sharma@example.edu,ENR2026001,B.Tech,Computer Science,A,2026,+91 9876543210,Male,2\n" +
+      "Diya Patel,diya.patel@example.edu,ENR2026002,B.Tech,Computer Science,A,2026,+91 9876543211,Female,2\n";
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "student_bulk_import_template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // Handle add faculty
   const handleCreateFaculty = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -353,44 +473,38 @@ export default function EnterpriseDashboardPage({ user, token }: EnterpriseDashb
   };
 
   // CSV Export
-  const handleExportCsv = () => {
-    if (!reports.length) return;
-    const headers = [
-      "Student Name",
-      "Enrollment No",
-      "Program",
-      "Course",
-      "Section",
-      "Batch",
-      "Target Role",
-      "Difficulty",
-      "Overall Score",
-      "Date",
-    ];
-    const rows = reports.map((r) => [
-      r.session?.user?.name || "",
-      r.session?.user?.studentProfile?.enrollmentNumber || "",
-      r.session?.user?.studentProfile?.program || "",
-      r.session?.user?.studentProfile?.course || "",
-      r.session?.user?.studentProfile?.section || "",
-      r.session?.user?.studentProfile?.batch || "",
-      r.session?.targetRole || "",
-      r.session?.difficulty || "",
-      r.overallScore || "",
-      new Date(r.createdAt).toLocaleDateString(),
-    ]);
+  const handleExportCsv = async () => {
+    try {
+      setFeedback(null);
+      await backendApi.enterprise.downloadReports({
+        format: 'csv',
+        program: reportProgram,
+        course: reportCourse,
+        section: reportSection,
+        batch: reportBatch,
+        search: reportSearch,
+      }, token);
+      setFeedback({ type: "success", message: "Student reports successfully exported as sanitized CSV." });
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message || "Failed to export CSV" });
+    }
+  };
 
-    const csvContent =
-      "data:text/csv;charset=utf-8," +
-      [headers.join(","), ...rows.map((e) => e.map((val) => `"${val}"`).join(","))].join("\n");
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `Interview_Reports_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleExportExcel = async () => {
+    try {
+      setFeedback(null);
+      await backendApi.enterprise.downloadReports({
+        format: 'xlsx',
+        program: reportProgram,
+        course: reportCourse,
+        section: reportSection,
+        batch: reportBatch,
+        search: reportSearch,
+      }, token);
+      setFeedback({ type: "success", message: "Student reports successfully exported as Excel (.xlsx) workbook." });
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message || "Failed to export Excel" });
+    }
   };
 
   return (
@@ -499,6 +613,17 @@ export default function EnterpriseDashboardPage({ user, token }: EnterpriseDashb
             >
               <FileText className="w-4 h-4" />
               Cohort Reports & Analytics
+            </button>
+            <button
+              onClick={() => setActiveTab("audit")}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
+                activeTab === "audit"
+                  ? "bg-rose-600 text-white shadow-lg shadow-rose-950/50"
+                  : "text-zinc-400 hover:text-white hover:bg-zinc-900/60"
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4" />
+              Audit Logs
             </button>
           </div>
         </div>
@@ -721,6 +846,16 @@ export default function EnterpriseDashboardPage({ user, token }: EnterpriseDashb
 
                 <div className="flex items-center gap-2">
                   <button
+                    onClick={() => {
+                      setBulkImportResult(null);
+                      setBulkImportFile(null);
+                      setIsBulkImportOpen(true);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 rounded-lg text-xs font-semibold transition-all cursor-pointer"
+                  >
+                    <Upload className="w-4 h-4 text-sky-400" /> Bulk Import
+                  </button>
+                  <button
                     onClick={() => setIsAddStudentOpen(true)}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold transition-all cursor-pointer shadow-lg shadow-rose-950/40"
                   >
@@ -801,6 +936,7 @@ export default function EnterpriseDashboardPage({ user, token }: EnterpriseDashb
                       <th className="px-6 py-4">Program & Course</th>
                       <th className="px-6 py-4">Section / Batch</th>
                       <th className="px-6 py-4">Credit Balance</th>
+                      <th className="px-6 py-4">Invite Status</th>
                       <th className="px-6 py-4">Status</th>
                       <th className="px-6 py-4 text-right">Actions</th>
                     </tr>
@@ -836,6 +972,30 @@ export default function EnterpriseDashboardPage({ user, token }: EnterpriseDashb
                             <span className="text-[10px] text-zinc-500 font-mono block">Credits</span>
                           </td>
                           <td className="px-6 py-4">
+                            {student.invitationStatus === "failed" ? (
+                              <div className="flex items-center gap-1.5">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 border border-rose-500/20" title={student.emailError || "Email delivery failed"}>
+                                  <AlertCircle className="w-3 h-3 text-rose-400" /> Failed
+                                </span>
+                                <button
+                                  onClick={() => handleResendInvite(student)}
+                                  disabled={resendingStudentId === student.id}
+                                  className="text-[10px] font-bold text-rose-300 hover:underline cursor-pointer"
+                                >
+                                  {resendingStudentId === student.id ? "Sending..." : "Resend"}
+                                </button>
+                              </div>
+                            ) : student.invitationStatus === "sent" || student.invitationStatus === "delivered" ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Delivered
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                Pending
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4">
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                               {student.status}
                             </span>
@@ -851,6 +1011,18 @@ export default function EnterpriseDashboardPage({ user, token }: EnterpriseDashb
                                   + Credits
                                 </button>
                               )}
+                              <button
+                                onClick={() => handleResendInvite(student)}
+                                disabled={resendingStudentId === student.id}
+                                className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white"
+                                title="Resend Credentials via Email"
+                              >
+                                {resendingStudentId === student.id ? (
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-rose-400" />
+                                ) : (
+                                  <Send className="w-3.5 h-3.5" />
+                                )}
+                              </button>
                               <button
                                 onClick={() => setSelectedStudentDetail(student)}
                                 className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white"
@@ -1231,13 +1403,20 @@ export default function EnterpriseDashboardPage({ user, token }: EnterpriseDashb
                   />
                 </div>
 
-                <button
-                  onClick={handleExportCsv}
-                  disabled={reports.length === 0}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold rounded-lg transition-colors cursor-pointer disabled:opacity-40"
-                >
-                  <Download className="w-4 h-4" /> Export CSV Ledger
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleExportCsv}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5 text-zinc-400" /> Export CSV
+                  </button>
+                  <button
+                    onClick={handleExportExcel}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/30 text-rose-300 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-rose-400" /> Export Excel (.xlsx)
+                  </button>
+                </div>
               </div>
 
               {/* Cohort Filter Row */}
@@ -1379,6 +1558,210 @@ export default function EnterpriseDashboardPage({ user, token }: EnterpriseDashb
             </div>
           </div>
         )}
+
+        {/* ========================================================================= */}
+        {/* AUDIT LOGS TAB */}
+        {/* ========================================================================= */}
+        {activeTab === "audit" && (
+          <div className="space-y-6">
+            {/* Header info */}
+            <div className="p-6 rounded-2xl bg-zinc-900/40 border border-zinc-800/80 backdrop-blur-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-white tracking-tight">Institutional Audit Trail</h2>
+                    <p className="text-xs text-zinc-400 mt-0.5">
+                      Immutable, tenant-scoped ledger tracking student creation, bulk imports, faculty permission changes, credit distribution, and report exports.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={loadAuditLogs}
+                  disabled={auditLoading}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 text-xs font-medium transition-colors"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${auditLoading ? "animate-spin text-rose-400" : ""}`} /> Refresh
+                </button>
+              </div>
+            </div>
+
+            {/* Filters Bar */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-xl bg-zinc-900/30 border border-zinc-800/60">
+              <div className="relative sm:col-span-2">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                <input
+                  type="text"
+                  placeholder="Search by actor name, email, target, or details..."
+                  value={auditSearch}
+                  onChange={(e) => {
+                    setAuditSearch(e.target.value);
+                    setAuditPage(1);
+                  }}
+                  className="w-full pl-9 pr-4 py-2 bg-zinc-900/90 border border-zinc-800 rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-rose-500/50"
+                />
+              </div>
+
+              <div>
+                <select
+                  value={auditActionFilter}
+                  onChange={(e) => {
+                    setAuditActionFilter(e.target.value);
+                    setAuditPage(1);
+                  }}
+                  className="w-full px-3 py-2 bg-zinc-900/90 border border-zinc-800 rounded-lg text-xs text-zinc-300 focus:outline-none focus:border-rose-500/50"
+                >
+                  <option value="">All Action Types</option>
+                  <option value="STUDENT_CREATED">Student Created</option>
+                  <option value="STUDENTS_IMPORTED">Students Imported (Bulk)</option>
+                  <option value="CREDITS_ALLOCATED">Credits Allocated (Super Admin)</option>
+                  <option value="CREDITS_DISTRIBUTED">Credits Distributed (Cohort)</option>
+                  <option value="FACULTY_INVITED">Faculty Invited</option>
+                  <option value="FACULTY_UPDATED">Faculty Updated</option>
+                  <option value="FACULTY_DEACTIVATED">Faculty Deactivated</option>
+                  <option value="REPORTS_EXPORTED">Reports Exported</option>
+                  <option value="REPORT_VIEWED">Report Viewed</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Audit Table */}
+            <div className="rounded-xl border border-zinc-800 bg-zinc-950/40 backdrop-blur-sm overflow-hidden shadow-xl">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-zinc-300">
+                  <thead className="bg-zinc-900/70 border-b border-zinc-800 text-[11px] uppercase tracking-wider text-zinc-400">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">Timestamp</th>
+                      <th className="px-4 py-3 font-semibold">Action</th>
+                      <th className="px-4 py-3 font-semibold">Actor</th>
+                      <th className="px-4 py-3 font-semibold">Target Entity</th>
+                      <th className="px-4 py-3 font-semibold">Details / Payload</th>
+                      <th className="px-4 py-3 font-semibold">IP / Device</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800/60 font-normal">
+                    {auditLoading ? (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-12 text-center text-zinc-500">
+                          <RefreshCw className="w-5 h-5 mx-auto animate-spin text-rose-500 mb-2" />
+                          Loading institutional audit logs...
+                        </td>
+                      </tr>
+                    ) : auditLogs.length > 0 ? (
+                      auditLogs.map((log) => {
+                        const actionColor =
+                          log.action?.includes("CREATED") || log.action?.includes("IMPORTED")
+                            ? "bg-emerald-950/50 border-emerald-800/60 text-emerald-400"
+                            : log.action?.includes("DISTRIBUTED") || log.action?.includes("ALLOCATED")
+                            ? "bg-purple-950/50 border-purple-800/60 text-purple-300"
+                            : log.action?.includes("EXPORTED")
+                            ? "bg-sky-950/50 border-sky-800/60 text-sky-300"
+                            : log.action?.includes("DEACTIVATED")
+                            ? "bg-rose-950/50 border-rose-800/60 text-rose-400"
+                            : "bg-amber-950/50 border-amber-800/60 text-amber-300";
+
+                        const detailsFormatted = log.details
+                          ? typeof log.details === "object"
+                            ? JSON.stringify(log.details)
+                            : String(log.details)
+                          : "-";
+
+                        return (
+                          <tr key={log.id} className="hover:bg-zinc-900/40 transition-colors">
+                            <td className="px-4 py-3 font-mono text-zinc-400 whitespace-nowrap">
+                              {new Date(log.createdAt).toLocaleString(undefined, {
+                                year: "numeric",
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                second: "2-digit",
+                              })}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <span className={`px-2 py-0.5 rounded-full border text-[10px] font-mono font-bold ${actionColor}`}>
+                                {log.action}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="font-semibold text-white">
+                                {log.actor?.name || log.actor?.email || "System"}
+                              </div>
+                              {log.actor?.email && log.actor?.name && (
+                                <div className="text-[10px] text-zinc-500 font-mono">{log.actor.email}</div>
+                              )}
+                              {log.actor?.role && (
+                                <span className="text-[9px] text-zinc-400 uppercase font-mono">
+                                  {log.actor.role.replace("college_", "").replace("_", " ")}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              {log.targetUser ? (
+                                <div>
+                                  <div className="text-zinc-200 font-medium">{log.targetUser.name || log.targetUser.email}</div>
+                                  <div className="text-[10px] text-zinc-500 font-mono">{log.targetUser.email}</div>
+                                </div>
+                              ) : log.entityId ? (
+                                <span className="font-mono text-zinc-400 text-[10px]">{log.entityType ? `${log.entityType}: ` : ""}{log.entityId}</span>
+                              ) : (
+                                <span className="text-zinc-600">-</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 max-w-xs truncate" title={detailsFormatted}>
+                              <code className="text-[10px] text-zinc-400 bg-zinc-900/80 px-1.5 py-0.5 rounded border border-zinc-800">
+                                {detailsFormatted.length > 60 ? detailsFormatted.slice(0, 60) + "..." : detailsFormatted}
+                              </code>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap font-mono text-zinc-500 text-[10px]">
+                              {log.ipAddress || "Internal"}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-12 text-center text-zinc-500">
+                          No audit trail records found matching your filters.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              <div className="p-3 border-t border-zinc-800 bg-zinc-900/30 flex items-center justify-between text-xs text-zinc-400">
+                <span>
+                  Showing {auditLogs.length} of {auditTotal} audit events
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={auditPage <= 1 || auditLoading}
+                    onClick={() => setAuditPage((p) => Math.max(1, p - 1))}
+                    className="px-3 py-1 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 disabled:opacity-50 text-white rounded text-xs transition-colors"
+                  >
+                    Previous
+                  </button>
+                  <span className="font-mono text-zinc-300">
+                    Page {auditPage} of {Math.max(1, Math.ceil(auditTotal / 15))}
+                  </span>
+                  <button
+                    disabled={auditPage * 15 >= auditTotal || auditLoading}
+                    onClick={() => setAuditPage((p) => p + 1)}
+                    className="px-3 py-1 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 disabled:opacity-50 text-white rounded text-xs transition-colors"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ========================================================================= */}
@@ -1493,6 +1876,180 @@ export default function EnterpriseDashboardPage({ user, token }: EnterpriseDashb
                   className="px-5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold"
                 >
                   Enroll Student
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Import Students Modal */}
+      {isBulkImportOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-xl bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Upload className="w-4 h-4 text-sky-400" /> Bulk Import Students
+                </h3>
+                <p className="text-[11px] text-zinc-400 mt-0.5">
+                  Upload an Excel (.xlsx, .xls) or CSV cohort spreadsheet
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setIsBulkImportOpen(false);
+                  setBulkImportResult(null);
+                  setBulkImportFile(null);
+                }}
+                className="text-zinc-500 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleBulkImportFileSubmit} className="space-y-4 text-xs">
+              {/* File upload zone */}
+              <div className="border-2 border-dashed border-zinc-800 hover:border-sky-500/60 rounded-xl p-6 text-center transition-all bg-zinc-900/30">
+                <input
+                  type="file"
+                  id="excelFileInput"
+                  accept=".xlsx, .xls, .csv"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      setBulkImportFile(e.target.files[0]);
+                      setBulkImportResult(null);
+                    }
+                  }}
+                  className="hidden"
+                />
+                <label htmlFor="excelFileInput" className="cursor-pointer block space-y-2">
+                  <div className="w-10 h-10 mx-auto rounded-full bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+                    <Upload className="w-5 h-5" />
+                  </div>
+                  {bulkImportFile ? (
+                    <div>
+                      <p className="text-sm font-semibold text-sky-300">{bulkImportFile.name}</p>
+                      <p className="text-[11px] text-zinc-400">{(bulkImportFile.size / 1024).toFixed(1)} KB &bull; Click to change</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-xs font-semibold text-zinc-200">Click to choose spreadsheet or drag & drop</p>
+                      <p className="text-[11px] text-zinc-500">Supports .xlsx, .xls, .csv (up to 15MB)</p>
+                    </div>
+                  )}
+                </label>
+              </div>
+
+              {/* Template Download & Options */}
+              <div className="flex items-center justify-between p-3 rounded-lg bg-zinc-900/50 border border-zinc-800/80">
+                <div>
+                  <span className="text-zinc-300 font-semibold block">Need a starting template?</span>
+                  <span className="text-[11px] text-zinc-500">Includes all required cohort columns</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={downloadSampleTemplate}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-rose-400" /> Download Template
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-zinc-300 mb-1">Initial Credits Per Student</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={bulkImportCredits}
+                    onChange={(e) => setBulkImportCredits(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-white font-mono"
+                    placeholder="0"
+                  />
+                </div>
+                <div className="flex flex-col justify-end">
+                  <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg bg-zinc-900/50 border border-zinc-800/80">
+                    <input
+                      type="checkbox"
+                      checked={bulkImportAtomic}
+                      onChange={(e) => setBulkImportAtomic(e.target.checked)}
+                      className="rounded border-zinc-700 text-rose-600 focus:ring-rose-500"
+                    />
+                    <div>
+                      <span className="text-zinc-200 font-semibold block text-[11px]">Strict Rollback Mode</span>
+                      <span className="text-zinc-500 text-[10px] block">Abort all if any row fails</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Import Results Summary Card */}
+              {bulkImportResult && (
+                <div className="p-4 rounded-xl bg-zinc-900/70 border border-zinc-800 space-y-3">
+                  <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2">
+                    <span className="font-bold text-white text-xs">Import Execution Summary</span>
+                    <span className="font-mono text-zinc-400 text-[11px]">Total: {bulkImportResult.totalProcessed}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="p-2 rounded-lg bg-emerald-950/30 border border-emerald-800/40">
+                      <span className="text-lg font-bold font-mono text-emerald-400 block">{bulkImportResult.totalCreated}</span>
+                      <span className="text-[10px] text-zinc-400 uppercase font-semibold">Created</span>
+                    </div>
+                    <div className="p-2 rounded-lg bg-rose-950/30 border border-rose-800/40">
+                      <span className="text-lg font-bold font-mono text-rose-400 block">{bulkImportResult.totalFailed}</span>
+                      <span className="text-[10px] text-zinc-400 uppercase font-semibold">Failed</span>
+                    </div>
+                    <div className="p-2 rounded-lg bg-sky-950/30 border border-sky-800/40">
+                      <span className="text-lg font-bold font-mono text-sky-400 block">{bulkImportResult.totalCreated}</span>
+                      <span className="text-[10px] text-zinc-400 uppercase font-semibold">Emails Sent</span>
+                    </div>
+                  </div>
+
+                  {bulkImportResult.errors.length > 0 && (
+                    <div className="space-y-1.5 pt-2">
+                      <span className="text-[11px] font-bold text-rose-400 uppercase tracking-wider block">
+                        Error Breakdown ({bulkImportResult.errors.length})
+                      </span>
+                      <div className="max-h-36 overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-950 p-2 space-y-1 font-mono text-[11px]">
+                        {bulkImportResult.errors.map((err, idx) => (
+                          <div key={idx} className="text-rose-300/90 flex items-start gap-1.5 py-0.5 border-b border-zinc-900 last:border-0">
+                            <span className="text-zinc-500 shrink-0">Row {err.row}:</span>
+                            <span className="truncate">{err.reason} {err.email ? `(${err.email})` : ""}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="pt-3 border-t border-zinc-800 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsBulkImportOpen(false);
+                    setBulkImportResult(null);
+                    setBulkImportFile(null);
+                  }}
+                  className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-lg text-xs"
+                >
+                  Close
+                </button>
+                <button
+                  type="submit"
+                  disabled={!bulkImportFile || bulkImportLoading}
+                  className="px-5 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-lg shadow-sky-950/40"
+                >
+                  {bulkImportLoading ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Processing Cohort...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-3.5 h-3.5" /> Start Bulk Import
+                    </>
+                  )}
                 </button>
               </div>
             </form>

@@ -14,7 +14,11 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "tsx prisma/seed.ts",
     "test:enterprise": "tsx src/tests/test-multi-tenant.ts",
-    "test:security": "tsx src/tests/test-security-isolation.ts"
+    "test:security": "tsx src/tests/test-security-isolation.ts",
+    "test:phase7": "tsx src/tests/test-phase7-import-unit.ts",
+    "test:phase7-live": "tsx src/tests/test-phase7-bulk-import.ts",
+    "test:phase8-9": "tsx src/tests/test-phase8-phase9-student-flow.ts",
+    "test:e2e": "tsx src/tests/test-enterprise-e2e.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -43,6 +47,7 @@
     "puppeteer": "^24.42.0",
     "razorpay": "^2.9.6",
     "resend": "^6.18.0",
+    "xlsx": "^0.18.5",
     "zod": "^3.24.3"
   },
   "devDependencies": {

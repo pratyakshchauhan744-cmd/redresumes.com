@@ -13,12 +13,23 @@ router.get("/me", requireAuth, async (req, res, next) => {
         name: true,
         email: true,
         role: true,
+        collegeId: true,
         isActive: true,
         createdAt: true,
         phone: true,
         location: true,
         bio: true,
         photoDataUrl: true,
+        college: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            status: true,
+          },
+        },
+        studentProfile: true,
+        facultyProfile: true,
         credits: {
           select: {
             balance: true
@@ -42,6 +53,12 @@ router.get("/me", requireAuth, async (req, res, next) => {
       name: user.name,
       email: user.email,
       role: user.role,
+      collegeId: user.collegeId,
+      college: user.college,
+      studentProfile: user.studentProfile,
+      facultyProfile: user.facultyProfile,
+      isMainFaculty: user.facultyProfile?.isMainFaculty ?? false,
+      permissions: user.facultyProfile?.permissions ?? [],
       createdAt: user.createdAt,
       phone: user.phone ?? "",
       location: user.location ?? "",

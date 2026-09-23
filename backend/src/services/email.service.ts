@@ -16,7 +16,7 @@ export class EmailService {
     to: string;
     subject: string;
     html: string;
-  }) {
+  }): Promise<{ success: boolean; error?: string; simulated?: boolean; messageId?: string }> {
     if (resend) {
       try {
         const result = await resend.emails.send({
@@ -25,9 +25,13 @@ export class EmailService {
           subject,
           html,
         });
-        return result;
-      } catch (err) {
-        console.error("Resend API failed, falling back to SMTP if configured:", err);
+        if (result.error) {
+          console.warn("Resend reported delivery error:", result.error);
+        } else {
+          return { success: true, messageId: result.data?.id };
+        }
+      } catch (err: any) {
+        console.error("Resend API failed, falling back to SMTP if configured:", err?.message || err);
       }
     }
 
@@ -43,14 +47,16 @@ export class EmailService {
           },
         });
 
-        return await transporter.sendMail({
+        const info = await transporter.sendMail({
           from: env.EMAIL_FROM || "RedResumes Enterprise <notifications@redresumes.com>",
           to,
           subject,
           html,
         });
-      } catch (smtpErr) {
-        console.error("SMTP delivery failed:", smtpErr);
+        return { success: true, messageId: info.messageId };
+      } catch (smtpErr: any) {
+        console.error("SMTP delivery failed:", smtpErr?.message || smtpErr);
+        return { success: false, error: smtpErr?.message || "SMTP delivery failed" };
       }
     }
 
@@ -96,8 +102,8 @@ export class EmailService {
             tempPassword
               ? `
           <div style="background-color: #090d16; border: 1px dashed #334155; padding: 16px; border-radius: 8px; margin: 20px 0;">
-            <p style="margin: 0; font-size: 12px; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Your Temporary Credentials</p>
-            <p style="margin: 6px 0 0 0; font-size: 14px; color: #f8fafc;"><strong>Email:</strong> ${to}</p>
+            <p style="margin: 0; font-size: 12px; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Your Login Credentials</p>
+            <p style="margin: 6px 0 0 0; font-size: 14px; color: #f8fafc;"><strong>Login ID:</strong> ${to}</p>
             <p style="margin: 4px 0 0 0; font-size: 14px; color: #f43f5e; font-family: monospace;"><strong>Temporary Password:</strong> ${tempPassword}</p>
           </div>
           `
@@ -122,24 +128,24 @@ export class EmailService {
   }
 
   /**
-   * Sends student onboarding invitation
+   * Sends student onboarding welcome email with credentials & login URL
    */
-  static async sendStudentInvitation({
+  static async sendStudentWelcomeEmail({
     to,
     recipientName,
     collegeName,
     enrollmentNumber,
-    activationLink,
     tempPassword,
+    loginUrl,
   }: {
     to: string;
     recipientName: string;
     collegeName: string;
     enrollmentNumber: string;
-    activationLink: string;
-    tempPassword?: string;
-  }) {
-    const subject = `AI Mock Interview Access Granted — ${collegeName}`;
+    tempPassword: string;
+    loginUrl: string;
+  }): Promise<{ success: boolean; error?: string; simulated?: boolean }> {
+    const subject = `Welcome to RedResumes — ${collegeName}`;
 
     const html = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; background-color: #090d16; color: #f1f5f9; padding: 40px 24px; border-radius: 16px; border: 1px solid #1e293b;">
@@ -149,28 +155,27 @@ export class EmailService {
         </div>
 
         <div style="background-color: #0f172a; padding: 28px; border-radius: 12px; border: 1px solid #1e293b; margin-bottom: 24px;">
-          <h2 style="color: #fff; font-size: 18px; margin-top: 0;">Hello, ${recipientName}!</h2>
+          <h2 style="color: #fff; font-size: 18px; margin-top: 0;">Welcome to RedResumes, ${recipientName}!</h2>
           <p style="color: #cbd5e1; font-size: 14px; line-height: 1.6;">
-            <strong>${collegeName}</strong> has sponsored your access to RedResumes AI Mock Interviews (Roll No: <strong>${enrollmentNumber}</strong>).
+            <strong>${collegeName}</strong> has provisioned your student account for RedResumes AI Mock Interviews (Roll No: <strong>${enrollmentNumber}</strong>).
           </p>
 
-          ${
-            tempPassword
-              ? `
-          <div style="background-color: #090d16; border: 1px dashed #334155; padding: 16px; border-radius: 8px; margin: 20px 0;">
-            <p style="margin: 0; font-size: 12px; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Your Login Credentials</p>
-            <p style="margin: 6px 0 0 0; font-size: 14px; color: #f8fafc;"><strong>Email:</strong> ${to}</p>
-            <p style="margin: 4px 0 0 0; font-size: 14px; color: #f43f5e; font-family: monospace;"><strong>Temporary Password:</strong> ${tempPassword}</p>
+          <div style="background-color: #090d16; border: 1px dashed #334155; padding: 18px; border-radius: 10px; margin: 20px 0;">
+            <p style="margin: 0; font-size: 11px; color: #94a3b8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Your Student Login Credentials</p>
+            <p style="margin: 8px 0 0 0; font-size: 14px; color: #f8fafc;"><strong>Login ID:</strong> <span style="font-family: monospace; color: #38bdf8;">${to}</span></p>
+            <p style="margin: 6px 0 0 0; font-size: 14px; color: #f8fafc;"><strong>Temporary Password:</strong> <span style="font-family: monospace; color: #f43f5e; font-weight: 700;">${tempPassword}</span></p>
+            <p style="margin: 6px 0 0 0; font-size: 13px; color: #94a3b8;"><strong>Login URL:</strong> <a href="${loginUrl}" style="color: #38bdf8; text-decoration: underline;">${loginUrl}</a></p>
           </div>
-          `
-              : ""
-          }
 
           <div style="text-align: center; margin: 28px 0 16px;">
-            <a href="${activationLink}" style="display: inline-block; background-color: #e11d48; color: #ffffff; text-decoration: none; padding: 12px 28px; font-weight: 600; font-size: 14px; border-radius: 8px; box-shadow: 0 4px 14px rgba(225, 29, 72, 0.4);">
-              Log In & Start Mock Interview
+            <a href="${loginUrl}" style="display: inline-block; background-color: #e11d48; color: #ffffff; text-decoration: none; padding: 12px 28px; font-weight: 600; font-size: 14px; border-radius: 8px; box-shadow: 0 4px 14px rgba(225, 29, 72, 0.4);">
+              Log In & Start AI Mock Interview
             </a>
           </div>
+
+          <p style="color: #94a3b8; font-size: 12px; margin-top: 20px; line-height: 1.5;">
+            Please log in and update your password upon first access. Never share your credentials with anyone.
+          </p>
         </div>
 
         <p style="color: #64748b; font-size: 12px; text-align: center; margin: 0;">
@@ -179,7 +184,33 @@ export class EmailService {
       </div>
     `;
 
-    return this.sendEmail({ to, subject, html });
+    try {
+      return await this.sendEmail({ to, subject, html });
+    } catch (err: any) {
+      console.error("sendStudentWelcomeEmail error:", err);
+      return { success: false, error: err?.message || "Failed to send welcome email" };
+    }
+  }
+
+  /**
+   * Alias for backward compatibility
+   */
+  static async sendStudentInvitation(params: {
+    to: string;
+    recipientName: string;
+    collegeName: string;
+    enrollmentNumber: string;
+    activationLink: string;
+    tempPassword?: string;
+  }) {
+    return this.sendStudentWelcomeEmail({
+      to: params.to,
+      recipientName: params.recipientName,
+      collegeName: params.collegeName,
+      enrollmentNumber: params.enrollmentNumber,
+      tempPassword: params.tempPassword || "TempPass#123",
+      loginUrl: params.activationLink,
+    });
   }
 
   /**

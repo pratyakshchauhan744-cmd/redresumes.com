@@ -18,3 +18,11 @@ View your app in AI Studio: https://ai.studio/apps/bb66a99b-c93b-41e8-af15-0ce23
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+---
+
+## RedResumes Enterprise Multi-Tenant SaaS Platform
+
+RedResumes includes a multi-college institutional SaaS tier with faculty administration, student cohort Excel ingestion, interview credit distribution, cohort analytics, and tenant-scoped audit logging.
+
+- For architecture details, multi-tenant security specifications, role hierarchy, API endpoints, and test suites, see **[ENTERPRISE_README.md](file:///d:/myProjects/redResumes/redresumes.com/ENTERPRISE_README.md)**.

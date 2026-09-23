@@ -469,10 +469,40 @@ async function recordSignIn(userId: string, method: SignInMethod): Promise<void>
 
 async function issueAuthResponse(
   res: Response,
-  user: { id: string; name: string; email: string; role: UserRole },
+  user: { id: string; name: string; email: string; role: UserRole; collegeId?: string | null },
   method: SignInMethod
 ): Promise<void> {
-  const payload = { sub: user.id, role: user.role, email: user.email };
+  let isMainFaculty = false;
+  let permissions: string[] = [];
+  let studentProfile: any = null;
+
+  if (user.collegeId) {
+    if (user.role === "college_faculty" || user.role === "college_main_faculty") {
+      const faculty = await prisma.collegeFaculty.findUnique({
+        where: { userId: user.id },
+      });
+      if (faculty) {
+        isMainFaculty = faculty.isMainFaculty;
+        permissions = faculty.permissions;
+      }
+    } else if (user.role === "student") {
+      const student = await prisma.collegeStudent.findUnique({
+        where: { userId: user.id },
+      });
+      if (student) {
+        studentProfile = student;
+      }
+    }
+  }
+
+  const payload = {
+    sub: user.id,
+    role: user.role,
+    email: user.email,
+    collegeId: user.collegeId,
+    isMainFaculty,
+    permissions,
+  };
   const accessToken = signAccessToken(payload);
   const refreshToken = signRefreshToken(payload);
   await persistRefreshToken(user.id, refreshToken);
@@ -483,7 +513,11 @@ async function issueAuthResponse(
       id: user.id,
       name: user.name,
       email: user.email,
-      role: user.role
+      role: user.role,
+      collegeId: user.collegeId,
+      isMainFaculty,
+      permissions,
+      studentProfile,
     },
     accessToken
   });

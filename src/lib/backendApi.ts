@@ -766,20 +766,67 @@ export const backendApi = {
         body
       }),
 
-    bulkImportStudents: (students: any[], token?: string) =>
+    bulkImportStudents: (
+      students: any[],
+      options?: { atomic?: boolean; initialCredits?: number },
+      token?: string
+    ) =>
       request<{
         success: boolean;
-        results: {
-          totalRows: number;
-          createdCount: number;
-          skippedCount: number;
-          errors: string[];
-          createdStudents: any[];
-        };
+        message?: string;
+        totalProcessed: number;
+        totalCreated: number;
+        totalFailed: number;
+        errors: Array<{ row: number; email?: string; enrollmentNumber?: string; reason: string }>;
+        createdStudents: any[];
       }>("/api/enterprise/students/bulk-import", {
         method: "POST",
         token,
-        body: { students }
+        body: {
+          students,
+          atomic: options?.atomic,
+          initialCredits: options?.initialCredits,
+        },
+      }),
+
+    bulkImportFile: (
+      file: File,
+      options?: { atomic?: boolean; initialCredits?: number },
+      token?: string
+    ) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      if (options?.atomic !== undefined) {
+        formData.append("atomic", String(options.atomic));
+      }
+      if (options?.initialCredits !== undefined) {
+        formData.append("initialCredits", String(options.initialCredits));
+      }
+      return request<{
+        success: boolean;
+        message?: string;
+        totalProcessed: number;
+        totalCreated: number;
+        totalFailed: number;
+        errors: Array<{ row: number; email?: string; enrollmentNumber?: string; reason: string }>;
+        createdStudents: any[];
+      }>("/api/enterprise/students/bulk-import-file", {
+        method: "POST",
+        token,
+        body: formData,
+      });
+    },
+
+    resendStudentInvite: (studentId: string, token?: string) =>
+      request<{
+        success: boolean;
+        message: string;
+        invitationStatus: string;
+        emailError?: string;
+        tempPassword?: string;
+      }>(`/api/enterprise/students/${studentId}/resend-invite`, {
+        method: "POST",
+        token,
       }),
 
     getStudentDetails: (id: string, token?: string) =>
@@ -911,6 +958,73 @@ export const backendApi = {
         averageOverallScore: number;
         scoreDistribution: { label: string; count: number }[];
       }>(`/api/enterprise/reports/summary?${q.toString()}`, { token });
+    },
+
+    exportReportsUrl: (params: {
+      format?: 'csv' | 'xlsx';
+      program?: string;
+      course?: string;
+      section?: string;
+      batch?: string;
+      status?: string;
+      search?: string;
+    } = {}) => {
+      const q = new URLSearchParams();
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
+      });
+      return `${API_BASE_URL}/api/enterprise/reports/export?${q.toString()}`;
+    },
+
+    downloadReports: async (params: {
+      format?: 'csv' | 'xlsx';
+      program?: string;
+      course?: string;
+      section?: string;
+      batch?: string;
+      status?: string;
+      search?: string;
+    } = {}, token?: string) => {
+      const q = new URLSearchParams();
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
+      });
+      const activeToken = token || getStoredAccessToken();
+      const res = await fetch(`${API_BASE_URL}/api/enterprise/reports/export?${q.toString()}`, {
+        headers: activeToken ? { Authorization: `Bearer ${activeToken}` } : {},
+      });
+      if (!res.ok) throw new Error("Failed to export reports");
+      const blob = await res.blob();
+      const ext = params.format === "xlsx" ? "xlsx" : "csv";
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `student-reports-${new Date().toISOString().split("T")[0]}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    },
+
+    getAuditLogs: (params: {
+      page?: number;
+      limit?: number;
+      action?: string;
+      search?: string;
+      startDate?: string;
+      endDate?: string;
+    } = {}, token?: string) => {
+      const q = new URLSearchParams();
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
+      });
+      return request<{
+        logs: any[];
+        total: number;
+        page: number;
+        limit: number;
+        totalPages: number;
+      }>(`/api/enterprise/audit-logs?${q.toString()}`, { token });
     },
 
     verifyInvitation: (tokenHash: string) =>

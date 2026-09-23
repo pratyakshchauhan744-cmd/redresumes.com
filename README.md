@@ -19,10 +19,45 @@ View your app in AI Studio: https://ai.studio/apps/bb66a99b-c93b-41e8-af15-0ce23
 3. Run the app:
    `npm run dev`
 
+## Quick Start: Enterprise SaaS Platform
+
+### 1. Run the Database Seed (Populate Demo Colleges, Faculty & Cohorts)
+```bash
+cd backend
+npm install
+npm run seed      # Seeds Super Admin, Apex Institute, Stanford, Student Cohorts & Reports
+npm run dev       # Starts Backend API on http://localhost:4000
+```
+
+### 2. Start the Frontend Platform
+```bash
+cd redresumes.com
+npm install
+npm run dev       # Starts Client App on http://localhost:5173
+```
+
+### 3. Start the Super Admin Portal
+```bash
+cd redresumeAdmin/admin-panel-redresumes
+npm install
+npm run dev       # Starts Super Admin Portal on http://localhost:3001
+```
+
 ---
 
-## RedResumes Enterprise Multi-Tenant SaaS Platform
+## Seeded Demo Accounts (Password: `Password@123`)
 
-RedResumes includes a multi-college institutional SaaS tier with faculty administration, student cohort Excel ingestion, interview credit distribution, cohort analytics, and tenant-scoped audit logging.
+| Role | Email | Password | Scope |
+| :--- | :--- | :--- | :--- |
+| **Super Admin** | `admin@redresumes.com` | `Password@123` | Platform Administration |
+| **Apex Main Faculty** | `faculty@apex.edu` | `Password@123` | Apex Institute of Technology |
+| **Apex Evaluator** | `evaluator@apex.edu` | `Password@123` | Apex Institute of Technology |
+| **Apex Student** | `student@apex.edu` | `Password@123` | Apex Institute of Technology |
+| **Stanford Faculty** | `dean@stanford.edu` | `Password@123` | Stanford Engineering Institute |
 
-- For architecture details, multi-tenant security specifications, role hierarchy, API endpoints, and test suites, see **[ENTERPRISE_README.md](file:///d:/myProjects/redResumes/redresumes.com/ENTERPRISE_README.md)**.
+---
+
+## Complete Documentation & Testing Guide
+
+For the full architecture breakdown, tenant security isolation models, Super Admin college onboarding with custom password, dedicated enterprise login flow, isolated campus dashboard, and step-by-step testing workflows, see **[ENTERPRISE_README.md](file:///d:/myProjects/redResumes/redresumes.com/ENTERPRISE_README.md)**.
+

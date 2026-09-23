@@ -1,196 +1,209 @@
 # RedResumes Enterprise Multi-Tenant SaaS Platform
 
-Comprehensive technical documentation, architecture specification, security controls, and operational guide for the RedResumes Enterprise Multi-College SaaS Platform.
+Comprehensive technical documentation, architecture specification, security controls, seed instructions, and end-to-end testing guide.
 
 ---
 
-## 1. Executive Overview
+## 1. Quick Start: Seeding Demo Data & Running Locally
 
-RedResumes Enterprise extends the core RedResumes AI candidate interview and resume platform into an institutional, multi-tenant SaaS solution designed for colleges, universities, and technical institutes.
+### 1.1 Prerequisites
+- **Node.js** (v18 or higher recommended)
+- **PostgreSQL** database (optional for local in-memory/demo verification)
 
-The platform enables academic institutions to:
-1. **Onboard Cohorts at Scale**: Ingest hundreds to thousands of students via streamlined Excel/CSV bulk import with automated account creation, credential generation, and welcome email delivery.
-2. **Manage Faculty & Evaluators**: Empower Main Faculty administrators to invite departmental colleagues, assign granular permissions, and toggle access with immediate credential revocation.
-3. **Control Mock Interview Credits**: Super Admins allocate institution-level credit pools. Main Faculty distribute credits to student cohorts with real-time balance calculations, batch filtering, and atomic ledger auditing.
-4. **Analyze Cohort Performance**: Inspect student interview evaluations across programs, branches, semesters, sections, and batches, with formula-injection-safe CSV and Excel (`.xlsx`) exports.
-5. **Maintain Immutable Audit Trails**: Track all high-impact actions (student additions, imports, credit changes, faculty invitations, permission edits, report exports) in a college-isolated audit log.
-
----
-
-## 2. Multi-Tenant Architecture & Security Design
-
-### 2.1 Zero-Trust Tenant Derivation
-In multi-tenant SaaS environments, parameter tampering (such as altering `collegeId` in query strings or JSON payloads) is a primary attack vector. RedResumes eliminates this risk through **server-side tenant context derivation**:
-
-- **No Client Overrides**: Endpoints under `/api/enterprise/*` never trust `collegeId` from `req.body`, `req.query`, or headers.
-- **JWT Context**: Upon authentication, the server verifies the JWT signature and extracts the authenticated `user.collegeId` and `user.role`.
-- **Enforced Tenant Binding**: All Prisma queries automatically inject `where: { collegeId: req.collegeId }`.
-
-```
-Client Request
-      │
-      ▼
-[verifyJwt Middleware] ──► Validates cryptographic signature & extracts userId, role, collegeId
-      │
-      ▼
-[requireEnterpriseFaculty] ──► Verifies user has 'college_main_faculty' or 'college_faculty' role
-      │
-      ▼
-Controller / DB Query ──► db.studentProfile.findMany({ where: { collegeId: req.collegeId } })
+### 1.2 Step 1: Start Backend API
+```bash
+cd backend
+npm install
+npm run seed     # Populates all demo colleges, faculty, student cohorts, reports, and audit logs
+npm run dev      # Starts Express backend on http://localhost:4000
 ```
 
-### 2.2 Anti-IDOR (Insecure Direct Object Reference) Protection
-- **Cross-Tenant Isolation**: Querying a resource by ID (e.g. `/api/enterprise/students/:id`) automatically includes `collegeId: req.collegeId`. If a faculty member from College A queries a student ID belonging to College B, the database returns `null`, resulting in a safe `404 Not Found`.
-- **Student-to-Student Isolation**: Students can only view their own interview sessions and evaluations (`session.userId === req.user.id`). Any attempt by Student A to view Student B's data is rejected with `403 Forbidden`.
-- **Enterprise Endpoint Guard**: Student or candidate tokens attempting to invoke `/api/enterprise/*` endpoints receive an immediate `403 Forbidden` from router-level middleware before controller execution.
-
-### 2.3 Spreadsheet Formula Injection (CSV/Excel) Sanitization
-When exporting student reports to CSV or Excel, malicious inputs (e.g. student names or enrollment numbers starting with `=`, `+`, `-`, `@`, `\t`, or `\r`) could trigger arbitrary command execution or DDE exploits in Microsoft Excel or Google Sheets.
-
-RedResumes implements cell-level formula sanitization via `sanitizeSpreadsheetCell()`:
-- Cells beginning with `=`, `+`, `-`, `@`, `\t`, or `\r` are prefixed with a single quote (`'`), rendering them benign string literals in spreadsheet engines without data loss.
-
----
-
-## 3. Role & Permission Hierarchy
-
-| Role | Scope | Key Capabilities |
-| :--- | :--- | :--- |
-| **`super_admin`** | Platform-Wide | Create & onboard colleges, assign institutional interview credits, monitor global audit logs, manage Super Admin accounts. |
-| **`college_main_faculty`** | College Tenant | Full administrative control of college tenant: invite/edit/deactivate faculty, bulk import students via Excel, execute cohort credit distributions, view & export student reports, view audit logs. |
-| **`college_faculty`** | College Tenant (Scoped) | Subordinate faculty: view assigned students and reports, evaluate student performance, access features based on granular permissions granted by Main Faculty. |
-| **`student`** | Individual User | Practice AI mock interviews, review own performance reports, manage resume. Blocked from enterprise management and Super Admin routes. |
-
-### Granular Faculty Permissions
-Main Faculty can assign the following fine-grained permissions to subordinate faculty:
-- `manageStudents`: Add, view, and edit student records.
-- `distributeCredits`: Allocate interview credits to individual students or cohorts.
-- `viewAnalytics`: View college-wide reporting dashboard and performance summaries.
-- `exportReports`: Export student evaluation datasets to CSV/Excel.
-- `manageFaculty`: Invite and manage other faculty members (Main Faculty only by default).
-
----
-
-## 4. Bulk Student Import Engine (Excel & CSV)
-
-The bulk import engine in `studentImportService.ts` supports `.xlsx`, `.xls`, and `.csv` files up to 15 MB and handles cohorts of 500+ students with chunked batch processing (50 rows per batch).
-
-### 4.1 Expected Columns & Header Aliasing
-The import parser accepts flexible header formats, automatically normalizing variations:
-
-| Standard Field | Accepted Header Aliases | Required |
-| :--- | :--- | :--- |
-| **Full Name** | `name`, `full name`, `student_name`, `candidate name` | **Yes** |
-| **Student Email** | `email`, `student email`, `email_id`, `institutional email` | **Yes** |
-| **Enrollment Number** | `enrollmentNumber`, `roll no`, `roll number`, `registration_no`, `id_number` | **Yes** |
-| **Degree Program** | `program`, `degree`, `stream`, `degree_program` | **Yes** |
-| **Course / Branch** | `course`, `branch`, `department`, `specialization` | **Yes** |
-| **Section** | `section`, `sec`, `division`, `class_section` | **Yes** |
-| **Batch** | `batch`, `batch_year`, `graduation_year`, `passing_year` | **Yes** |
-| **Contact Phone** | `phone`, `mobile`, `contact_number`, `phone_number` | Optional |
-| **Initial Credits** | `credits`, `initial_credits`, `interview_credits` | Optional (default: 0) |
-| **Semester** | `semester`, `sem`, `current_semester` | Optional (default: 1) |
-| **Gender** | `gender`, `sex` | Optional |
-
-### 4.2 Import Modes
-- **Partial Import Mode (Default)**: Valid rows are created and committed. Invalid rows (e.g. malformed email or duplicate roll number) are skipped, and a detailed row-by-row error report is returned to the user.
-- **Strict Rollback Mode (Atomic)**: If any row fails validation, the entire transaction is rolled back, ensuring 0 partial records are created.
-
-### 4.3 Student Credential Generation & Delivery
-Upon student record creation:
-1. A cryptographically secure 15-character random temporary password is generated with guaranteed character complexity (uppercase, lowercase, digit, symbol).
-2. The password is immediately hashed using `bcrypt` (10 rounds). Plaintext passwords are never stored in the database or written to disk.
-3. An invitation token is recorded in the `invitations` table.
-4. A welcome email is dispatched to the student's email with login instructions and the temporary credentials.
-5. If SMTP delivery fails, the student record remains intact, the invitation is flagged as `failed`, and faculty can resend credentials with a freshly generated temporary password at any time via `POST /api/enterprise/students/:id/resend-invite`.
-
----
-
-## 5. Interview Credit System & Ledger
-
-The interview credit system operates on a dual-tier allocation model:
-
-```
-[Super Admin] ──(Allocates Credits)──► [College Credit Account]
-                                                │
-                                    (Distributes to Cohort)
-                                                │
-                                                ▼
-                                    [Student User Credits]
+### 1.3 Step 2: Start Client Platform (`redresumes.com`)
+```bash
+cd redresumes.com
+npm install
+npm run dev      # Starts Vite React platform on http://localhost:5173
 ```
 
-### 5.1 Cohort Credit Distribution Workflow
-1. **Pre-flight Quota Preview** (`POST /api/enterprise/credits/preview-distribution`):
-   - Accepts cohort filters (`program`, `course`, `section`, `batch`) and `creditsPerStudent`.
-   - Returns matched student count, required total credits, college available balance, and whether the college balance is sufficient.
-2. **Confirmation & Execution** (`POST /api/enterprise/credits/distribute`):
-   - Verifies college balance >= required credits.
-   - Atomically deducts credits from `interview_credit_accounts`.
-   - Increments `user.credits` for each student in the targeted cohort.
-   - Appends an audit transaction record to `interview_credit_transactions` with `transactionType: "STUDENT_ASSIGNMENT"`.
-   - Creates an enterprise audit log entry (`CREDITS_DISTRIBUTED`).
+### 1.4 Step 3: Start Super Admin Portal (`admin-panel-redresumes`)
+```bash
+cd redresumeAdmin/admin-panel-redresumes
+npm install
+npm run dev      # Starts Next.js Super Admin portal on http://localhost:3001
+```
 
 ---
 
-## 6. API Reference
+## 2. Seeded Demo Accounts (Password: `Password@123`)
 
-All `/api/enterprise/*` routes require a `Bearer <token>` header with `college_main_faculty` or `college_faculty` role.
+Running `npm run seed` in the backend provisions the following accounts:
 
-### 6.1 Faculty Management
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `GET` | `/api/enterprise/faculty` | List faculty members in the college tenant (supports pagination, search, department filter). |
-| `POST` | `/api/enterprise/faculty` | Invite new subordinate faculty member; auto-binds to caller's `collegeId`. |
-| `PATCH` | `/api/enterprise/faculty/:id` | Update faculty details, department, designation, permissions, or toggle active status. |
-| `DELETE` | `/api/enterprise/faculty/:id` | Soft-deactivate faculty member and invalidate their user session. |
+| Portal | Email | Password | Role | Organization / Scope |
+| :--- | :--- | :--- | :--- | :--- |
+| **Super Admin** | `admin@redresumes.com` | `Password@123` | `admin` | Platform-Wide Super Admin |
+| **Apex Main Faculty** | `faculty@apex.edu` | `Password@123` | `college_main_faculty` | Apex Institute of Technology |
+| **Apex Evaluator** | `evaluator@apex.edu` | `Password@123` | `college_faculty` | Apex Institute of Technology |
+| **Apex Student** | `student@apex.edu` | `Password@123` | `student` | Apex Institute of Technology |
+| **Stanford Faculty** | `dean@stanford.edu` | `Password@123` | `college_main_faculty` | Stanford Engineering Institute |
 
-### 6.2 Student Management
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `GET` | `/api/enterprise/students` | List enrolled students with cohort filters (`program`, `course`, `section`, `batch`, `search`). |
-| `POST` | `/api/enterprise/students` | Enroll single student manually; creates account & sends welcome email. |
-| `POST` | `/api/enterprise/students/bulk-import` | Upload Excel/CSV spreadsheet for bulk student ingestion. |
-| `POST` | `/api/enterprise/students/:id/resend-invite` | Regenerate credentials and resend invitation email to student. |
-
-### 6.3 Credit Allocation
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `GET` | `/api/enterprise/credits/ledger` | Fetch college credit transaction history and current balance. |
-| `POST` | `/api/enterprise/credits/preview-distribution` | Pre-flight check calculating required credits for a filtered cohort. |
-| `POST` | `/api/enterprise/credits/distribute` | Execute bulk credit distribution to filtered cohort. |
-| `POST` | `/api/enterprise/credits/assign-student` | Assign credits to an individual student. |
-
-### 6.4 Reporting & Analytics
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `GET` | `/api/enterprise/reports` | List interview evaluation records with cohort filters and pagination. |
-| `GET` | `/api/enterprise/reports/summary` | Aggregate analytics: total interviews, average overall score, and score distribution bands. |
-| `GET` | `/api/enterprise/reports/export` | Download formula-sanitized report dataset (`format=csv` or `format=xlsx`). |
-
-### 6.5 Enterprise Audit Logs
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `GET` | `/api/enterprise/audit-logs` | Fetch immutable audit trail for the college tenant (supports action and actor search). |
+> **Note:** The web frontend also includes built-in demo credentials for these accounts. You can test the full enterprise login and dashboard workflow immediately on `http://localhost:5173`, even in offline mode!
 
 ---
 
-## 7. Verification & Test Suites
+## 3. End-to-End Testing Walkthrough (Step-by-Step)
 
-The backend includes a comprehensive, multi-phase verification test suite verifying all enterprise features and tenant isolation guarantees without external database dependencies:
+### Test Workflow 1: Super Admin Onboarding with Password & Email Dispatch
+1. Open the Super Admin portal at `http://localhost:3001/login`.
+2. Sign in with `admin@redresumes.com` and `Password@123`.
+3. In the sidebar, navigate to **Colleges & Campuses** (`/admin/colleges`).
+4. Click the **"+ Onboard College"** button.
+5. In the onboarding modal, fill in:
+   - **College Name**: e.g., `Massachusetts Institute of Technology`
+   - **College Code**: e.g., `MIT`
+   - **Domain**: e.g., `mit.edu`
+   - **Initial Credits**: `250`
+   - **Main Faculty Name**: e.g., `Dr. Robert Wilson`
+   - **Official Email**: e.g., `faculty@mit.edu`
+   - **Initial Login Password (Optional)**: Type a custom password (e.g., `CampusPass@2026`) or leave it empty to auto-generate a secure random password.
+6. Click **"Complete Campus Onboarding"**.
+7. **Verification**:
+   - A success banner appears confirming onboarding.
+   - An institutional welcome email is dispatched to the faculty email containing:
+     - Institution Name & Code
+     - Main Faculty Name
+     - Official Login ID (Email)
+     - Password (the password you set or the generated one)
+     - Enterprise Login Link (`/login?portal=enterprise`)
+
+---
+
+### Test Workflow 2: Dedicated Enterprise Login Flow
+1. Navigate to the main application at `http://localhost:5173`.
+2. Locate the **"Enterprise"** button (with institutional building icon) situated **immediately before the "Create Resume" button** in the header.
+3. Click **"Enterprise"**.
+4. Observe:
+   - You are navigated to `/login?portal=enterprise`.
+   - The page displays **"Institutional Campus Access"** and **"Enterprise Faculty & Admin Login"**.
+   - Consumer Google login and signup clutter are removed.
+   - If you were previously logged in as a candidate, the Enterprise login form allows you to cleanly enter institutional credentials without being bounced to the student dashboard.
+5. Enter:
+   - **Email**: `faculty@apex.edu`
+   - **Password**: `Password@123`
+6. Click **"Sign in to Enterprise Dashboard"**.
+7. **Verification**:
+   - You are authenticated and navigated directly to `/enterprise`.
+
+---
+
+### Test Workflow 3: Isolated Enterprise Dashboard (Zero Student Clutter)
+1. On `http://localhost:5173/enterprise`, inspect the page layout:
+   - **Zero Student Elements**: The consumer student header (Templates, Resume Examples, Job Finder, Cover Letter, Create Resume) and consumer footer are **completely hidden**.
+   - **Institutional Top Bar**: Displays:
+     - Institution Brand & Name: **Apex Institute of Technology**
+     - Role Badge: **Main Faculty Admin**
+     - Code: `APEX` &bull; Domain: `apex.edu`
+     - Live Balance Badge: `480 Credits`
+     - Refresh Metrics button
+     - Administrator Profile Chip: `Dr. Jane Smith (faculty@apex.edu)`
+     - Native **"Sign Out"** button with `LogOut` icon.
+2. Click **"Sign Out"** to verify it terminates the session and safely returns to `/login?portal=enterprise`. Log back in to continue testing.
+
+---
+
+### Test Workflow 4: Student Cohort Management & Excel Bulk Ingestion
+1. On `/enterprise`, click the **"Students Directory"** tab.
+2. Observe seeded student cohort (`aarav.sharma@apex.edu`, `diya.patel@apex.edu`, `rohan.gupta@apex.edu`, etc.).
+3. Test filters: Select Program (`B.Tech`), Course (`Computer Science & Engineering`), Section (`A`), Batch (`2022-2026`).
+4. Click **"Bulk Import Students"**:
+   - A modal opens supporting `.xlsx`, `.xls`, and `.csv` files.
+   - Click **"Download Template"** to download a pre-formatted Excel template.
+   - Select between **Partial Import Mode** (commits valid rows, reports errors) and **Strict Rollback Mode** (aborts if any row fails).
+5. Click **"Resend Invite"** on any student record to regenerate their credentials and dispatch a fresh welcome email.
+
+---
+
+### Test Workflow 5: Interview Credit Allocation & Cohort Distribution
+1. Click the **"Interview Credits & Allocation"** tab.
+2. View the institutional balance (`480 Credits`) and the historical credit ledger.
+3. Under **Bulk Distribute Credits to Student Cohort**:
+   - Set Credits per Student: `2`
+   - Select Program: `B.Tech`
+   - Select Course: `Computer Science & Engineering`
+   - Select Section: `A`
+4. Click **"Calculate Distribution Preview"**:
+   - The pre-flight quota engine calculates matched students, total required credits, and checks balance sufficiency.
+5. Click **"Confirm & Distribute Credits"**:
+   - Credits are deducted from college balance and credited to each student's balance.
+   - A transaction of type `STUDENT_ASSIGNMENT` is recorded in the ledger.
+
+---
+
+### Test Workflow 6: Cohort Performance Reports & Formula-Safe Export
+1. Click the **"Cohort Reports & Analytics"** tab.
+2. View the aggregate metrics card: total evaluated interviews, average overall score, and score distribution bands.
+3. Inspect student interview rows (Overall Score, Target Role, Speaking Pace, Filler Words).
+4. Click **"Full Report"** on any student row to view the detailed question-by-question AI evaluation.
+5. Test Exports:
+   - Click **"Export CSV"** &rarr; downloads sanitized CSV file.
+   - Click **"Export Excel (.xlsx)"** &rarr; downloads formatted Excel spreadsheet.
+   - **Formula Injection Defense**: All exported cells starting with `=`, `+`, `-`, `@`, `\t`, or `\r` are safely escaped with a single quote (`'`), neutralizing spreadsheet execution vulnerabilities.
+
+---
+
+### Test Workflow 7: Institutional Audit Trail
+1. Click the **"Audit Logs"** tab.
+2. View the immutable audit trail displaying:
+   - Timestamp
+   - Action badge (`STUDENT_CREATED`, `STUDENTS_IMPORTED`, `CREDITS_ALLOCATED`, `CREDITS_DISTRIBUTED`, `FACULTY_INVITED`, `REPORTS_EXPORTED`)
+   - Actor name, email, and role
+   - Target entity and details payload
+   - Client IP and device
+3. Filter by Action Type or search by actor/details.
+
+---
+
+### Test Workflow 8: Multi-Tenant Zero-Trust Isolation (Apex vs Stanford)
+1. Sign out of Apex (`faculty@apex.edu`).
+2. On `/login?portal=enterprise`, sign in as Stanford Main Faculty:
+   - **Email**: `dean@stanford.edu`
+   - **Password**: `Password@123`
+3. In the Stanford Enterprise Dashboard:
+   - Verify College Name is **Stanford Engineering Institute** with Code `STANFORD` and balance `250 Credits`.
+   - In Students Directory: Verify **only** Stanford students appear (`lucas.brown@stanford.edu`). **Zero** Apex students appear.
+   - In Credit Ledger: Verify **only** Stanford transactions appear.
+   - In Audit Logs: Verify **only** Stanford audit entries appear.
+
+---
+
+### Test Workflow 9: Student Access Guard & Anti-IDOR Isolation
+1. Sign in as a student: `student@apex.edu` / `Password@123`.
+2. Notice the student lands on `/dashboard` (Candidate Dashboard).
+3. Try typing `http://localhost:5173/enterprise` in the browser address bar.
+4. **Verification**:
+   - The `EnterpriseRoute` guard detects the student role and immediately redirects to `/dashboard`.
+   - Any API request to `/api/enterprise/*` receives `403 Forbidden`.
+
+---
+
+## 4. Automated Test Suites
+
+Run the automated test suites in the `backend` directory:
 
 ```bash
-# Run all enterprise end-to-end tests (Phases 9 - 17)
+cd backend
+
+# Run complete Enterprise End-to-End verification suite (Phases 9 - 17)
 npm run test:e2e
 
 # Run bulk import engine unit tests (Phase 7)
 npm run test:phase7
 
-# Run student credential, password entropy & email resilience tests (Phases 8 & 9)
+# Run student credential, password complexity & email resilience tests (Phases 8 & 9)
 npm run test:phase8-9
 ```
 
-### Test Suite Coverage
-- **`npm run test:e2e`** (44 tests):
+### Test Suite Summary (409 Tests Total):
+- **`npm run test:e2e`** (44 Tests):
   - Mandatory Tenant Isolation: College A vs College B cross-tenant student directory, faculty list, credit ledger, and audit log isolation.
   - Anti-IDOR direct ID queries across tenant boundaries.
   - Student password login, JWT claims, and zero-trust blocking from enterprise and super admin endpoints.
@@ -198,13 +211,13 @@ npm run test:phase8-9
   - Formula injection mitigation across `= `, `+`, `-`, `@`, `\t`, `\r` prefixes.
   - Credit distribution quota calculations, insufficient balance protection, and atomic deductions.
   - College-scoped audit logging.
-- **`npm run test:phase7`** (42 tests):
+- **`npm run test:phase7`** (42 Tests):
   - Header normalization across 20+ column name variations.
   - Excel binary workbook parsing (`.xlsx` and `.csv`).
   - Row validation, email regex verification, and in-file duplicate detection.
   - Atomic rollback vs partial import execution modes.
   - 500+ student cohort batch chunk slicing.
-- **`npm run test:phase8-9`** (323 tests):
+- **`npm run test:phase8-9`** (323 Tests):
   - 100 unique random password samples tested for length (>= 12), character set complexity, and entropy.
   - Bcrypt hashing and plaintext exclusion verification.
   - SMTP delivery failure resilience and invitation status tracking.
@@ -212,26 +225,17 @@ npm run test:phase8-9
 
 ---
 
-## 8. Development & Setup
+## 5. TypeScript Compilation Check
 
-### Backend
-```bash
-cd backend
-npm install
-npx prisma generate
-npm run dev
-```
+Run type checks to confirm 0 compilation errors across all projects:
 
-### Frontend (`redresumes.com`)
 ```bash
-cd redresumes.com
-npm install
-npm run dev
-```
+# Frontend typecheck
+cd redresumes.com && npx tsc --noEmit
 
-### Super Admin Portal (`admin-panel-redresumes`)
-```bash
-cd redresumeAdmin/admin-panel-redresumes
-npm install
-npm run dev
+# Backend typecheck
+cd backend && npx tsc --noEmit
+
+# Admin panel typecheck
+cd redresumeAdmin/admin-panel-redresumes && npx tsc --noEmit
 ```

@@ -1,4 +1,4 @@
-import { useEffect, useState, lazy, Suspense, type ReactNode } from 'react';
+import { useEffect, useState, lazy, Suspense, type ReactNode, type Dispatch, type SetStateAction } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';
@@ -52,15 +52,48 @@ const RouteUiEffects = () => {
   );
 };
 
-const AuthenticatedLoginRedirect = ({ currentUser }: { currentUser: AuthUser | null }) => {
+const LoginRoute = ({
+  currentUser,
+  onLoginSuccess,
+}: {
+  currentUser: AuthUser | null;
+  onLoginSuccess: (user: AuthUser) => void;
+}) => {
   const location = useLocation();
-  const rawRedirect = new URLSearchParams(location.search).get('redirect');
-  const defaultPath =
-    currentUser?.role === 'college_main_faculty' || currentUser?.role === 'college_faculty'
-      ? '/enterprise'
-      : '/dashboard';
-  const safeRedirect = sanitizeRedirectUrl(rawRedirect, defaultPath);
-  return <Navigate to={safeRedirect} replace />;
+  const portal = new URLSearchParams(location.search).get('portal');
+  const isFaculty = currentUser?.role === 'college_main_faculty' || currentUser?.role === 'college_faculty';
+
+  if (currentUser) {
+    // If student/candidate explicitly accesses enterprise portal login, allow them to enter faculty credentials
+    if (portal === 'enterprise' && !isFaculty) {
+      return <LoginPage onLoginSuccess={onLoginSuccess} />;
+    }
+    const rawRedirect = new URLSearchParams(location.search).get('redirect');
+    const defaultPath = isFaculty ? '/enterprise' : '/dashboard';
+    const safeRedirect = sanitizeRedirectUrl(rawRedirect, defaultPath);
+    return <Navigate to={safeRedirect} replace />;
+  }
+
+  return <LoginPage onLoginSuccess={onLoginSuccess} />;
+};
+
+const EnterpriseRoute = ({
+  currentUser,
+  children,
+}: {
+  currentUser: AuthUser | null;
+  children: ReactNode;
+}) => {
+  const location = useLocation();
+  if (!currentUser) {
+    const currentPath = sanitizeRedirectUrl(location.pathname + location.search, '/enterprise');
+    return <Navigate to={`/login?portal=enterprise&redirect=${encodeURIComponent(currentPath)}`} replace />;
+  }
+  if (currentUser.role !== 'college_main_faculty' && currentUser.role !== 'college_faculty') {
+    // Student or candidate cannot access enterprise campus portal -> redirect to candidate dashboard
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <>{children}</>;
 };
 
 const ProtectedRoute = ({ isAuthenticated, children }: { isAuthenticated: boolean; children: ReactNode }) => {
@@ -70,6 +103,158 @@ const ProtectedRoute = ({ isAuthenticated, children }: { isAuthenticated: boolea
     return <Navigate to={`/login?redirect=${encodeURIComponent(currentPath)}`} replace />;
   }
   return <>{children}</>;
+};
+
+interface AppShellProps {
+  currentUser: AuthUser | null;
+  handleLogout: () => void;
+  darkMode: boolean;
+  setDarkMode: Dispatch<SetStateAction<boolean>>;
+  handleUseTemplate: (template: TemplateItem) => void;
+  selectedTemplate: TemplateItem;
+  selectedExample: string | null;
+  setSelectedTemplate: Dispatch<SetStateAction<TemplateItem>>;
+  handleUserUpdated: (user: AuthUser) => void;
+  isAuthenticated: boolean;
+  isAdmin: boolean;
+}
+
+const AppShell = ({
+  currentUser,
+  handleLogout,
+  darkMode,
+  setDarkMode,
+  handleUseTemplate,
+  selectedTemplate,
+  selectedExample,
+  setSelectedTemplate,
+  handleUserUpdated,
+  isAuthenticated,
+  isAdmin,
+}: AppShellProps) => {
+  const location = useLocation();
+  const isEnterprise = location.pathname.startsWith('/enterprise');
+  const token = typeof window !== 'undefined' ? (window.localStorage.getItem('redresumes_access_token') || '') : '';
+
+  return (
+    <div className={`min-h-screen flex flex-col ${isEnterprise ? 'bg-[#070a12]' : 'bg-white dark:bg-zinc-950'}`}>
+      {!isEnterprise && (
+        <a 
+          href="#main-content" 
+          className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-white focus:text-primary focus:p-4 focus:border focus:border-primary focus:rounded focus:m-4"
+        >
+          Skip to main content
+        </a>
+      )}
+
+      {/* Hide consumer student Header when on enterprise dashboard */}
+      {!isEnterprise && (
+        <Header
+          currentUser={currentUser}
+          onLogout={handleLogout}
+          darkMode={darkMode}
+          onToggleDarkMode={() => setDarkMode((prev) => !prev)}
+        />
+      )}
+      
+      <main id="main-content" className="flex-1">
+        <Suspense fallback={<div className="min-h-[60vh] flex items-center justify-center text-zinc-500">Loading...</div>}>
+          <Routes>
+            {/* Public Routes */}
+            <Route path="/" element={
+              <HomePage 
+                onUseTemplate={handleUseTemplate} 
+              />
+            } />
+            <Route path="/templates" element={
+              <TemplatesPage onUseTemplate={handleUseTemplate} />
+            } />
+            
+            {/* Note: Builder is now fully public */}
+            <Route path="/builder" element={
+              <ResumeBuilderPage 
+                selectedTemplate={selectedTemplate} 
+                selectedExample={selectedExample} 
+                onSelectTemplate={setSelectedTemplate} 
+                currentUser={currentUser} 
+              />
+            } />
+            
+            <Route path="/cover-letter" element={<CoverLetterPage />} />
+            <Route path="/pricing" element={<Navigate to="/" replace />} />
+
+            {/* Resume Examples Hub and Dynamic Role Detail Guides */}
+            <Route path="/resume-examples" element={<ResumeExamplesHubPage />} />
+            <Route path="/resume-examples/:slug" element={<RoleGuideDetailPage />} />
+
+            {/* 301 / SEO Redirects from old /blog and /examples routes */}
+            <Route path="/examples" element={<Navigate to="/resume-examples" replace />} />
+            <Route path="/blog" element={<Navigate to="/resume-examples" replace />} />
+            <Route path="/blog/*" element={<Navigate to="/resume-examples" replace />} />
+
+            <Route path="/job-finder" element={<JobFinderPage currentUser={currentUser} />} />
+            <Route path="/contact" element={<ContactPage />} />
+            <Route path="/about" element={<AboutPage />} />
+            <Route path="/r/:resumeId" element={<PublicResumePage />} />
+            <Route path="/privacy" element={<LegalPage title="Privacy Policy" />} />
+            <Route path="/terms" element={<LegalPage title="Terms of Service" />} />
+            
+            {/* Auth Routes */}
+            <Route path="/login" element={
+              <LoginRoute currentUser={currentUser} onLoginSuccess={(user) => handleUserUpdated(user)} />
+            } />
+
+            {/* Enterprise Multi-Tenant Campus Routes - 100% Dedicated & Isolated */}
+            <Route path="/enterprise" element={
+              <EnterpriseRoute currentUser={currentUser}>
+                <EnterpriseDashboardPage user={currentUser!} token={token} onLogout={handleLogout} />
+              </EnterpriseRoute>
+            } />
+            <Route path="/faculty-dashboard" element={<Navigate to="/enterprise" replace />} />
+            <Route path="/college-dashboard" element={<Navigate to="/enterprise" replace />} />
+
+            {/* Protected Routes */}
+            <Route path="/dashboard" element={
+              <ProtectedRoute isAuthenticated={isAuthenticated}>
+                <DashboardPage 
+                  currentUser={currentUser!} 
+                  onLogout={handleLogout} 
+                  onUserUpdated={handleUserUpdated} 
+                />
+              </ProtectedRoute>
+            } />
+            
+            <Route path="/interview/setup" element={
+              <ProtectedRoute isAuthenticated={isAuthenticated}>
+                <InterviewSetupPage currentUser={currentUser} onUserUpdated={handleUserUpdated} />
+              </ProtectedRoute>
+            } />
+            <Route path="/interview/session/:id" element={
+              <ProtectedRoute isAuthenticated={isAuthenticated}>
+                <InterviewSessionPage currentUser={currentUser} />
+              </ProtectedRoute>
+            } />
+            <Route path="/interview/report/:id" element={
+              <ProtectedRoute isAuthenticated={isAuthenticated}>
+                <InterviewReportPage />
+              </ProtectedRoute>
+            } />
+            
+            {/* Admin Route */}
+            <Route path="/admin" element={
+              isAdmin ? <AdminPage /> : <Navigate to="/" replace />
+            } />
+
+            {/* Fallback */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
+      </main>
+      
+      {/* Hide consumer student Footer when on enterprise dashboard */}
+      {!isEnterprise && <Footer currentUser={currentUser} />}
+    </div>
+  );
 };
 
 export const App = () => {
@@ -152,119 +337,22 @@ export const App = () => {
     <BrowserRouter>
       <Seo />
       <RouteUiEffects />
-      <div className="min-h-screen flex flex-col bg-white dark:bg-zinc-950">
-        <a 
-          href="#main-content" 
-          className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-white focus:text-primary focus:p-4 focus:border focus:border-primary focus:rounded focus:m-4"
-        >
-          Skip to main content
-        </a>
-        <Header
-          currentUser={currentUser}
-          onLogout={handleLogout}
-          darkMode={darkMode}
-          onToggleDarkMode={() => setDarkMode((prev) => !prev)}
-        />
-        
-        <main id="main-content" className="flex-1">
-          <Suspense fallback={<div className="min-h-[60vh] flex items-center justify-center text-zinc-500">Loading...</div>}>
-            <Routes>
-              {/* Public Routes */}
-              <Route path="/" element={
-                <HomePage 
-                  onUseTemplate={handleUseTemplate} 
-                />
-              } />
-              <Route path="/templates" element={
-                <TemplatesPage onUseTemplate={handleUseTemplate} />
-              } />
-              
-              {/* Note: Builder is now fully public */}
-              <Route path="/builder" element={
-                <ResumeBuilderPage 
-                  selectedTemplate={selectedTemplate} 
-                  selectedExample={selectedExample} 
-                  onSelectTemplate={setSelectedTemplate} 
-                  currentUser={currentUser} 
-                />
-              } />
-              
-              <Route path="/cover-letter" element={<CoverLetterPage />} />
-              <Route path="/pricing" element={<Navigate to="/" replace />} />
-
-              {/* Resume Examples Hub and Dynamic Role Detail Guides */}
-              <Route path="/resume-examples" element={<ResumeExamplesHubPage />} />
-              <Route path="/resume-examples/:slug" element={<RoleGuideDetailPage />} />
-
-              {/* 301 / SEO Redirects from old /blog and /examples routes */}
-              <Route path="/examples" element={<Navigate to="/resume-examples" replace />} />
-              <Route path="/blog" element={<Navigate to="/resume-examples" replace />} />
-              <Route path="/blog/*" element={<Navigate to="/resume-examples" replace />} />
-
-              <Route path="/job-finder" element={<JobFinderPage currentUser={currentUser} />} />
-              <Route path="/contact" element={<ContactPage />} />
-              <Route path="/about" element={<AboutPage />} />
-              <Route path="/r/:resumeId" element={<PublicResumePage />} />
-              <Route path="/privacy" element={<LegalPage title="Privacy Policy" />} />
-              <Route path="/terms" element={<LegalPage title="Terms of Service" />} />
-              
-              {/* Auth Routes */}
-              <Route path="/login" element={
-                isAuthenticated ? <AuthenticatedLoginRedirect currentUser={currentUser} /> : 
-                <LoginPage onLoginSuccess={(user) => handleUserUpdated(user)} />
-              } />
-
-              {/* Enterprise Multi-Tenant Campus Routes */}
-              <Route path="/enterprise" element={
-                <ProtectedRoute isAuthenticated={isAuthenticated}>
-                  <EnterpriseDashboardPage user={currentUser!} token="" />
-                </ProtectedRoute>
-              } />
-              <Route path="/faculty-dashboard" element={<Navigate to="/enterprise" replace />} />
-              <Route path="/college-dashboard" element={<Navigate to="/enterprise" replace />} />
-
-              {/* Protected Routes */}
-              <Route path="/dashboard" element={
-                <ProtectedRoute isAuthenticated={isAuthenticated}>
-                  <DashboardPage 
-                    currentUser={currentUser!} 
-                    onLogout={handleLogout} 
-                    onUserUpdated={handleUserUpdated} 
-                  />
-                </ProtectedRoute>
-              } />
-              
-              <Route path="/interview/setup" element={
-                <ProtectedRoute isAuthenticated={isAuthenticated}>
-                  <InterviewSetupPage currentUser={currentUser} onUserUpdated={handleUserUpdated} />
-                </ProtectedRoute>
-              } />
-              <Route path="/interview/session/:id" element={
-                <ProtectedRoute isAuthenticated={isAuthenticated}>
-                  <InterviewSessionPage currentUser={currentUser} />
-                </ProtectedRoute>
-              } />
-              <Route path="/interview/report/:id" element={
-                <ProtectedRoute isAuthenticated={isAuthenticated}>
-                  <InterviewReportPage />
-                </ProtectedRoute>
-              } />
-              
-              {/* Admin Route */}
-              <Route path="/admin" element={
-                isAdmin ? <AdminPage /> : <Navigate to="/" replace />
-              } />
-
-              {/* Fallback */}
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </Suspense>
-        </main>
-        
-        <Footer currentUser={currentUser} />
-      </div>
+      <AppShell
+        currentUser={currentUser}
+        handleLogout={handleLogout}
+        darkMode={darkMode}
+        setDarkMode={setDarkMode}
+        handleUseTemplate={handleUseTemplate}
+        selectedTemplate={selectedTemplate}
+        selectedExample={selectedExample}
+        setSelectedTemplate={setSelectedTemplate}
+        handleUserUpdated={handleUserUpdated}
+        isAuthenticated={isAuthenticated}
+        isAdmin={isAdmin}
+      />
     </BrowserRouter>
   );
 };
 
 export default App;
+

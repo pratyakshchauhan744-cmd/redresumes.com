@@ -26,17 +26,19 @@ import {
   X,
   UserPlus,
   BookOpen,
+  LogOut,
 } from "lucide-react";
 import { backendApi, AuthUser } from "../lib/backendApi";
 
 interface EnterpriseDashboardPageProps {
   user: AuthUser;
   token: string;
+  onLogout?: () => void;
 }
 
 type TabType = "overview" | "students" | "faculty" | "credits" | "reports" | "audit";
 
-export default function EnterpriseDashboardPage({ user, token }: EnterpriseDashboardPageProps) {
+export default function EnterpriseDashboardPage({ user, token, onLogout }: EnterpriseDashboardPageProps) {
   const [activeTab, setActiveTab] = useState<TabType>("overview");
   const [stats, setStats] = useState<any>(null);
   const [filterOptions, setFilterOptions] = useState<{
@@ -551,6 +553,38 @@ export default function EnterpriseDashboardPage({ user, token }: EnterpriseDashb
                 title="Refresh Metrics"
               >
                 <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin text-rose-400" : ""}`} />
+              </button>
+
+              {/* Administrator Profile Pill */}
+              <div className="hidden lg:flex items-center gap-2.5 pl-3 border-l border-zinc-800/80">
+                <div className="w-8 h-8 rounded-full bg-rose-600/20 border border-rose-500/40 flex items-center justify-center text-xs font-bold text-rose-400">
+                  {user.name ? user.name.charAt(0).toUpperCase() : "F"}
+                </div>
+                <div className="text-left">
+                  <span className="text-xs font-semibold text-white block leading-tight">{user.name}</span>
+                  <span className="text-[10px] text-zinc-400 font-mono block leading-tight">{user.email}</span>
+                </div>
+              </div>
+
+              {/* Institutional Sign Out Button */}
+              <button
+                onClick={() => {
+                  if (onLogout) {
+                    onLogout();
+                  } else {
+                    backendApi.logout().catch(() => {});
+                    if (typeof window !== "undefined") {
+                      window.localStorage.removeItem("redresumes_user");
+                      window.localStorage.removeItem("redresumes_access_token");
+                      window.location.href = "/login?portal=enterprise";
+                    }
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 hover:bg-rose-950/40 hover:border-rose-800/60 text-zinc-400 hover:text-rose-300 text-xs font-medium transition-all cursor-pointer"
+                title="Sign Out of Enterprise Session"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Sign Out</span>
               </button>
             </div>
           </div>

@@ -4,8 +4,11 @@ import { Prisma } from "@prisma/client";
 export interface AuditLogInput {
   actorId: string;
   action: string; // e.g. "ADJUST_CREDITS", "ROLE_CHANGE", "UPDATE_SETTING", "USER_IMPERSONATION"
-  entityType: string; // e.g. "UserCredit", "User", "SystemSetting"
-  entityId?: string | null;
+  targetType?: string; // DB column
+  targetId?: string | null; // DB column
+  entityType?: string; // Backward compatibility alias
+  entityId?: string | null; // Backward compatibility alias
+  details?: Record<string, any> | null;
   oldValue?: Record<string, any> | null;
   newValue?: Record<string, any> | null;
   ipAddress?: string | null;
@@ -20,13 +23,28 @@ export interface AuditLogInput {
 export async function logAdminAction(input: AuditLogInput) {
   const db = input.tx || prisma;
   
+  const targetType = input.targetType || input.entityType || "General";
+  const targetId = input.targetId || input.entityId || null;
+
+  let details: any = input.details || null;
+  if (!details && (input.oldValue || input.newValue || input.userAgent)) {
+    details = {
+      ...(input.oldValue ? { oldValue: input.oldValue } : {}),
+      ...(input.newValue ? { newValue: input.newValue } : {}),
+      ...(input.userAgent ? { userAgent: input.userAgent } : {}),
+    };
+  }
+
   try {
     return await db.adminAuditLog.create({
       data: {
         actorId: input.actorId,
         action: input.action,
-        entityType: input.entityType,
-        entityId: input.entityId || null,
+        targetType,
+        targetId,
+        entityType: targetType,
+        entityId: targetId,
+        details: details ? (details as Prisma.InputJsonValue) : Prisma.JsonNull,
         oldValue: input.oldValue ? (input.oldValue as Prisma.InputJsonValue) : Prisma.JsonNull,
         newValue: input.newValue ? (input.newValue as Prisma.InputJsonValue) : Prisma.JsonNull,
         ipAddress: input.ipAddress || null,

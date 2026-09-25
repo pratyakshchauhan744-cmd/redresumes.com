@@ -17,33 +17,39 @@ export async function createInterviewSession(
   if (!resume) throw new Error("Resume not found");
 
   // Execute credit check and session creation inside a single transaction
-  const session = await prisma.$transaction(async (tx) => {
-    if (userId) {
-      const userCredit = await tx.userCredit.findUnique({
-        where: { userId }
+  const session = await prisma.$transaction(
+    async (tx) => {
+      if (userId) {
+        const userCredit = await tx.userCredit.findUnique({
+          where: { userId }
+        });
+
+        if (!userCredit || userCredit.balance <= 0) {
+          throw new Error("You have no interview credits remaining.");
+        }
+      }
+
+      return tx.interviewSession.create({
+        data: {
+          userId,
+          resumeId,
+          targetRole,
+          companyType,
+          difficulty,
+          interviewStyle,
+          durationMins,
+          jobDescription,
+          interviewerPersona,
+          stressMode,
+          creditUsed: false
+        }
       });
-
-      if (!userCredit || userCredit.balance <= 0) {
-        throw new Error("You have no interview credits remaining.");
-      }
+    },
+    {
+      maxWait: 20000,
+      timeout: 60000,
     }
-
-    return tx.interviewSession.create({
-      data: {
-        userId,
-        resumeId,
-        targetRole,
-        companyType,
-        difficulty,
-        interviewStyle,
-        durationMins,
-        jobDescription,
-        interviewerPersona,
-        stressMode,
-        creditUsed: false
-      }
-    });
-  });
+  );
 
   const firstQuestionText = await generateInterviewQuestion(
     resume.parsedData,
@@ -249,45 +255,51 @@ export async function completeSessionAndGenerateReport(
   let creditDeducted = false;
   if (session.userId && !session.creditUsed) {
     try {
-      await prisma.$transaction(async (tx) => {
-        const userCredit = await tx.userCredit.findUnique({
-          where: { userId: session.userId! }
-        });
-        if (userCredit && userCredit.balance > 0) {
-          await tx.userCredit.update({
-            where: { userId: session.userId! },
-            data: { balance: { decrement: 1 } }
+      await prisma.$transaction(
+        async (tx) => {
+          const userCredit = await tx.userCredit.findUnique({
+            where: { userId: session.userId! }
           });
-          creditDeducted = true;
-
-          // If user belongs to a college, record student consumption in college credit ledger
-          const user = await tx.user.findUnique({
-            where: { id: session.userId! },
-            select: { collegeId: true }
-          });
-
-          if (user?.collegeId) {
-            const studentProfile = await tx.collegeStudent.findUnique({
-              where: { userId: session.userId! }
+          if (userCredit && userCredit.balance > 0) {
+            await tx.userCredit.update({
+              where: { userId: session.userId! },
+              data: { balance: { decrement: 1 } }
             });
-            const collegeAccount = await tx.collegeCreditAccount.findUnique({
-              where: { collegeId: user.collegeId }
+            creditDeducted = true;
+
+            // If user belongs to a college, record student consumption in college credit ledger
+            const user = await tx.user.findUnique({
+              where: { id: session.userId! },
+              select: { collegeId: true }
             });
 
-            await tx.collegeCreditTransaction.create({
-              data: {
-                collegeId: user.collegeId,
-                studentId: studentProfile?.id || null,
-                createdById: session.userId!,
-                type: "STUDENT_CONSUMPTION",
-                amount: -1,
-                balanceAfter: collegeAccount?.balance ?? 0,
-                reason: `Completed mock interview session (${session.targetRole || "General"})`,
-              }
-            });
+            if (user?.collegeId) {
+              const studentProfile = await tx.collegeStudent.findUnique({
+                where: { userId: session.userId! }
+              });
+              const collegeAccount = await tx.collegeCreditAccount.findUnique({
+                where: { collegeId: user.collegeId }
+              });
+
+              await tx.collegeCreditTransaction.create({
+                data: {
+                  collegeId: user.collegeId,
+                  studentId: studentProfile?.id || null,
+                  createdById: session.userId!,
+                  type: "STUDENT_CONSUMPTION",
+                  amount: -1,
+                  balanceAfter: collegeAccount?.balance ?? 0,
+                  reason: `Completed mock interview session (${session.targetRole || "General"})`,
+                }
+              });
+            }
           }
+        },
+        {
+          maxWait: 20000,
+          timeout: 60000,
         }
-      });
+      );
     } catch (txErr) {
       console.error("Failed to deduct interview credit on completion:", txErr);
     }

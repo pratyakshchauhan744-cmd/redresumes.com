@@ -37,24 +37,30 @@ export async function createCheckoutSession(req: Request, res: Response, next: N
       // Simulate webhook flow by directly adding credits in dev
       const mockPaymentId = `mock_ch_${Math.random().toString(36).substring(2, 15)}`;
       
-      await prisma.$transaction(async (tx) => {
-        await tx.userCredit.upsert({
-          where: { userId },
-          create: { userId, balance: pkg.credits },
-          update: { balance: { increment: pkg.credits } }
-        });
+      await prisma.$transaction(
+        async (tx) => {
+          await tx.userCredit.upsert({
+            where: { userId },
+            create: { userId, balance: pkg.credits },
+            update: { balance: { increment: pkg.credits } }
+          });
 
-        await tx.creditTransaction.create({
-          data: {
-            userId,
-            packageName: pkg.name,
-            creditsAdded: pkg.credits,
-            paymentAmount: pkg.price,
-            razorpayPaymentId: mockPaymentId,
-            status: "succeeded"
-          }
-        });
-      });
+          await tx.creditTransaction.create({
+            data: {
+              userId,
+              packageName: pkg.name,
+              creditsAdded: pkg.credits,
+              paymentAmount: pkg.price,
+              razorpayPaymentId: mockPaymentId,
+              status: "succeeded"
+            }
+          });
+        },
+        {
+          maxWait: 20000,
+          timeout: 60000,
+        }
+      );
 
       return res.json({
         mock: true,
@@ -126,36 +132,42 @@ export async function handleRazorpayWebhook(req: Request, res: Response, next: N
         const razorpayPaymentId = (payment?.id as string) || (order?.id as string) || `pay_${Date.now()}`;
 
         try {
-          await prisma.$transaction(async (tx) => {
-            // Check if transaction already processed to prevent duplicate additions
-            const existingTx = await tx.creditTransaction.findUnique({
-              where: { razorpayPaymentId }
-            });
+            await prisma.$transaction(
+              async (tx) => {
+                // Check if transaction already processed to prevent duplicate additions
+                const existingTx = await tx.creditTransaction.findUnique({
+                  where: { razorpayPaymentId }
+                });
 
-            if (existingTx) {
-              console.log(`Transaction ${razorpayPaymentId} already processed.`);
-              return;
-            }
+                if (existingTx) {
+                  console.log(`Transaction ${razorpayPaymentId} already processed.`);
+                  return;
+                }
 
-            // Update user balance
-            await tx.userCredit.upsert({
-              where: { userId },
-              create: { userId, balance: pkg.credits },
-              update: { balance: { increment: pkg.credits } }
-            });
+                // Update user balance
+                await tx.userCredit.upsert({
+                  where: { userId },
+                  create: { userId, balance: pkg.credits },
+                  update: { balance: { increment: pkg.credits } }
+                });
 
-            // Log transaction
-            await tx.creditTransaction.create({
-              data: {
-                userId,
-                packageName: pkg.name,
-                creditsAdded: pkg.credits,
-                paymentAmount: pkg.price,
-                razorpayPaymentId,
-                status: "succeeded"
+                // Log transaction
+                await tx.creditTransaction.create({
+                  data: {
+                    userId,
+                    packageName: pkg.name,
+                    creditsAdded: pkg.credits,
+                    paymentAmount: pkg.price,
+                    razorpayPaymentId,
+                    status: "succeeded"
+                  }
+                });
+              },
+              {
+                maxWait: 20000,
+                timeout: 60000,
               }
-            });
-          });
+            );
 
           console.log(`Successfully credited user ${userId} with ${pkg.credits} credits for package ${packageKey}`);
         } catch (dbErr) {
@@ -256,25 +268,31 @@ export async function verifyPayment(req: Request, res: Response, next: NextFunct
       }
 
       console.warn("Razorpay configuration missing during verification. Simulating success.");
-      const balance = await prisma.$transaction(async (tx) => {
-        const credit = await tx.userCredit.upsert({
-          where: { userId },
-          create: { userId, balance: pkg.credits },
-          update: { balance: { increment: pkg.credits } }
-        });
+      const balance = await prisma.$transaction(
+        async (tx) => {
+          const credit = await tx.userCredit.upsert({
+            where: { userId },
+            create: { userId, balance: pkg.credits },
+            update: { balance: { increment: pkg.credits } }
+          });
 
-        await tx.creditTransaction.create({
-          data: {
-            userId,
-            packageName: pkg.name,
-            creditsAdded: pkg.credits,
-            paymentAmount: pkg.price,
-            razorpayPaymentId: razorpayPaymentId || `mock_verify_${Date.now()}`,
-            status: "succeeded"
-          }
-        });
-        return credit.balance;
-      });
+          await tx.creditTransaction.create({
+            data: {
+              userId,
+              packageName: pkg.name,
+              creditsAdded: pkg.credits,
+              paymentAmount: pkg.price,
+              razorpayPaymentId: razorpayPaymentId || `mock_verify_${Date.now()}`,
+              status: "succeeded"
+            }
+          });
+          return credit.balance;
+        },
+        {
+          maxWait: 20000,
+          timeout: 60000,
+        }
+      );
 
       return res.json({
         message: `Successfully added ${pkg.credits} credits (sandbox).`,
@@ -297,40 +315,46 @@ export async function verifyPayment(req: Request, res: Response, next: NextFunct
       return res.status(400).json({ message: "Payment signature verification failed" });
     }
 
-    const balance = await prisma.$transaction(async (tx) => {
-      // Check if transaction already processed
-      const existingTx = await tx.creditTransaction.findUnique({
-        where: { razorpayPaymentId }
-      });
+      const balance = await prisma.$transaction(
+        async (tx) => {
+          // Check if transaction already processed
+          const existingTx = await tx.creditTransaction.findUnique({
+            where: { razorpayPaymentId }
+          });
 
-      if (existingTx) {
-        const currentCredit = await tx.userCredit.findUnique({
-          where: { userId }
-        });
-        return currentCredit?.balance ?? 0;
-      }
+          if (existingTx) {
+            const currentCredit = await tx.userCredit.findUnique({
+              where: { userId }
+            });
+            return currentCredit?.balance ?? 0;
+          }
 
-      // Update user balance
-      const credit = await tx.userCredit.upsert({
-        where: { userId },
-        create: { userId, balance: pkg.credits },
-        update: { balance: { increment: pkg.credits } }
-      });
+          // Update user balance
+          const credit = await tx.userCredit.upsert({
+            where: { userId },
+            create: { userId, balance: pkg.credits },
+            update: { balance: { increment: pkg.credits } }
+          });
 
-      // Log transaction
-      await tx.creditTransaction.create({
-        data: {
-          userId,
-          packageName: pkg.name,
-          creditsAdded: pkg.credits,
-          paymentAmount: pkg.price,
-          razorpayPaymentId,
-          status: "succeeded"
+          // Log transaction
+          await tx.creditTransaction.create({
+            data: {
+              userId,
+              packageName: pkg.name,
+              creditsAdded: pkg.credits,
+              paymentAmount: pkg.price,
+              razorpayPaymentId,
+              status: "succeeded"
+            }
+          });
+
+          return credit.balance;
+        },
+        {
+          maxWait: 20000,
+          timeout: 60000,
         }
-      });
-
-      return credit.balance;
-    });
+      );
 
     console.log(`Successfully verified payment and credited user ${userId} with ${pkg.credits} credits.`);
     res.json({

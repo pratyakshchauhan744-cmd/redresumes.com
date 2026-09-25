@@ -84,35 +84,41 @@ router.post("/accept", async (req, res, next) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. Update User password and status
-      const user = await tx.user.update({
-        where: { email: invitation.email },
-        data: {
-          passwordHash,
-          isActive: true,
-        },
-      });
-
-      // 2. Mark Invitation accepted
-      await tx.invitation.update({
-        where: { id: invitation.id },
-        data: {
-          status: "accepted",
-          acceptedAt: new Date(),
-        },
-      });
-
-      // 3. Mark faculty profile active if applicable
-      if (invitation.role === "college_main_faculty" || invitation.role === "college_faculty") {
-        await tx.collegeFaculty.updateMany({
-          where: { userId: user.id },
-          data: { status: "active" },
+    const result = await prisma.$transaction(
+      async (tx) => {
+        // 1. Update User password and status
+        const user = await tx.user.update({
+          where: { email: invitation.email },
+          data: {
+            passwordHash,
+            isActive: true,
+          },
         });
-      }
 
-      return user;
-    });
+        // 2. Mark Invitation accepted
+        await tx.invitation.update({
+          where: { id: invitation.id },
+          data: {
+            status: "accepted",
+            acceptedAt: new Date(),
+          },
+        });
+
+        // 3. Mark faculty profile active if applicable
+        if (invitation.role === "college_main_faculty" || invitation.role === "college_faculty") {
+          await tx.collegeFaculty.updateMany({
+            where: { userId: user.id },
+            data: { status: "active" },
+          });
+        }
+
+        return user;
+      },
+      {
+        maxWait: 20000,
+        timeout: 60000,
+      }
+    );
 
     // Generate JWT tokens
     const accessToken = signAccessToken({

@@ -33,51 +33,57 @@ export async function adjustUserCredits(rawInput: unknown) {
   const { userId, amount, reason } = validated.data;
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
-      // Find current user credit
-      const userCredit = await tx.userCredit.findUnique({
-        where: { userId },
-      });
+    const result = await prisma.$transaction(
+      async (tx) => {
+        // Find current user credit
+        const userCredit = await tx.userCredit.findUnique({
+          where: { userId },
+        });
 
-      const oldBalance = userCredit?.balance ?? 0;
-      const newBalance = oldBalance + amount;
+        const oldBalance = userCredit?.balance ?? 0;
+        const newBalance = oldBalance + amount;
 
-      if (newBalance < 0) {
-        throw new Error(`Cannot subtract ${Math.abs(amount)} credits. Balance would fall below 0.`);
+        if (newBalance < 0) {
+          throw new Error(`Cannot subtract ${Math.abs(amount)} credits. Balance would fall below 0.`);
+        }
+
+        // Upsert balance record
+        const updated = await tx.userCredit.upsert({
+          where: { userId },
+          update: { balance: newBalance },
+          create: { userId, balance: newBalance },
+        });
+
+        // Insert item into transaction history
+        await tx.creditTransaction.create({
+          data: {
+            userId,
+            packageName: `Manual Adjustment: ${reason}`,
+            creditsAdded: amount,
+            paymentAmount: 0.0,
+            razorpayPaymentId: `MANUAL-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+            status: "completed",
+          },
+        });
+
+        // Log administrative audit trail
+        await logAdminAction({
+          tx,
+          actorId: session.userId,
+          action: "ADJUST_CREDITS",
+          entityType: "UserCredit",
+          entityId: updated.id,
+          oldValue: { balance: oldBalance },
+          newValue: { balance: newBalance, reason },
+        });
+
+        return { newBalance };
+      },
+      {
+        maxWait: 20000,
+        timeout: 60000,
       }
-
-      // Upsert balance record
-      const updated = await tx.userCredit.upsert({
-        where: { userId },
-        update: { balance: newBalance },
-        create: { userId, balance: newBalance },
-      });
-
-      // Insert item into transaction history
-      await tx.creditTransaction.create({
-        data: {
-          userId,
-          packageName: `Manual Adjustment: ${reason}`,
-          creditsAdded: amount,
-          paymentAmount: 0.0,
-          razorpayPaymentId: `MANUAL-${Date.now()}-${Math.random().toString(36).substring(7)}`,
-          status: "completed",
-        },
-      });
-
-      // Log administrative audit trail
-      await logAdminAction({
-        tx,
-        actorId: session.userId,
-        action: "ADJUST_CREDITS",
-        entityType: "UserCredit",
-        entityId: updated.id,
-        oldValue: { balance: oldBalance },
-        newValue: { balance: newBalance, reason },
-      });
-
-      return { newBalance };
-    });
+    );
 
     // Revalidate details path
     revalidatePath(`/admin/users/${userId}`);

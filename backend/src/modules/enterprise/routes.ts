@@ -316,67 +316,75 @@ router.post("/faculty", requirePermission("FACULTY_CREATE"), async (req, res, ne
     const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
-    const result = await prisma.$transaction(async (tx) => {
-      let user = existingUser;
-      if (!user) {
-        user = await tx.user.create({
-          data: {
-            name: data.name,
-            email: data.email,
-            phone: data.phone,
-            passwordHash,
-            role: "college_faculty",
-            collegeId,
-            isActive: true,
-          },
-        });
-      } else {
-        user = await tx.user.update({
-          where: { id: user.id },
-          data: {
-            role: "college_faculty",
-            collegeId,
-          },
-        });
-      }
+    const result = await prisma.$transaction(
+      async (tx) => {
+        let user = existingUser;
+        if (!user) {
+          user = await tx.user.create({
+            data: {
+              name: data.name,
+              email: data.email,
+              phone: data.phone,
+              passwordHash,
+              role: "college_faculty",
+              collegeId,
+              isActive: true,
+            },
+          });
+        } else {
+          user = await tx.user.update({
+            where: { id: user.id },
+            data: {
+              role: "college_faculty",
+              collegeId,
+              passwordHash,
+              isActive: true,
+            },
+          });
+        }
 
-      const facultyProfile = await tx.collegeFaculty.create({
-        data: {
-          userId: user.id,
-          collegeId,
-          employeeId: data.employeeId,
-          department: data.department,
-          designation: data.designation,
-          isMainFaculty: false,
-          permissions: data.permissions,
-          programAccess: data.programAccess,
-          courseAccess: data.courseAccess,
-          sectionAccess: data.sectionAccess,
-          status: "active",
-        },
-      });
-
-      await tx.invitation.create({
-        data: {
-          collegeId,
-          email: data.email,
-          role: "college_faculty",
-          tokenHash,
-          expiresAt,
-          status: "pending",
-          invitedById: req.user!.id,
-          metadata: {
-            name: data.name,
+        const facultyProfile = await tx.collegeFaculty.create({
+          data: {
+            userId: user.id,
+            collegeId,
             employeeId: data.employeeId,
             department: data.department,
             designation: data.designation,
+            isMainFaculty: false,
             permissions: data.permissions,
+            programAccess: data.programAccess,
+            courseAccess: data.courseAccess,
+            sectionAccess: data.sectionAccess,
+            status: "active",
           },
-        },
-      });
+        });
 
-      return { user, facultyProfile };
-    });
+        await tx.invitation.create({
+          data: {
+            collegeId,
+            email: data.email,
+            role: "college_faculty",
+            tokenHash,
+            expiresAt,
+            status: "pending",
+            invitedById: req.user!.id,
+            metadata: {
+              name: data.name,
+              employeeId: data.employeeId,
+              department: data.department,
+              designation: data.designation,
+              permissions: data.permissions,
+            },
+          },
+        });
+
+        return { user, facultyProfile };
+      },
+      {
+        maxWait: 20000,
+        timeout: 60000,
+      }
+    );
 
     // Send invitation email
     const frontendUrl = env.FRONTEND_URL || "http://localhost:3000";
@@ -447,37 +455,43 @@ router.patch("/faculty/:id", requirePermission("FACULTY_EDIT"), async (req, res,
 
     const data = schema.parse(req.body);
 
-    const [updated] = await prisma.$transaction(async (tx) => {
-      const updatedFaculty = await tx.collegeFaculty.update({
-        where: { id },
-        data: {
-          department: data.department,
-          designation: data.designation,
-          permissions: data.permissions,
-          programAccess: data.programAccess,
-          courseAccess: data.courseAccess,
-          sectionAccess: data.sectionAccess,
-          status: data.status,
-        },
-      });
-
-      // Synchronize User profile details and active status
-      const userUpdates: any = {};
-      if (data.name) userUpdates.name = data.name;
-      if (data.phone !== undefined) userUpdates.phone = data.phone;
-      if (data.status) {
-        userUpdates.isActive = data.status === "active";
-      }
-
-      if (Object.keys(userUpdates).length > 0) {
-        await tx.user.update({
-          where: { id: faculty.userId },
-          data: userUpdates,
+    const [updated] = await prisma.$transaction(
+      async (tx) => {
+        const updatedFaculty = await tx.collegeFaculty.update({
+          where: { id },
+          data: {
+            department: data.department,
+            designation: data.designation,
+            permissions: data.permissions,
+            programAccess: data.programAccess,
+            courseAccess: data.courseAccess,
+            sectionAccess: data.sectionAccess,
+            status: data.status,
+          },
         });
-      }
 
-      return [updatedFaculty];
-    });
+        // Synchronize User profile details and active status
+        const userUpdates: any = {};
+        if (data.name) userUpdates.name = data.name;
+        if (data.phone !== undefined) userUpdates.phone = data.phone;
+        if (data.status) {
+          userUpdates.isActive = data.status === "active";
+        }
+
+        if (Object.keys(userUpdates).length > 0) {
+          await tx.user.update({
+            where: { id: faculty.userId },
+            data: userUpdates,
+          });
+        }
+
+        return [updatedFaculty];
+      },
+      {
+        maxWait: 20000,
+        timeout: 60000,
+      }
+    );
 
     await logEnterpriseAudit({
       collegeId,
@@ -522,16 +536,23 @@ router.delete("/faculty/:id", requirePermission("FACULTY_EDIT"), async (req, res
       return res.status(400).json({ success: false, message: "You cannot deactivate your own account." });
     }
 
-    const [updatedFaculty] = await prisma.$transaction([
-      prisma.collegeFaculty.update({
-        where: { id },
-        data: { status: "inactive" },
-      }),
-      prisma.user.update({
-        where: { id: faculty.userId },
-        data: { isActive: false },
-      }),
-    ]);
+    const updatedFaculty = await prisma.$transaction(
+      async (tx) => {
+        const facultyRecord = await tx.collegeFaculty.update({
+          where: { id },
+          data: { status: "inactive" },
+        });
+        await tx.user.update({
+          where: { id: faculty.userId },
+          data: { isActive: false },
+        });
+        return facultyRecord;
+      },
+      {
+        maxWait: 20000,
+        timeout: 60000,
+      }
+    );
 
     await logEnterpriseAudit({
       collegeId,
@@ -968,6 +989,10 @@ router.post("/students", requirePermission("STUDENT_CREATE"), async (req, res, n
       });
 
       return { user, studentProfile };
+    },
+    {
+      maxWait: 20000,
+      timeout: 60000,
     });
 
     // 2. Dispatch Welcome Email Asynchronously outside DB transaction
@@ -1497,6 +1522,10 @@ export async function executeBulkImport({
           });
 
           return { user, profile };
+        },
+        {
+          maxWait: 20000,
+          timeout: 60000,
         });
 
         // Asynchronous Welcome Email Dispatch (outside DB transaction)
@@ -2011,6 +2040,10 @@ const handleStudentAssign = async (req: any, res: any, next: any) => {
         updatedUserCredit,
         txn,
       };
+    },
+    {
+      maxWait: 20000,
+      timeout: 60000,
     });
 
     await logEnterpriseAudit({
@@ -2144,6 +2177,10 @@ router.post("/credits/distribute", requirePermission("INTERVIEW_CREDIT_ASSIGN"),
         totalCreditsDistributed: totalRequired,
         balanceRemaining: updatedAccount.balance,
       };
+    },
+    {
+      maxWait: 20000,
+      timeout: 60000,
     });
 
     await logEnterpriseAudit({

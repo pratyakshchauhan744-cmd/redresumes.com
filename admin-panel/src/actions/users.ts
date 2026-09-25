@@ -45,52 +45,58 @@ export async function toggleUserStatus(rawInput: unknown) {
   }
 
   try {
-    const errorMsg = await prisma.$transaction(async (tx) => {
-      const targetUser = await tx.user.findUnique({
-        where: { id: userId },
-        select: { id: true, role: true, isActive: true },
-      });
-
-      if (!targetUser) {
-        throw new Error("Target user could not be resolved");
-      }
-
-      if (targetUser.isActive === isActive) {
-        return null;
-      }
-
-      // 2. Prevent suspending the last remaining administrator
-      if (targetUser.role === "admin" && !isActive) {
-        const activeAdminsCount = await tx.user.count({
-          where: {
-            role: "admin",
-            isActive: true,
-          },
+    const errorMsg = await prisma.$transaction(
+      async (tx) => {
+        const targetUser = await tx.user.findUnique({
+          where: { id: userId },
+          select: { id: true, role: true, isActive: true },
         });
 
-        if (activeAdminsCount <= 1) {
-          throw new Error("Operation aborted: Cannot suspend the last remaining active Administrator.");
+        if (!targetUser) {
+          throw new Error("Target user could not be resolved");
         }
+
+        if (targetUser.isActive === isActive) {
+          return null;
+        }
+
+        // 2. Prevent suspending the last remaining administrator
+        if (targetUser.role === "admin" && !isActive) {
+          const activeAdminsCount = await tx.user.count({
+            where: {
+              role: "admin",
+              isActive: true,
+            },
+          });
+
+          if (activeAdminsCount <= 1) {
+            throw new Error("Operation aborted: Cannot suspend the last remaining active Administrator.");
+          }
+        }
+
+        const updated = await tx.user.update({
+          where: { id: userId },
+          data: { isActive },
+          select: { id: true, isActive: true },
+        });
+
+        await logAdminAction({
+          tx,
+          actorId: session.userId,
+          action: isActive ? "ACTIVATE_USER" : "SUSPEND_USER",
+          entityType: "User",
+          entityId: userId,
+          oldValue: { isActive: targetUser.isActive },
+          newValue: { isActive: updated.isActive },
+        });
+
+        return null;
+      },
+      {
+        maxWait: 20000,
+        timeout: 60000,
       }
-
-      const updated = await tx.user.update({
-        where: { id: userId },
-        data: { isActive },
-        select: { id: true, isActive: true },
-      });
-
-      await logAdminAction({
-        tx,
-        actorId: session.userId,
-        action: isActive ? "ACTIVATE_USER" : "SUSPEND_USER",
-        entityType: "User",
-        entityId: userId,
-        oldValue: { isActive: targetUser.isActive },
-        newValue: { isActive: updated.isActive },
-      });
-
-      return null;
-    });
+    );
 
     if (errorMsg) {
       return { success: false, error: errorMsg };
@@ -135,52 +141,58 @@ export async function changeUserRole(rawInput: unknown) {
   }
 
   try {
-    const errorMsg = await prisma.$transaction(async (tx) => {
-      const targetUser = await tx.user.findUnique({
-        where: { id: userId },
-        select: { id: true, role: true, isActive: true },
-      });
-
-      if (!targetUser) {
-        throw new Error("Target user could not be resolved");
-      }
-
-      if (targetUser.role === role) {
-        return null;
-      }
-
-      // 2. Prevent demoting the last remaining active administrator
-      if (targetUser.role === "admin" && role !== "admin") {
-        const activeAdminsCount = await tx.user.count({
-          where: {
-            role: "admin",
-            isActive: true,
-          },
+    const errorMsg = await prisma.$transaction(
+      async (tx) => {
+        const targetUser = await tx.user.findUnique({
+          where: { id: userId },
+          select: { id: true, role: true, isActive: true },
         });
 
-        if (activeAdminsCount <= 1) {
-          throw new Error("Operation aborted: Cannot demote the last remaining active Administrator.");
+        if (!targetUser) {
+          throw new Error("Target user could not be resolved");
         }
+
+        if (targetUser.role === role) {
+          return null;
+        }
+
+        // 2. Prevent demoting the last remaining active administrator
+        if (targetUser.role === "admin" && role !== "admin") {
+          const activeAdminsCount = await tx.user.count({
+            where: {
+              role: "admin",
+              isActive: true,
+            },
+          });
+
+          if (activeAdminsCount <= 1) {
+            throw new Error("Operation aborted: Cannot demote the last remaining active Administrator.");
+          }
+        }
+
+        const updated = await tx.user.update({
+          where: { id: userId },
+          data: { role },
+          select: { id: true, role: true },
+        });
+
+        await logAdminAction({
+          tx,
+          actorId: session.userId,
+          action: "CHANGE_ROLE",
+          entityType: "User",
+          entityId: userId,
+          oldValue: { role: targetUser.role },
+          newValue: { role: updated.role },
+        });
+
+        return null;
+      },
+      {
+        maxWait: 20000,
+        timeout: 60000,
       }
-
-      const updated = await tx.user.update({
-        where: { id: userId },
-        data: { role },
-        select: { id: true, role: true },
-      });
-
-      await logAdminAction({
-        tx,
-        actorId: session.userId,
-        action: "CHANGE_ROLE",
-        entityType: "User",
-        entityId: userId,
-        oldValue: { role: targetUser.role },
-        newValue: { role: updated.role },
-      });
-
-      return null;
-    });
+    );
 
     if (errorMsg) {
       return { success: false, error: errorMsg };

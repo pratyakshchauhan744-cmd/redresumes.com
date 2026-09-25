@@ -70,57 +70,60 @@ router.post("/", async (req, res, next) => {
     const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. Create College
-      const college = await tx.college.create({
-        data: {
-          name: data.name,
-          universityName: data.universityName,
-          code: data.code,
-          officialEmail: data.officialEmail,
-          contactPhone: data.contactPhone,
-          website: data.website || undefined,
-          address: data.address,
-          city: data.city,
-          state: data.state,
-          country: data.country,
-          status: "active",
-        },
-      });
-
-      // 2. Initialize College Credit Account
-      const creditAccount = await tx.collegeCreditAccount.create({
-        data: {
-          collegeId: college.id,
-          totalAllocated: data.initialCredits,
-          totalDistributed: 0,
-          balance: data.initialCredits,
-        },
-      });
-
-      // 3. Create or update Main Faculty User
-      let facultyUser = existingUser;
-      if (!facultyUser) {
-        facultyUser = await tx.user.create({
+    const result = await prisma.$transaction(
+      async (tx) => {
+        // 1. Create College
+        const college = await tx.college.create({
           data: {
-            name: data.mainFaculty.name,
-            email: data.mainFaculty.email,
-            passwordHash,
-            role: "college_main_faculty",
-            collegeId: college.id,
-            phone: data.mainFaculty.phone,
-            isActive: true,
+            name: data.name,
+            universityName: data.universityName,
+            code: data.code,
+            officialEmail: data.officialEmail,
+            contactPhone: data.contactPhone,
+            website: data.website || undefined,
+            address: data.address,
+            city: data.city,
+            state: data.state,
+            country: data.country,
+            status: "active",
           },
         });
-      } else {
-        facultyUser = await tx.user.update({
-          where: { id: facultyUser.id },
+
+        // 2. Initialize College Credit Account
+        const creditAccount = await tx.collegeCreditAccount.create({
           data: {
-            role: "college_main_faculty",
             collegeId: college.id,
+            totalAllocated: data.initialCredits,
+            totalDistributed: 0,
+            balance: data.initialCredits,
           },
         });
-      }
+
+        // 3. Create or update Main Faculty User
+        let facultyUser = existingUser;
+        if (!facultyUser) {
+          facultyUser = await tx.user.create({
+            data: {
+              name: data.mainFaculty.name,
+              email: data.mainFaculty.email,
+              passwordHash,
+              role: "college_main_faculty",
+              collegeId: college.id,
+              phone: data.mainFaculty.phone,
+              isActive: true,
+            },
+          });
+        } else {
+          facultyUser = await tx.user.update({
+            where: { id: facultyUser.id },
+            data: {
+              role: "college_main_faculty",
+              collegeId: college.id,
+              passwordHash,
+              isActive: true,
+            },
+          });
+        }
 
       // 4. Create Main Faculty Profile
       const facultyProfile = await tx.collegeFaculty.create({
@@ -181,6 +184,10 @@ router.post("/", async (req, res, next) => {
       });
 
       return { college, creditAccount, facultyUser, facultyProfile, invitation };
+    },
+    {
+      maxWait: 20000,
+      timeout: 60000,
     });
 
     // Send invitation email
@@ -382,34 +389,40 @@ router.post("/:id/credits", async (req, res, next) => {
       return res.status(404).json({ success: false, message: "College not found" });
     }
 
-    const updatedAccount = await prisma.$transaction(async (tx) => {
-      const account = await tx.collegeCreditAccount.upsert({
-        where: { collegeId: id },
-        create: {
-          collegeId: id,
-          totalAllocated: amount,
-          totalDistributed: 0,
-          balance: amount,
-        },
-        update: {
-          totalAllocated: { increment: amount },
-          balance: { increment: amount },
-        },
-      });
+    const updatedAccount = await prisma.$transaction(
+      async (tx) => {
+        const account = await tx.collegeCreditAccount.upsert({
+          where: { collegeId: id },
+          create: {
+            collegeId: id,
+            totalAllocated: amount,
+            totalDistributed: 0,
+            balance: amount,
+          },
+          update: {
+            totalAllocated: { increment: amount },
+            balance: { increment: amount },
+          },
+        });
 
-      await tx.collegeCreditTransaction.create({
-        data: {
-          collegeId: id,
-          createdById: req.user!.id,
-          type: "SUPER_ADMIN_ALLOCATION",
-          amount,
-          balanceAfter: account.balance,
-          reason,
-        },
-      });
+        await tx.collegeCreditTransaction.create({
+          data: {
+            collegeId: id,
+            createdById: req.user!.id,
+            type: "SUPER_ADMIN_ALLOCATION",
+            amount,
+            balanceAfter: account.balance,
+            reason,
+          },
+        });
 
-      return account;
-    });
+        return account;
+      },
+      {
+        maxWait: 20000,
+        timeout: 60000,
+      }
+    );
 
     // Notify Main Faculty via email
     if (college.faculties[0]?.user?.email) {

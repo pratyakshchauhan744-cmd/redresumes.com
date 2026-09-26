@@ -62,7 +62,7 @@ async function getFacultyScopeConditions(userId: string, collegeId: string, isMa
 // 0. METADATA & DYNAMIC FILTER OPTIONS
 // ===========================================================================
 
-// GET /api/enterprise/filter-options - Distinct programs, courses, sections, and batches
+// GET /api/enterprise/filter-options - Distinct programs, courses, sections, batches, and departments
 router.get("/filter-options", async (req, res, next) => {
   try {
     const collegeId = req.collegeId!;
@@ -72,7 +72,7 @@ router.get("/filter-options", async (req, res, next) => {
       req.user!.isMainFaculty
     );
 
-    const [programs, courses, sections, batches] = await Promise.all([
+    const [programs, courses, sections, batches, departments] = await Promise.all([
       prisma.collegeStudent.findMany({
         where: { collegeId, ...scopeConditions },
         select: { program: true },
@@ -97,6 +97,12 @@ router.get("/filter-options", async (req, res, next) => {
         distinct: ["batch"],
         orderBy: { batch: "desc" },
       }),
+      prisma.collegeStudent.findMany({
+        where: { collegeId, ...scopeConditions, department: { not: null } },
+        select: { department: true },
+        distinct: ["department"],
+        orderBy: { department: "asc" },
+      }),
     ]);
 
     res.json({
@@ -105,6 +111,7 @@ router.get("/filter-options", async (req, res, next) => {
       courses: courses.map((c) => c.course).filter(Boolean),
       sections: sections.map((s) => s.section).filter(Boolean),
       batches: batches.map((b) => b.batch).filter(Boolean),
+      departments: departments.map((d) => d.department).filter(Boolean) as string[],
     });
   } catch (error) {
     next(error);
@@ -115,7 +122,12 @@ router.get("/filter-options", async (req, res, next) => {
 // 1. DASHBOARD OVERVIEW METRICS
 // ===========================================================================
 
-router.get("/dashboard/stats", async (req, res, next) => {
+/**
+ * Shared handler for GET /api/enterprise/stats and /api/enterprise/dashboard/stats
+ * Returns stats in format expected by EnterpriseDashboardPage frontend:
+ * { college, students: { total, active }, faculty: { total, active }, credits: { balance, totalAllocated, totalDistributed }, interviews: { totalSessions, completedSessions, avgScore } }
+ */
+async function handleEnterpriseStats(req: any, res: any, next: any) {
   try {
     const collegeId = req.collegeId!;
     const scopeConditions = await getFacultyScopeConditions(
@@ -129,16 +141,15 @@ router.get("/dashboard/stats", async (req, res, next) => {
       totalStudents,
       activeStudents,
       totalFaculty,
+      activeFaculty,
       creditAccount,
       interviewSessionsCount,
       reportsGeneratedCount,
-      programs,
-      courses,
-      sections,
     ] = await Promise.all([
       prisma.college.findUnique({ where: { id: collegeId } }),
       prisma.collegeStudent.count({ where: { collegeId, ...scopeConditions } }),
       prisma.collegeStudent.count({ where: { collegeId, status: "active", ...scopeConditions } }),
+      prisma.collegeFaculty.count({ where: { collegeId } }),
       prisma.collegeFaculty.count({ where: { collegeId, status: "active" } }),
       prisma.collegeCreditAccount.findUnique({ where: { collegeId } }),
       prisma.interviewSession.count({ where: { collegeId } }),
@@ -148,20 +159,24 @@ router.get("/dashboard/stats", async (req, res, next) => {
           report: { isNot: null },
         },
       }),
-      prisma.collegeStudent.groupBy({
-        by: ["program"],
-        where: { collegeId, ...scopeConditions },
-      }),
-      prisma.collegeStudent.groupBy({
-        by: ["course"],
-        where: { collegeId, ...scopeConditions },
-      }),
-      prisma.collegeStudent.groupBy({
-        by: ["section"],
-        where: { collegeId, ...scopeConditions },
-      }),
     ]);
 
+    // Compute average score from completed sessions
+    let avgScore = 0;
+    try {
+      const reports = await prisma.interviewReport.findMany({
+        where: { session: { collegeId } },
+        select: { overallScore: true },
+      });
+      if (reports.length > 0) {
+        const total = reports.reduce((sum: number, r: any) => sum + (r.overallScore ?? 0), 0);
+        avgScore = Math.round(total / reports.length);
+      }
+    } catch (_) {
+      // overallScore may not exist on all report schemas — safe to skip
+    }
+
+    // Response format that matches EnterpriseDashboardPage frontend expectations
     res.json({
       success: true,
       college: {
@@ -170,6 +185,26 @@ router.get("/dashboard/stats", async (req, res, next) => {
         code: college?.code,
         universityName: college?.universityName,
       },
+      // Top-level stats keys for frontend KPI cards
+      students: {
+        total: totalStudents,
+        active: activeStudents,
+      },
+      faculty: {
+        total: totalFaculty,
+        active: activeFaculty,
+      },
+      credits: {
+        balance: creditAccount?.balance ?? 0,
+        totalAllocated: creditAccount?.totalAllocated ?? 0,
+        totalDistributed: creditAccount?.totalDistributed ?? 0,
+      },
+      interviews: {
+        totalSessions: interviewSessionsCount,
+        completedSessions: reportsGeneratedCount,
+        avgScore,
+      },
+      // Legacy stats object for backward compat
       stats: {
         totalStudents,
         activeStudents,
@@ -179,15 +214,18 @@ router.get("/dashboard/stats", async (req, res, next) => {
         totalCreditsDistributed: creditAccount?.totalDistributed ?? 0,
         totalInterviewSessions: interviewSessionsCount,
         reportsGenerated: reportsGeneratedCount,
-        programsCount: programs.length,
-        coursesCount: courses.length,
-        sectionsCount: sections.length,
       },
     });
   } catch (error) {
     next(error);
   }
-});
+}
+
+// GET /api/enterprise/stats - Primary route (matches frontend API call)
+router.get("/stats", handleEnterpriseStats);
+
+// GET /api/enterprise/dashboard/stats - Legacy route alias
+router.get("/dashboard/stats", handleEnterpriseStats);
 
 // ===========================================================================
 // 2. FACULTY / EMPLOYEE MANAGEMENT
@@ -239,25 +277,37 @@ router.get("/faculty", requirePermission("FACULTY_VIEW"), async (req, res, next)
       }),
     ]);
 
-    res.json({
-      success: true,
-      data: faculties.map((f) => ({
-        id: f.id,
-        userId: f.userId,
+    const mappedFaculties = faculties.map((f) => ({
+      id: f.id,
+      userId: f.userId,
+      name: f.user.name,
+      email: f.user.email,
+      phone: f.user.phone,
+      user: {
+        id: f.user.id,
         name: f.user.name,
         email: f.user.email,
         phone: f.user.phone,
-        employeeId: f.employeeId,
-        department: f.department,
-        designation: f.designation,
-        isMainFaculty: f.isMainFaculty,
-        permissions: f.permissions,
-        programAccess: f.programAccess,
-        courseAccess: f.courseAccess,
-        sectionAccess: f.sectionAccess,
-        status: f.status,
-        createdAt: f.createdAt,
-      })),
+      },
+      employeeId: f.employeeId,
+      department: f.department,
+      designation: f.designation,
+      isMainFaculty: f.isMainFaculty,
+      permissions: f.permissions,
+      programAccess: f.programAccess,
+      courseAccess: f.courseAccess,
+      sectionAccess: f.sectionAccess,
+      status: f.status,
+      createdAt: f.createdAt,
+    }));
+
+    res.json({
+      success: true,
+      // 'faculty' key matches EnterpriseDashboardPage frontend expectation
+      faculty: mappedFaculties,
+      // Also expose as 'data' for backward compat
+      data: mappedFaculties,
+      total,
       pagination: {
         page,
         limit,
@@ -625,13 +675,8 @@ router.get("/students", requirePermission("STUDENT_VIEW"), async (req, res, next
         orderBy: [{ batch: "desc" }, { enrollmentNumber: "asc" }],
         include: {
           user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true,
+            include: {
               credits: true,
-              isActive: true,
               _count: {
                 select: {
                   interviewSessions: true,
@@ -657,35 +702,48 @@ router.get("/students", requirePermission("STUDENT_VIEW"), async (req, res, next
       }
     }
 
-    res.json({
-      success: true,
-      data: students.map((s) => {
-        const inv = latestInviteByEmail.get(s.user.email);
-        return {
-          id: s.id,
-          userId: s.userId,
-          enrollmentNumber: s.enrollmentNumber,
+    const mappedStudents = students.map((s) => {
+      const inv = latestInviteByEmail.get(s.user.email);
+      return {
+        id: s.id,
+        userId: s.userId,
+        enrollmentNumber: s.enrollmentNumber,
+        name: s.user.name,
+        email: s.user.email,
+        phone: s.user.phone,
+        user: {
+          id: s.user.id,
           name: s.user.name,
           email: s.user.email,
           phone: s.user.phone,
-          program: s.program,
-          course: s.course,
-          department: s.department,
-          section: s.section,
-          batch: s.batch,
-          semester: s.semester,
-          academicYear: s.academicYear,
-          gender: s.gender,
-          status: s.status,
-          creditBalance: s.user.credits?.balance ?? 0,
-          interviewSessionsCount: s.user._count.interviewSessions,
-          resumesCount: s.user._count.resumes,
-          invitationStatus: inv?.status ?? "sent",
-          emailError: (inv?.metadata as any)?.emailError ?? null,
-          lastInviteSentAt: inv?.createdAt ?? null,
-          createdAt: s.createdAt,
-        };
-      }),
+          credits: s.user.credits ? { balance: s.user.credits.balance } : { balance: 0 },
+        },
+        program: s.program,
+        course: s.course,
+        department: s.department,
+        section: s.section,
+        batch: s.batch,
+        semester: s.semester,
+        academicYear: s.academicYear,
+        gender: s.gender,
+        status: s.status,
+        creditBalance: s.user.credits?.balance ?? 0,
+        interviewSessionsCount: s.user._count.interviewSessions,
+        resumesCount: s.user._count.resumes,
+        invitationStatus: inv?.status ?? "sent",
+        emailError: (inv?.metadata as any)?.emailError ?? null,
+        lastInviteSentAt: inv?.createdAt ?? null,
+        createdAt: s.createdAt,
+      };
+    });
+
+    res.json({
+      success: true,
+      // 'students' key matches EnterpriseDashboardPage frontend expectation
+      students: mappedStudents,
+      // Also expose as 'data' for backward compat
+      data: mappedStudents,
+      total,
       pagination: {
         page,
         limit,
@@ -2265,33 +2323,43 @@ router.get("/credits/ledger", requirePermission("INTERVIEW_CREDIT_VIEW"), async 
       }),
     ]);
 
+    const mappedTransactions = transactions.map((t) => ({
+      id: t.id,
+      type: t.type,
+      amount: t.amount,
+      balanceAfter: t.balanceAfter,
+      reason: t.reason,
+      createdAt: t.createdAt,
+      batchFilter: t.batchFilter,
+      performedBy: {
+        name: t.createdBy.name,
+        email: t.createdBy.email,
+        role: t.createdBy.role,
+      },
+      recipientStudent: t.student
+        ? {
+            enrollmentNumber: t.student.enrollmentNumber,
+            name: t.student.user.name,
+            email: t.student.user.email,
+            program: t.student.program,
+            course: t.student.course,
+            section: t.student.section,
+            batch: t.student.batch,
+          }
+        : null,
+    }));
+
+    // Get current college balance for display
+    const creditAccount = await prisma.collegeCreditAccount.findUnique({ where: { collegeId } });
+
     res.json({
       success: true,
-      data: transactions.map((t) => ({
-        id: t.id,
-        type: t.type,
-        amount: t.amount,
-        balanceAfter: t.balanceAfter,
-        reason: t.reason,
-        createdAt: t.createdAt,
-        batchFilter: t.batchFilter,
-        performedBy: {
-          name: t.createdBy.name,
-          email: t.createdBy.email,
-          role: t.createdBy.role,
-        },
-        recipientStudent: t.student
-          ? {
-              enrollmentNumber: t.student.enrollmentNumber,
-              name: t.student.user.name,
-              email: t.student.user.email,
-              program: t.student.program,
-              course: t.student.course,
-              section: t.student.section,
-              batch: t.student.batch,
-            }
-          : null,
-      })),
+      // 'transactions' key matches EnterpriseDashboardPage frontend expectation
+      transactions: mappedTransactions,
+      // Also expose as 'data' for backward compat
+      data: mappedTransactions,
+      total,
+      collegeBalance: creditAccount?.balance ?? 0,
       pagination: {
         page,
         limit,
@@ -2482,7 +2550,11 @@ router.get("/reports", requirePermission("REPORT_VIEW"), async (req, res, next) 
     res.json({
       success: true,
       summary,
+      // 'reports' key matches EnterpriseDashboardPage frontend expectation
+      reports: paginatedData,
+      // Also expose as 'data' for backward compat
       data: paginatedData,
+      total,
       pagination: {
         page,
         limit,

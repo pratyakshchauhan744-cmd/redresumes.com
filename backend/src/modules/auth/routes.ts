@@ -476,7 +476,22 @@ async function issueAuthResponse(
   let permissions: string[] = [];
   let studentProfile: any = null;
 
+  let college: any = null;
   if (user.collegeId) {
+    const col = await prisma.college.findUnique({
+      where: { id: user.collegeId },
+      select: { id: true, name: true, code: true, website: true, status: true },
+    });
+    if (col) {
+      college = {
+        id: col.id,
+        name: col.name,
+        code: col.code,
+        domain: col.website,
+        status: col.status,
+      };
+    }
+
     if (user.role === "college_faculty" || user.role === "college_main_faculty") {
       const faculty = await prisma.collegeFaculty.findUnique({
         where: { userId: user.id },
@@ -515,6 +530,7 @@ async function issueAuthResponse(
       email: user.email,
       role: user.role,
       collegeId: user.collegeId,
+      college,
       isMainFaculty,
       permissions,
       studentProfile,

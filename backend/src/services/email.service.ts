@@ -20,7 +20,9 @@ export class EmailService {
     if (resend) {
       try {
         const result = await resend.emails.send({
-          from: env.EMAIL_FROM || "RedResumes Enterprise <notifications@redresumes.com>",
+          from: (env.EMAIL_FROM && !env.EMAIL_FROM.includes("@gmail.com"))
+            ? env.EMAIL_FROM
+            : "RedResumes Enterprise <onboarding@resend.dev>",
           to,
           subject,
           html,

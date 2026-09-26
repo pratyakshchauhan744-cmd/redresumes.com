@@ -7,4 +7,4 @@ import { env } from "../config/env.js";
  * (redresumes.com) must be verified in the Resend dashboard with
  * valid SPF/DKIM/DMARC records before any send will succeed.
  */
-export const resend = new Resend(env.RESEND_API_KEY);
+export const resend: Resend = env.RESEND_API_KEY ? new Resend(env.RESEND_API_KEY) : (null as unknown as Resend);

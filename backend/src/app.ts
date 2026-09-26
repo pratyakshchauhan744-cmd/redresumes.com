@@ -1,3 +1,4 @@
+import { env } from "./config/env.js";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -20,7 +21,6 @@ import interviewRoutes from "./modules/interview/routes.js";
 import creditsRoutes from "./modules/credits/routes.js";
 import { notFoundHandler } from "./middleware/not-found.js";
 import { errorHandler } from "./middleware/error-handler.js";
-import { env } from "./config/env.js";
 
 export const app = express();
 app.set("trust proxy", 1);

@@ -462,7 +462,9 @@ router.patch("/:id", async (req, res, next) => {
     const schema = z.object({
       name: z.string().min(2).optional(),
       universityName: z.string().optional(),
-      status: z.enum(["active", "inactive", "suspended"]).optional(),
+      status: z.string().optional().transform((val) => val?.toLowerCase()).pipe(
+        z.enum(["active", "inactive", "suspended"]).optional()
+      ),
       contactPhone: z.string().optional(),
       website: z.string().optional(),
       address: z.string().optional(),

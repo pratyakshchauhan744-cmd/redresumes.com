@@ -4,6 +4,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { prisma } from "../../db/prisma.js";
 import { requireAuth, requireRole } from "../../middleware/auth.js";
+import { invalidateCollegeCache } from "../../middleware/tenant.js";
 import { EmailService } from "../../services/email.service.js";
 import { logEnterpriseAudit } from "../../services/audit.service.js";
 import { env } from "../../config/env.js";
@@ -482,6 +483,9 @@ router.patch("/:id", async (req, res, next) => {
       where: { id },
       data,
     });
+
+    // Invalidate the tenant cache so the new status takes effect immediately
+    invalidateCollegeCache(id);
 
     await logEnterpriseAudit({
       collegeId: id,

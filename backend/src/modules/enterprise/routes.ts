@@ -38,12 +38,25 @@ router.use((req, res, next) => {
  * If the user is a regular faculty with program/course/section restrictions,
  * the query is constrained to those allowed values.
  */
+const _facultyScopeCache = new Map<string, { conditions: any; expiresAt: number }>();
+
 async function getFacultyScopeConditions(userId: string, collegeId: string, isMainFaculty?: boolean) {
   if (isMainFaculty) return {};
+
+  const cacheKey = `${userId}:${collegeId}`;
+  const cached = _facultyScopeCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.conditions;
+  }
+
   const faculty = await prisma.collegeFaculty.findFirst({
     where: { userId, collegeId, status: "active" },
+    select: { isMainFaculty: true, programAccess: true, courseAccess: true, sectionAccess: true },
   });
-  if (!faculty || faculty.isMainFaculty) return {};
+  if (!faculty || faculty.isMainFaculty) {
+    _facultyScopeCache.set(cacheKey, { conditions: {}, expiresAt: Date.now() + 30_000 });
+    return {};
+  }
 
   const conditions: any = {};
   if (faculty.programAccess && faculty.programAccess.length > 0) {
@@ -55,6 +68,8 @@ async function getFacultyScopeConditions(userId: string, collegeId: string, isMa
   if (faculty.sectionAccess && faculty.sectionAccess.length > 0) {
     conditions.section = { in: faculty.sectionAccess };
   }
+
+  _facultyScopeCache.set(cacheKey, { conditions, expiresAt: Date.now() + 30_000 });
   return conditions;
 }
 
@@ -393,14 +408,26 @@ router.post("/faculty", requirePermission("FACULTY_CREATE"), async (req, res, ne
           });
         }
 
-        const facultyProfile = await tx.collegeFaculty.create({
-          data: {
+        const facultyProfile = await tx.collegeFaculty.upsert({
+          where: { userId: user.id },
+          create: {
             userId: user.id,
             collegeId,
             employeeId: data.employeeId,
             department: data.department,
             designation: data.designation,
             isMainFaculty: false,
+            permissions: data.permissions,
+            programAccess: data.programAccess,
+            courseAccess: data.courseAccess,
+            sectionAccess: data.sectionAccess,
+            status: "active",
+          },
+          update: {
+            collegeId,
+            employeeId: data.employeeId,
+            department: data.department,
+            designation: data.designation,
             permissions: data.permissions,
             programAccess: data.programAccess,
             courseAccess: data.courseAccess,
@@ -918,12 +945,21 @@ router.post("/students", requirePermission("STUDENT_CREATE"), async (req, res, n
 
     const existingUser = await prisma.user.findUnique({
       where: { email: data.email },
+      include: { studentProfile: true },
     });
 
     if (existingUser && existingUser.collegeId && existingUser.collegeId !== collegeId) {
       return res.status(400).json({
         success: false,
         message: "This email address is registered under another college tenant.",
+      });
+    }
+
+    // Guard: if the user already has a student profile in a different college, reject
+    if (existingUser?.studentProfile && existingUser.studentProfile.collegeId !== collegeId) {
+      return res.status(400).json({
+        success: false,
+        message: "This user already has a student profile in a different college tenant.",
       });
     }
 
@@ -955,9 +991,9 @@ router.post("/students", requirePermission("STUDENT_CREATE"), async (req, res, n
       }
 
       // 2. Create or update user (store ONLY bcrypt password hash, never plaintext)
-      let user = existingUser;
-      if (!user) {
-        user = await tx.user.create({
+      let userId: string;
+      if (!existingUser) {
+        const newUser = await tx.user.create({
           data: {
             name: data.name,
             email: data.email,
@@ -968,22 +1004,24 @@ router.post("/students", requirePermission("STUDENT_CREATE"), async (req, res, n
             isActive: true,
           },
         });
+        userId = newUser.id;
       } else {
-        user = await tx.user.update({
-          where: { id: user.id },
+        await tx.user.update({
+          where: { id: existingUser.id },
           data: {
             role: "student",
             collegeId,
             passwordHash,
           },
         });
+        userId = existingUser.id;
       }
 
       // 3. User Credits
       await tx.userCredit.upsert({
-        where: { userId: user.id },
+        where: { userId },
         create: {
-          userId: user.id,
+          userId,
           balance: data.initialCredits,
         },
         update: {
@@ -991,10 +1029,24 @@ router.post("/students", requirePermission("STUDENT_CREATE"), async (req, res, n
         },
       });
 
-      // 4. Create Student Profile
-      const studentProfile = await tx.collegeStudent.create({
-        data: {
-          userId: user.id,
+      // 4. Upsert Student Profile (handles both new students and re-enrolled users)
+      const studentProfile = await tx.collegeStudent.upsert({
+        where: { userId },
+        create: {
+          userId,
+          collegeId,
+          enrollmentNumber: data.enrollmentNumber,
+          program: data.program,
+          course: data.course,
+          department: data.department,
+          section: data.section,
+          batch: data.batch,
+          academicYear: data.academicYear,
+          semester: data.semester,
+          gender: data.gender,
+          status: "active",
+        },
+        update: {
           collegeId,
           enrollmentNumber: data.enrollmentNumber,
           program: data.program,
@@ -1046,7 +1098,7 @@ router.post("/students", requirePermission("STUDENT_CREATE"), async (req, res, n
         },
       });
 
-      return { user, studentProfile };
+      return { userId, studentProfile };
     },
     {
       maxWait: 20000,

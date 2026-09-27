@@ -50,7 +50,7 @@ export class EmailService {
         });
 
         const info = await transporter.sendMail({
-          from: env.EMAIL_FROM || "RedResumes Enterprise <notifications@redresumes.com>",
+          from: env.EMAIL_FROM || "RedResumes Enterprise <pratyakshchauhan744@gmail.com>",
           to,
           subject,
           html,

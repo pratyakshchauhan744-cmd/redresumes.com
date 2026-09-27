@@ -20,6 +20,14 @@ declare global {
  * Middleware: Enforces that the request has an authenticated user affiliated with an active college tenant.
  * Zero-Trust Principle: The college context is derived strictly from verified JWT claims or verified DB records.
  */
+// Short-lived in-process cache for college tenant data to avoid a DB query per request
+const _collegeCache = new Map<string, { data: { id: string; name: string; code: string; status: string }; expiresAt: number }>();
+
+/** Call this after any operation that changes a college's status or core fields. */
+export function invalidateCollegeCache(collegeId: string) {
+  _collegeCache.delete(collegeId);
+}
+
 export async function requireTenant(req: Request, res: Response, next: NextFunction) {
   if (!req.user) {
     return res.status(401).json({ success: false, message: "Authentication required." });
@@ -29,10 +37,21 @@ export async function requireTenant(req: Request, res: Response, next: NextFunct
   if (req.user.role === "super_admin") {
     const targetCollegeId = (req.headers["x-target-college-id"] as string) || req.user.collegeId;
     if (targetCollegeId) {
-      const college = await prisma.college.findUnique({
-        where: { id: targetCollegeId },
-        select: { id: true, name: true, code: true, status: true },
-      });
+      const cached = _collegeCache.get(targetCollegeId);
+      let college: { id: string; name: string; code: string; status: string } | null = null;
+
+      if (cached && cached.expiresAt > Date.now()) {
+        college = cached.data;
+      } else {
+        college = await prisma.college.findUnique({
+          where: { id: targetCollegeId },
+          select: { id: true, name: true, code: true, status: true },
+        });
+        if (college) {
+          _collegeCache.set(targetCollegeId, { data: college, expiresAt: Date.now() + 60_000 });
+        }
+      }
+
       if (college) {
         req.collegeId = college.id;
         req.college = college;
@@ -49,10 +68,21 @@ export async function requireTenant(req: Request, res: Response, next: NextFunct
     });
   }
 
-  const college = await prisma.college.findUnique({
-    where: { id: collegeId },
-    select: { id: true, name: true, code: true, status: true },
-  });
+  // Check cache first
+  const cached = _collegeCache.get(collegeId);
+  let college: { id: string; name: string; code: string; status: string } | null = null;
+
+  if (cached && cached.expiresAt > Date.now()) {
+    college = cached.data;
+  } else {
+    college = await prisma.college.findUnique({
+      where: { id: collegeId },
+      select: { id: true, name: true, code: true, status: true },
+    });
+    if (college) {
+      _collegeCache.set(collegeId, { data: college, expiresAt: Date.now() + 60_000 });
+    }
+  }
 
   if (!college) {
     return res.status(404).json({

@@ -541,7 +541,7 @@ async function issueAuthResponse(
 
 async function sendOtpEmail(email: string, otp: string): Promise<void> {
   const provider = (process.env.EMAIL_PROVIDER ?? "console").toLowerCase();
-  const from = process.env.EMAIL_FROM ?? "no-reply@redresumes.com";
+  const from = process.env.EMAIL_FROM ?? "pratyakshchauhan744@gmail.com";
   const subject = "Your RedResumes OTP Code";
   const text = `Your OTP is ${otp}. It is valid for 5 minutes.`;
 

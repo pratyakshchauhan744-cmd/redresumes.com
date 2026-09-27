@@ -4,9 +4,24 @@ import { env } from "../config/env.js";
 
 const resend = env.RESEND_API_KEY ? new Resend(env.RESEND_API_KEY) : null;
 
+// Determine if EMAIL_FROM is a Gmail address (can't be used as Resend sender)
+const emailFrom = env.EMAIL_FROM || "pratyakshchauhan744@gmail.com";
+const isGmailSender = emailFrom.toLowerCase().includes("@gmail.com");
+
+// Build a friendly display name for the from address
+const fromAddress = isGmailSender
+  ? emailFrom // Gmail: use bare address; display name set in transporter
+  : (emailFrom.includes("<") ? emailFrom : `RedResumes Enterprise <${emailFrom}>`);
+
+// Resend "from" field — only use custom domain; Gmail addresses are rejected by Resend
+const resendFrom = (!isGmailSender && emailFrom)
+  ? fromAddress
+  : "RedResumes <onboarding@resend.dev>";
+
 export class EmailService {
   /**
-   * Helper: Send email with Resend API (primary) and SMTP fallback
+   * Helper: Send email using the best available provider.
+   * Priority: Gmail SMTP (if EMAIL_FROM is @gmail.com) → Resend → Generic SMTP → Simulate
    */
   private static async sendEmail({
     to,
@@ -17,26 +32,56 @@ export class EmailService {
     subject: string;
     html: string;
   }): Promise<{ success: boolean; error?: string; simulated?: boolean; messageId?: string }> {
+
+    // ── 1. Gmail SMTP (highest priority when using a Gmail FROM address) ─────
+    if (isGmailSender && env.SMTP_USER && env.SMTP_PASS) {
+      try {
+        const transporter = nodemailer.createTransport({
+          host: "smtp.gmail.com",
+          port: 465,
+          secure: true, // SSL
+          auth: {
+            user: env.SMTP_USER,
+            pass: env.SMTP_PASS, // Use Gmail App Password (not your account password)
+          },
+        });
+
+        const info = await transporter.sendMail({
+          from: `RedResumes Campus <${emailFrom}>`,
+          to,
+          subject,
+          html,
+        });
+        console.log(`[EMAIL] Sent via Gmail SMTP → ${to} | msgId: ${info.messageId}`);
+        return { success: true, messageId: info.messageId };
+      } catch (smtpErr: any) {
+        console.error("[EMAIL] Gmail SMTP failed:", smtpErr?.message || smtpErr);
+        // Fall through to Resend as backup
+      }
+    }
+
+    // ── 2. Resend (for verified custom domains) ──────────────────────────────
     if (resend) {
       try {
         const result = await resend.emails.send({
-          from: (env.EMAIL_FROM && !env.EMAIL_FROM.includes("@gmail.com"))
-            ? env.EMAIL_FROM
-            : "RedResumes Enterprise <onboarding@resend.dev>",
+          from: resendFrom,
           to,
           subject,
           html,
         });
         if (result.error) {
-          console.warn("Resend reported delivery error:", result.error);
+          console.warn("[EMAIL] Resend reported delivery error:", result.error);
+          // Don't return failure here — fall through to SMTP
         } else {
+          console.log(`[EMAIL] Sent via Resend → ${to} | msgId: ${result.data?.id}`);
           return { success: true, messageId: result.data?.id };
         }
       } catch (err: any) {
-        console.error("Resend API failed, falling back to SMTP if configured:", err?.message || err);
+        console.error("[EMAIL] Resend API failed:", err?.message || err);
       }
     }
 
+    // ── 3. Generic SMTP fallback ─────────────────────────────────────────────
     if (env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS) {
       try {
         const transporter = nodemailer.createTransport({
@@ -50,19 +95,22 @@ export class EmailService {
         });
 
         const info = await transporter.sendMail({
-          from: env.EMAIL_FROM || "RedResumes Enterprise <pratyakshchauhan744@gmail.com>",
+          from: fromAddress,
           to,
           subject,
           html,
         });
+        console.log(`[EMAIL] Sent via SMTP → ${to} | msgId: ${info.messageId}`);
         return { success: true, messageId: info.messageId };
       } catch (smtpErr: any) {
-        console.error("SMTP delivery failed:", smtpErr?.message || smtpErr);
+        console.error("[EMAIL] Generic SMTP failed:", smtpErr?.message || smtpErr);
         return { success: false, error: smtpErr?.message || "SMTP delivery failed" };
       }
     }
 
-    console.log(`[EMAIL DISPATCH] To: ${to} | Subject: "${subject}"`);
+    // ── 4. Simulation fallback (dev/no-config) ───────────────────────────────
+    console.log(`[EMAIL SIMULATED] To: ${to} | Subject: "${subject}" — No mail provider configured.`);
+    console.log(`[EMAIL SIMULATED] To send real emails, add SMTP_USER and SMTP_PASS (Gmail App Password) to your .env`);
     return { success: true, simulated: true };
   }
 

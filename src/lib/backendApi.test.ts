@@ -65,6 +65,8 @@ describe('resolveApiBaseUrl', () => {
 
   it('keeps localhost API during local development', () => {
     expect(resolveApiBaseUrl('http://localhost:4001', 'localhost')).toBe('http://localhost:4001');
+    expect(resolveApiBaseUrl('http://localhost:4000', '10.88.215.182')).toBe('http://localhost:4000');
+    expect(resolveApiBaseUrl('http://localhost:4000', '192.168.1.50')).toBe('http://localhost:4000');
   });
 });
 

@@ -17,8 +17,14 @@ export function resolveApiBaseUrl(configuredUrl: string | undefined, hostname: s
   // Auto-prepend https:// if the value looks like a bare domain (no protocol)
   const normalized = /^https?:\/\//i.test(value) ? value : `https://${value}`;
 
-  const localHostnames = ["localhost", "127.0.0.1", "::1"];
-  const isLocalHostname = hostname ? localHostnames.includes(hostname) : false;
+  const localHostnames = ["localhost", "127.0.0.1", "0.0.0.0", "::1"];
+  const isLocalHostname = hostname
+    ? localHostnames.includes(hostname) ||
+      hostname.endsWith(".local") ||
+      /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+      /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+      /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(hostname)
+    : false;
   const isLocalUrl = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(normalized);
 
   // On production (non-local hostname), only use the API URL if it's NOT a localhost URL.

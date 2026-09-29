@@ -503,7 +503,7 @@ router.post("/faculty", requirePermission("FACULTY_CREATE"), async (req, res, ne
 });
 
 // PATCH /api/enterprise/faculty/:id - Update faculty permissions/details
-// PATCH /api/enterprise/faculty/:id - Update faculty permissions/details
+// PUT alias also accepted (frontend sends PUT)
 router.patch("/faculty/:id", requirePermission("FACULTY_EDIT"), async (req, res, next) => {
   try {
     const collegeId = req.collegeId!;
@@ -585,6 +585,81 @@ router.patch("/faculty/:id", requirePermission("FACULTY_EDIT"), async (req, res,
       message: "Faculty updated successfully.",
       faculty: updated,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PUT /api/enterprise/faculty/:id - Alias for PATCH (frontend compatibility)
+router.put("/faculty/:id", requirePermission("FACULTY_EDIT"), async (req, res, next) => {
+  // Same handler as PATCH - frontend sends PUT for updates
+  try {
+    const collegeId = req.collegeId!;
+    const { id } = req.params;
+
+    const faculty = await prisma.collegeFaculty.findUnique({
+      where: { id },
+      include: { user: true },
+    });
+
+    if (!faculty || faculty.collegeId !== collegeId) {
+      return res.status(404).json({ success: false, message: "Faculty member not found in your college." });
+    }
+
+    const schema = z.object({
+      name: z.string().min(2).optional(),
+      phone: z.string().optional(),
+      department: z.string().optional(),
+      designation: z.string().optional(),
+      permissions: z.array(z.string()).optional(),
+      programAccess: z.array(z.string()).optional(),
+      courseAccess: z.array(z.string()).optional(),
+      sectionAccess: z.array(z.string()).optional(),
+      status: z.enum(["active", "inactive", "suspended"]).optional(),
+    });
+
+    const data = schema.parse(req.body);
+
+    const [updated] = await prisma.$transaction(
+      async (tx) => {
+        const updatedFaculty = await tx.collegeFaculty.update({
+          where: { id },
+          data: {
+            department: data.department,
+            designation: data.designation,
+            permissions: data.permissions,
+            programAccess: data.programAccess,
+            courseAccess: data.courseAccess,
+            sectionAccess: data.sectionAccess,
+            status: data.status,
+          },
+        });
+
+        const userUpdates: any = {};
+        if (data.name) userUpdates.name = data.name;
+        if (data.phone !== undefined) userUpdates.phone = data.phone;
+        if (data.status) userUpdates.isActive = data.status === "active";
+
+        if (Object.keys(userUpdates).length > 0) {
+          await tx.user.update({ where: { id: faculty.userId }, data: userUpdates });
+        }
+
+        return [updatedFaculty];
+      },
+      { maxWait: 20000, timeout: 60000 }
+    );
+
+    await logEnterpriseAudit({
+      collegeId,
+      actorId: req.user!.id,
+      action: "FACULTY_UPDATED",
+      entity: "CollegeFaculty",
+      entityId: id,
+      oldValue: faculty,
+      newValue: updated,
+    });
+
+    res.json({ success: true, message: "Faculty updated successfully.", faculty: updated });
   } catch (error) {
     next(error);
   }
@@ -776,6 +851,106 @@ router.get("/students", requirePermission("STUDENT_VIEW"), async (req, res, next
         limit,
         total,
         totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/enterprise/students/:id - Single student details (used by frontend getStudentDetails)
+router.get("/students/:id", requirePermission("STUDENT_VIEW"), async (req, res, next) => {
+  // Skip if this is a named sub-route
+  const id = req.params.id;
+  if (id === "bulk-import" || id === "bulk-import-file" || !id.match(/^c[a-z0-9]+$/i)) return next();
+
+  try {
+    const collegeId = req.collegeId!;
+
+    const student = await prisma.collegeStudent.findUnique({
+      where: { id },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            credits: true,
+            createdAt: true,
+            resumes: {
+              orderBy: { updatedAt: "desc" },
+              select: { id: true, fileName: true, fileUrl: true, createdAt: true, updatedAt: true },
+            },
+            interviewSessions: {
+              where: { status: "completed" },
+              orderBy: { createdAt: "desc" },
+              include: {
+                report: true,
+                questions: { select: { id: true, questionText: true, answer: { select: { score: true, feedback: true } } } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!student || student.collegeId !== collegeId) {
+      return res.status(404).json({ success: false, message: "Student record not found in your college." });
+    }
+
+    const completedSessions = student.user.interviewSessions.filter((s) => s.report !== null);
+    const avgScore =
+      completedSessions.length > 0
+        ? Math.round(completedSessions.reduce((acc, curr) => acc + (curr.report?.overallScore ?? 0), 0) / completedSessions.length)
+        : null;
+
+    const latestInvite = await prisma.invitation.findFirst({
+      where: { collegeId, email: student.user.email, role: "student" },
+      orderBy: { createdAt: "desc" },
+    });
+
+    res.json({
+      success: true,
+      student: {
+        id: student.id,
+        userId: student.userId,
+        enrollmentNumber: student.enrollmentNumber,
+        invitationStatus: latestInvite?.status ?? "sent",
+        emailError: (latestInvite?.metadata as any)?.emailError ?? null,
+        lastInviteSentAt: latestInvite?.createdAt ?? null,
+        name: student.user.name,
+        email: student.user.email,
+        phone: student.user.phone,
+        program: student.program,
+        course: student.course,
+        department: student.department,
+        section: student.section,
+        batch: student.batch,
+        semester: student.semester,
+        academicYear: student.academicYear,
+        gender: student.gender,
+        status: student.status,
+        creditBalance: student.user.credits?.balance ?? 0,
+        averageScore: avgScore,
+        totalCompletedInterviews: completedSessions.length,
+        resumes: student.user.resumes,
+        interviewSessions: completedSessions.map((s) => ({
+          id: s.id,
+          targetRole: s.targetRole,
+          difficulty: s.difficulty,
+          companyType: s.companyType,
+          overallScore: s.report?.overallScore,
+          categoryScores: s.report?.categoryScores,
+          strengths: s.report?.strengths,
+          weaknesses: s.report?.weaknesses,
+          recommendations: s.report?.recommendations,
+          speakingPace: s.report?.speakingPace,
+          fillerWords: s.report?.fillerWords,
+          voiceConfidence: s.report?.voiceConfidence,
+          questions: s.questions,
+          createdAt: s.createdAt,
+        })),
       },
     });
   } catch (error) {
@@ -1930,6 +2105,89 @@ router.post("/students/:id/resend-invite", requirePermission("STUDENT_CREATE"), 
   }
 });
 
+// PUT /api/enterprise/students/:id - Alias for PATCH (frontend compatibility)
+router.put("/students/:id", requirePermission("STUDENT_EDIT"), async (req, res, next) => {
+  // Same as PATCH — frontend sends PUT for student updates
+  try {
+    const collegeId = req.collegeId!;
+    const { id } = req.params;
+
+    const student = await prisma.collegeStudent.findUnique({ where: { id }, include: { user: true } });
+
+    if (!student || student.collegeId !== collegeId) {
+      return res.status(404).json({ success: false, message: "Student record not found in your college." });
+    }
+
+    const schema = z.object({
+      program: z.string().optional(),
+      course: z.string().optional(),
+      department: z.string().optional(),
+      section: z.string().optional(),
+      batch: z.string().optional(),
+      semester: z.number().int().optional(),
+      academicYear: z.string().optional(),
+      status: z.enum(["active", "graduated", "inactive"]).optional(),
+    });
+
+    const data = schema.parse(req.body);
+    const updated = await prisma.collegeStudent.update({ where: { id }, data });
+
+    await logEnterpriseAudit({
+      collegeId,
+      actorId: req.user!.id,
+      action: "STUDENT_UPDATED",
+      entity: "CollegeStudent",
+      entityId: id,
+      oldValue: student,
+      newValue: updated,
+    });
+
+    res.json({ success: true, student: updated });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/enterprise/students/:id - Deactivate or remove student
+router.delete("/students/:id", requirePermission("STUDENT_EDIT"), async (req, res, next) => {
+  try {
+    const collegeId = req.collegeId!;
+    const { id } = req.params;
+
+    const student = await prisma.collegeStudent.findUnique({
+      where: { id },
+      include: { user: true },
+    });
+
+    if (!student || student.collegeId !== collegeId) {
+      return res.status(404).json({ success: false, message: "Student record not found in your college." });
+    }
+
+    // Soft-deactivate: set status to inactive on both student profile and user account
+    await prisma.$transaction(async (tx) => {
+      await tx.collegeStudent.update({ where: { id }, data: { status: "inactive" } });
+      await tx.user.update({ where: { id: student.userId }, data: { isActive: false } });
+    }, { maxWait: 20000, timeout: 60000 });
+
+    await logEnterpriseAudit({
+      collegeId,
+      actorId: req.user!.id,
+      action: "STUDENT_DEACTIVATED",
+      entity: "CollegeStudent",
+      entityId: id,
+      oldValue: { status: student.status },
+      newValue: { status: "inactive" },
+    });
+
+    res.json({
+      success: true,
+      message: `Student "${student.user.name}" has been deactivated.`,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // PATCH /api/enterprise/students/:id - Update student
 router.patch("/students/:id", requirePermission("STUDENT_EDIT"), async (req, res, next) => {
   try {
@@ -2198,19 +2456,36 @@ router.post("/credits/distribute", requirePermission("INTERVIEW_CREDIT_ASSIGN"),
       req.user!.isMainFaculty
     );
 
+    // Accept both flat body (frontend format) and nested filters object (legacy format)
     const schema = z.object({
       creditsPerStudent: z.number().int().min(1, "Credits per student must be at least 1"),
       reason: z.string().min(3, "Reason is required"),
+      // Flat fields from frontend
+      program: z.string().optional(),
+      course: z.string().optional(),
+      section: z.string().optional(),
+      batch: z.string().optional(),
+      studentIds: z.array(z.string()).optional(),
+      // Nested filters for legacy/API compatibility
       filters: z.object({
         program: z.string().optional(),
         course: z.string().optional(),
         section: z.string().optional(),
         batch: z.string().optional(),
         studentIds: z.array(z.string()).optional(),
-      }),
+      }).optional(),
     });
 
-    const { creditsPerStudent, reason, filters } = schema.parse(req.body);
+    const parsed = schema.parse(req.body);
+    const { creditsPerStudent, reason } = parsed;
+    // Merge: nested filters take precedence, then fall back to flat fields
+    const filters = {
+      program: parsed.filters?.program ?? parsed.program,
+      course: parsed.filters?.course ?? parsed.course,
+      section: parsed.filters?.section ?? parsed.section,
+      batch: parsed.filters?.batch ?? parsed.batch,
+      studentIds: parsed.filters?.studentIds ?? parsed.studentIds,
+    };
 
     const result = await prisma.$transaction(async (tx) => {
       // 1. Build filter query

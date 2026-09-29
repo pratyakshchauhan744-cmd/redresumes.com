@@ -129,7 +129,10 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
     department: "Computer Science & Engineering",
     designation: "Assistant Professor",
     isMainFaculty: false,
-    permissions: ["manageStudents", "distributeCredits", "viewAnalytics", "exportReports"],
+    permissions: ["STUDENT_VIEW", "REPORT_VIEW", "REPORT_EXPORT", "INTERVIEW_CREDIT_VIEW"],
+    programAccess: [] as string[],
+    courseAccess: [] as string[],
+    sectionAccess: [] as string[],
   });
 
   // Single assign form

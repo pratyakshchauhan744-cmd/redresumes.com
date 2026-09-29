@@ -4,9 +4,19 @@ import { env } from "../config/env.js";
 
 export function errorHandler(error: unknown, _req: Request, res: Response, _next: NextFunction): void {
   if (error instanceof ZodError) {
+    // Build a user-friendly message from the first validation issue
+    const firstIssue = error.errors[0];
+    const fieldPath = firstIssue?.path?.length ? firstIssue.path.join(".") : "input";
+    const humanMessage =
+      firstIssue?.message && firstIssue.message !== "Required"
+        ? firstIssue.message
+        : `Invalid or missing value for field: "${fieldPath}"`;
+
     res.status(400).json({
-      message: "Validation error",
-      issues: error.flatten()
+      success: false,
+      message: humanMessage,
+      // Also include structured issues for debugging
+      issues: error.flatten().fieldErrors,
     });
     return;
   }

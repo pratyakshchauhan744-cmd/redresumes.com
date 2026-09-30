@@ -8,9 +8,9 @@ import { ActivityFeed } from "@/components/admin/dashboard/activity-feed";
 import { ErrorState } from "@/components/admin/states";
 import { HardDrive, RefreshCw } from "lucide-react";
 
-// Force this page to always fetch live data on every request (no caching)
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+// Revalidate dashboard data every 30 seconds via Next.js ISR (matches in-memory TTL)
+// Do NOT use force-dynamic here — that bypasses all caching and fires 7 DB queries on every request.
+export const revalidate = 30;
 
 
 export default async function AdminDashboardPage() {

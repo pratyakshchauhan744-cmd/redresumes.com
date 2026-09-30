@@ -176,14 +176,17 @@ async function handleEnterpriseStats(req: any, res: any, next: any) {
       }),
     ]);
 
-    // Compute average score from completed sessions using a single DB aggregate (no full table scan)
+    // Compute average score from completed sessions
     let avgScore = 0;
     try {
-      const avgResult = await prisma.interviewReport.aggregate({
-        _avg: { overallScore: true },
+      const reports = await prisma.interviewReport.findMany({
         where: { session: { collegeId } },
+        select: { overallScore: true },
       });
-      avgScore = Math.round(avgResult._avg.overallScore ?? 0);
+      if (reports.length > 0) {
+        const total = reports.reduce((sum: number, r: any) => sum + (r.overallScore ?? 0), 0);
+        avgScore = Math.round(total / reports.length);
+      }
     } catch (_) {
       // overallScore may not exist on all report schemas — safe to skip
     }
@@ -372,9 +375,8 @@ router.post("/faculty", requirePermission("FACULTY_CREATE"), async (req, res, ne
     }
 
     // Generate secure temporary credentials and invitation token
-    // Cost 8 is sufficient for temporary passwords that are rotated on first login (cost 10 blocks the event loop ~200ms)
     const rawTempPassword = `Fac#${crypto.randomBytes(4).toString("hex")}!7`;
-    const passwordHash = await bcrypt.hash(rawTempPassword, 8);
+    const passwordHash = await bcrypt.hash(rawTempPassword, 10);
     const rawToken = crypto.randomBytes(32).toString("hex");
     const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
@@ -766,7 +768,7 @@ router.get("/students", requirePermission("STUDENT_VIEW"), async (req, res, next
       ];
     }
 
-    const [total, students, invitations] = await Promise.all([
+    const [total, students] = await Promise.all([
       prisma.collegeStudent.count({ where }),
       prisma.collegeStudent.findMany({
         where,
@@ -787,13 +789,13 @@ router.get("/students", requirePermission("STUDENT_VIEW"), async (req, res, next
           },
         },
       }),
-      // Fetch invitations in parallel with the student list — no sequential round-trip
-      prisma.invitation.findMany({
-        where: { collegeId, role: "student" },
-        orderBy: { createdAt: "desc" },
-        select: { email: true, status: true, createdAt: true, metadata: true },
-      }),
     ]);
+
+    const emails = students.map((s) => s.user.email);
+    const invitations = emails.length > 0 ? await prisma.invitation.findMany({
+      where: { collegeId, email: { in: emails }, role: "student" },
+      orderBy: { createdAt: "desc" },
+    }) : [];
 
     const latestInviteByEmail = new Map<string, any>();
     for (const inv of invitations) {
@@ -1137,9 +1139,8 @@ router.post("/students", requirePermission("STUDENT_CREATE"), async (req, res, n
     }
 
     // 1. High-Entropy Non-Predictable Temporary Credentials
-    // Cost 8 is sufficient for temporary passwords that are rotated on first login (cost 10 blocks the event loop ~200ms)
     const rawTempPassword = generateSecureTemporaryPassword();
-    const passwordHash = await bcrypt.hash(rawTempPassword, 8);
+    const passwordHash = await bcrypt.hash(rawTempPassword, 10);
     const rawToken = crypto.randomBytes(32).toString("hex");
     const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
     const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 14 days
@@ -1700,23 +1701,13 @@ export async function executeBulkImport({
   const createdStudents: any[] = [];
   const frontendUrl = env.FRONTEND_URL || "http://localhost:3000";
 
-  // Pre-compute all password hashes in PARALLEL before the loop.
-  // bcrypt.hash inside a for-loop is sequential: 50 students × ~150ms = 7.5s of event-loop blocking.
-  // With Promise.all they all run concurrently. Cost 8 is fine for temporary passwords.
-  const rawTempPasswords = validRows.map(() => generateSecureTemporaryPassword());
-  const hashedPasswords = await Promise.all(
-    rawTempPasswords.map((pwd) => bcrypt.hash(pwd, 8))
-  );
-
   for (let i = 0; i < validRows.length; i += CHUNK_SIZE) {
     const chunk = validRows.slice(i, i + CHUNK_SIZE);
 
-    for (let j = 0; j < chunk.length; j++) {
-      const row = chunk[j];
-      const globalIndex = i + j;
+    for (const row of chunk) {
       try {
-        const rawTempPassword = rawTempPasswords[globalIndex];
-        const passwordHash = hashedPasswords[globalIndex];
+        const rawTempPassword = generateSecureTemporaryPassword();
+        const passwordHash = await bcrypt.hash(rawTempPassword, 10);
         const rawToken = crypto.randomBytes(32).toString("hex");
         const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
         const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 14 days

@@ -14,8 +14,9 @@ import {
   Shield,
 } from "lucide-react";
 
-// Revalidate every 10s; revalidatePath() from server actions will bust this on writes
-export const revalidate = 10;
+// Force live DB query on every request — never serve a cached user list
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 
 interface UsersPageProps {

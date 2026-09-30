@@ -82,8 +82,7 @@ export async function createCollege(rawInput: unknown): Promise<
       password && password.trim().length >= 6
         ? password.trim()
         : `Campus@${crypto.randomBytes(3).toString("hex")}!`;
-    // Cost 8 is fine for temporary passwords that are rotated on first login (cost 10 blocks event loop ~200ms)
-    const passwordHash = await bcrypt.hash(tempPassword, 8);
+    const passwordHash = await bcrypt.hash(tempPassword, 10);
 
     const inviteToken = crypto.randomBytes(32).toString("hex");
     const tokenHash = crypto.createHash("sha256").update(inviteToken).digest("hex");

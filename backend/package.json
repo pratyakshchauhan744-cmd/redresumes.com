@@ -16,10 +16,24 @@
     "prisma:seed": "tsx prisma/seed.ts",
     "test:enterprise": "tsx src/tests/test-multi-tenant.ts",
     "test:security": "tsx src/tests/test-security-isolation.ts",
+    "test:faculty-authz": "tsx src/tests/test-faculty-authorization.ts",
+    "test:student-scope-authz": "tsx src/tests/test-student-scope-authorization.ts",
+    "test:student-scope-routes": "tsx src/tests/test-student-scope-routes.ts",
+    "test:bulk-import-atomicity": "tsx src/tests/test-bulk-import-atomicity.ts",
+    "test:student-credential-resend": "tsx src/tests/test-student-credential-resend.ts",
+    "test:faculty-invitation": "tsx src/tests/test-faculty-invitation-activation.ts",
+    "test:faculty-creation-delivery": "tsx src/tests/test-faculty-creation-delivery.ts",
+    "test:audit-authorization": "tsx src/tests/test-audit-authorization.ts",
+    "test:credit-ledger-scope": "tsx src/tests/test-credit-ledger-scope.ts",
+    "test:account-integrity": "tsx src/tests/test-account-integrity.ts",
+    "test:report-access": "tsx src/tests/test-report-access.ts",
+    "test:credit-accounting": "tsx src/tests/test-credit-accounting.ts",
+    "test:credit-concurrency": "tsx src/tests/test-credit-allocation-concurrency.ts",
     "test:phase7": "tsx src/tests/test-phase7-import-unit.ts",
     "test:phase7-live": "tsx src/tests/test-phase7-bulk-import.ts",
     "test:phase8-9": "tsx src/tests/test-phase8-phase9-student-flow.ts",
-    "test:e2e": "tsx src/tests/test-enterprise-e2e.ts"
+    "test:e2e": "tsx src/tests/test-enterprise-e2e.ts",
+    "test:scores": "tsx src/tests/test-score-normalization.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

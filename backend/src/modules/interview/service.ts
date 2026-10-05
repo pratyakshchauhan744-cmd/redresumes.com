@@ -1,5 +1,6 @@
 import { prisma } from "../../db/prisma.js";
 import { parseResumeWithGemini, generateInterviewQuestion, generateInterviewFollowUp, evaluateInterviewAnswer, generateInterviewReport } from "../ai/service.js";
+import { normalizeInterviewScore, normalizeCategoryScores } from "../../utils/score.js";
 
 export async function createInterviewSession(
   userId: string | null,
@@ -100,20 +101,22 @@ export async function answerInterviewQuestion(
     session.difficulty
   );
 
-  const answerScore = Math.round(
-    ((evaluation.communicationQuality +
+  const rawAnswerScore =
+    (evaluation.communicationQuality +
       evaluation.technicalAccuracy +
       evaluation.problemSolving +
       evaluation.confidence +
       evaluation.completeness +
-      evaluation.domainKnowledge) / 6) * 10
-  ) / 10;
+      evaluation.domainKnowledge) / 6;
+
+  const answerScore = normalizeInterviewScore(rawAnswerScore, 10);
 
   await prisma.interviewAnswer.create({
     data: {
       questionId,
       answerText,
-      score: answerScore, 
+      score: answerScore,
+      scoreScale: 100,
       feedback: evaluation,
       durationSecs: durationSecs || null
     }
@@ -226,25 +229,29 @@ export async function completeSessionAndGenerateReport(
   });
 
   const count = answeredQuestions.length;
-  const categoryScores = {
-    clarity: count > 0 ? Math.round((avgClarity / count) * 10) / 10 : 0,
-    confidence: count > 0 ? Math.round((avgConfidence / count) * 10) / 10 : 0,
-    relevance: count > 0 ? Math.round((avgRelevance / count) * 10) / 10 : 0,
-    technicalAccuracy: count > 0 ? Math.round((avgTechnicalAccuracy / count) * 10) / 10 : 0,
-    communicationQuality: count > 0 ? Math.round((avgCommunicationQuality / count) * 10) / 10 : 0,
-    problemSolving: count > 0 ? Math.round((avgProblemSolving / count) * 10) / 10 : 0,
-    completeness: count > 0 ? Math.round((avgCompleteness / count) * 10) / 10 : 0,
-    domainKnowledge: count > 0 ? Math.round((avgDomainKnowledge / count) * 10) / 10 : 0
+  const rawCategoryScores = {
+    clarity: count > 0 ? avgClarity / count : 0,
+    confidence: count > 0 ? avgConfidence / count : 0,
+    relevance: count > 0 ? avgRelevance / count : 0,
+    technicalAccuracy: count > 0 ? avgTechnicalAccuracy / count : 0,
+    communicationQuality: count > 0 ? avgCommunicationQuality / count : 0,
+    problemSolving: count > 0 ? avgProblemSolving / count : 0,
+    completeness: count > 0 ? avgCompleteness / count : 0,
+    domainKnowledge: count > 0 ? avgDomainKnowledge / count : 0
   };
 
-  const overallScore = count > 0 ? Math.round(((
-    categoryScores.communicationQuality +
-    categoryScores.technicalAccuracy +
-    categoryScores.problemSolving +
-    categoryScores.confidence +
-    categoryScores.completeness +
-    categoryScores.domainKnowledge
-  ) / 6) * 10) / 10 : 0;
+  const categoryScores = normalizeCategoryScores(rawCategoryScores, 10);
+
+  const rawOverall = count > 0 ? (
+    rawCategoryScores.communicationQuality +
+    rawCategoryScores.technicalAccuracy +
+    rawCategoryScores.problemSolving +
+    rawCategoryScores.confidence +
+    rawCategoryScores.completeness +
+    rawCategoryScores.domainKnowledge
+  ) / 6 : 0;
+
+  const overallScore = normalizeInterviewScore(rawOverall, 10);
 
   // Delete existing report if any to prevent duplicate primary key/unique constraint error
   await prisma.interviewReport.deleteMany({
@@ -309,6 +316,7 @@ export async function completeSessionAndGenerateReport(
     data: {
       sessionId,
       overallScore: overallScore,
+      scoreScale: 100,
       categoryScores,
       strengths: report?.strengths || ["Completed the interview successfully."],
       weaknesses: report?.weaknesses || ["Needs more practice with structural clarity."],

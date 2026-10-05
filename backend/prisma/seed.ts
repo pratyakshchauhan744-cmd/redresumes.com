@@ -98,7 +98,7 @@ async function main() {
       designation: "Head of Placement Cell & Dean",
       employeeId: "FAC-APEX-001",
       isMainFaculty: true,
-      permissions: ["all", "manageFaculty", "manageStudents", "distributeCredits", "viewAnalytics", "exportReports"],
+      permissions: ["all"],
       status: "active",
     },
     create: {
@@ -108,7 +108,7 @@ async function main() {
       designation: "Head of Placement Cell & Dean",
       employeeId: "FAC-APEX-001",
       isMainFaculty: true,
-      permissions: ["all", "manageFaculty", "manageStudents", "distributeCredits", "viewAnalytics", "exportReports"],
+      permissions: ["all"],
       status: "active",
     },
   });
@@ -142,7 +142,7 @@ async function main() {
       designation: "Assistant Professor & Placement Coordinator",
       employeeId: "FAC-APEX-002",
       isMainFaculty: false,
-      permissions: ["manageStudents", "distributeCredits", "viewAnalytics", "exportReports"],
+      permissions: ["STUDENT_VIEW", "STUDENT_CREATE", "STUDENT_EDIT", "REPORT_VIEW", "REPORT_EXPORT", "INTERVIEW_CREDIT_VIEW", "INTERVIEW_CREDIT_ASSIGN"],
       status: "active",
     },
     create: {
@@ -152,7 +152,7 @@ async function main() {
       designation: "Assistant Professor & Placement Coordinator",
       employeeId: "FAC-APEX-002",
       isMainFaculty: false,
-      permissions: ["manageStudents", "distributeCredits", "viewAnalytics", "exportReports"],
+      permissions: ["STUDENT_VIEW", "STUDENT_CREATE", "STUDENT_EDIT", "REPORT_VIEW", "REPORT_EXPORT", "INTERVIEW_CREDIT_VIEW", "INTERVIEW_CREDIT_ASSIGN"],
       status: "active",
     },
   });
@@ -336,10 +336,18 @@ async function main() {
         data: {
           sessionId: session.id,
           overallScore: s.overallScore,
+          scoreScale: 100,
           categoryScores: {
+            clarity: Math.min(100, s.overallScore + 2),
+            confidence: Math.min(100, s.overallScore - 1),
+            relevance: s.overallScore,
+            technicalAccuracy: Math.min(100, s.overallScore + 4),
+            communicationQuality: Math.min(100, s.overallScore - 2),
+            problemSolving: s.overallScore,
+            completeness: Math.min(100, s.overallScore + 1),
+            domainKnowledge: Math.min(100, s.overallScore + 3),
             technical: Math.min(100, s.overallScore + 4),
             communication: Math.min(100, s.overallScore - 2),
-            problemSolving: s.overallScore,
           },
           strengths: ["Clear architectural explanations", "Systematic algorithmic breakdown", "Strong composure"],
           weaknesses: ["Could elaborate on production scaling", "Edge case coverage in dynamic programming"],

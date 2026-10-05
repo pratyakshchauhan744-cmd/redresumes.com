@@ -285,6 +285,7 @@ model InterviewAnswer {
   answerText     String
   durationSecs   Int?
   score          Float?
+  scoreScale     Int?                 @default(100)
   feedback       Json?                
   createdAt      DateTime             @default(now())
 }
@@ -294,6 +295,7 @@ model InterviewReport {
   sessionId      String               @unique
   session        InterviewSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   overallScore   Float
+  scoreScale     Int                  @default(100)
   categoryScores Json
   strengths      String[]
   weaknesses     String[]
@@ -516,6 +518,11 @@ model CollegeFaculty {
   programAccess String[]  @default([])
   courseAccess  String[]  @default([])
   sectionAccess String[]  @default([])
+  batchAccess   String[]  @default([])
+  scopeUnrestricted Boolean @default(true)
+  // Exact { program, course, section, batch } rules. When scopeUnrestricted is
+  // false, an empty array intentionally grants access to no cohorts.
+  cohortAccess  Json      @default("[]")
   status        String    @default("active") // active | inactive | suspended
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt

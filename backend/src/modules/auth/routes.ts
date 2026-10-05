@@ -9,7 +9,9 @@ import type { SignInMethod, UserRole } from "@prisma/client";
 import { prisma } from "../../db/prisma.js";
 import { redisConnection } from "../../db/redis.js";
 import { env } from "../../config/env.js";
+import { normalizeFacultyPermissions } from "../../middleware/tenant.js";
 import { signAccessToken, signRefreshToken, verifyToken } from "../../utils/jwt.js";
+import { normalizeEmailIdentity } from "../../utils/identity.js";
 
 const router = Router();
 
@@ -421,10 +423,6 @@ function generateOtp(): string {
   return String(randomInt(100000, 1000000));
 }
 
-function normalizedEmail(email: string): string {
-  return email.trim().toLowerCase();
-}
-
 function setRefreshCookie(res: Response, refreshToken: string): void {
   res.cookie(REFRESH_COOKIE_NAME, refreshToken, {
     httpOnly: true,
@@ -498,7 +496,7 @@ async function issueAuthResponse(
       });
       if (faculty) {
         isMainFaculty = faculty.isMainFaculty;
-        permissions = faculty.permissions;
+        permissions = normalizeFacultyPermissions(faculty.permissions);
       }
     } else if (user.role === "student") {
       const student = await prisma.collegeStudent.findUnique({
@@ -633,7 +631,7 @@ function getEmailDeliveryMessage(error: unknown): string {
 router.post("/register/start", otpStartLimiter, async (req, res, next) => {
   try {
     const body = registerStartSchema.parse(req.body);
-    const email = normalizedEmail(body.email);
+    const email = normalizeEmailIdentity(body.email);
     const exists = await prisma.user.findUnique({ where: { email } });
     if (exists) {
       res.status(409).json({ message: "This email is already registered. Please sign in." });
@@ -722,7 +720,7 @@ router.post("/register/verify", otpVerifyLimiter, async (req, res, next) => {
 router.post("/register", registerLimiter, async (req, res, next) => {
   try {
     const body = registerSchema.parse(req.body);
-    const email = normalizedEmail(body.email);
+    const email = normalizeEmailIdentity(body.email);
 
     const exists = await prisma.user.findUnique({ where: { email } });
     if (exists) {
@@ -750,7 +748,7 @@ router.post("/register", registerLimiter, async (req, res, next) => {
 router.post("/login", loginLimiter, async (req, res, next) => {
   try {
     const body = loginSchema.parse(req.body);
-    const email = normalizedEmail(body.email);
+    const email = normalizeEmailIdentity(body.email);
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
@@ -801,7 +799,7 @@ router.post("/google", loginLimiter, async (req, res, next) => {
       return;
     }
 
-    const email = normalizedEmail(payload.email);
+    const email = normalizeEmailIdentity(payload.email);
     const displayName = payload.name?.trim() || email.split("@")[0] || "Google User";
     const existing = await prisma.user.findUnique({ where: { email } });
 
@@ -828,7 +826,7 @@ router.post("/google", loginLimiter, async (req, res, next) => {
 router.post("/login/start", otpStartLimiter, async (req, res, next) => {
   try {
     const body = loginStartSchema.parse(req.body);
-    const email = normalizedEmail(body.email);
+    const email = normalizeEmailIdentity(body.email);
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
       res.status(401).json({ message: "Invalid credentials" });
@@ -1004,7 +1002,7 @@ router.post("/logout", async (req, res, next) => {
 router.post("/forgot-password/start", otpStartLimiter, async (req, res, next) => {
   try {
     const body = forgotPasswordStartSchema.parse(req.body);
-    const email = normalizedEmail(body.email);
+    const email = normalizeEmailIdentity(body.email);
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
       // To prevent email enumeration, simulate success with a valid-format sessionId

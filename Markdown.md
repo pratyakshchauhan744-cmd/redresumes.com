@@ -1,4 +1,4 @@
-# 🚀 Job Platform Backend Architecture (Node.js + PostgreSQL)
+ # 🚀 Job Platform Backend Architecture (Node.js + PostgreSQL)
 
 ## 📌 Tech Stack
 
@@ -11,7 +11,6 @@
 * **Auth:** JWT (Access + Refresh tokens)
 * **Deployment:** Docker + Nginx
 
----
 
 ## 📁 Project Structure
 

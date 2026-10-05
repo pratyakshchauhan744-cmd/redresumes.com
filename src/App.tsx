@@ -5,6 +5,7 @@ import { Footer } from './components/Footer';
 import { Seo } from './components/Seo';
 import { clearStoredAuthTokens, readStoredUser, USER_STORAGE_KEY } from './lib/auth';
 import { backendApi, sanitizeRedirectUrl, type AuthUser } from './lib/backendApi';
+import { getInvitationToken } from './utils/invitationActivation';
 
 import { templates } from './data/templates';
 import type { TemplateItem } from './types';
@@ -17,6 +18,7 @@ const ResumeExamplesHubPage = lazy(() => import('./pages/ResumeExamplesHubPage')
 const RoleGuideDetailPage = lazy(() => import('./pages/RoleGuideDetailPage').then(m => ({ default: m.RoleGuideDetailPage })));
 const JobFinderPage = lazy(() => import('./pages/JobFinderPage').then(m => ({ default: m.JobFinderPage })));
 const LoginPage = lazy(() => import('./pages/LoginPage').then(m => ({ default: m.LoginPage })));
+const SetupPasswordPage = lazy(() => import('./pages/SetupPasswordPage').then(m => ({ default: m.SetupPasswordPage })));
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
 const ContactPage = lazy(() => import('./pages/ContactPage').then(m => ({ default: m.ContactPage })));
 const LegalPage = lazy(() => import('./pages/LegalPage').then(m => ({ default: m.LegalPage })));
@@ -62,6 +64,12 @@ const LoginRoute = ({
   const location = useLocation();
   const portal = new URLSearchParams(location.search).get('portal');
   const isFaculty = currentUser?.role === 'college_main_faculty' || currentUser?.role === 'college_faculty';
+
+  // Invitation bearer tokens must reach the activation UI even if another
+  // account is currently signed in on this browser.
+  if (getInvitationToken(location.search)) {
+    return <LoginPage onLoginSuccess={onLoginSuccess} />;
+  }
 
   if (currentUser) {
     // If student/candidate explicitly accesses enterprise portal login, allow them to enter faculty credentials
@@ -203,6 +211,9 @@ const AppShell = ({
             <Route path="/login" element={
               <LoginRoute currentUser={currentUser} onLoginSuccess={(user) => handleUserUpdated(user)} />
             } />
+            <Route path="/setup-password" element={
+              <SetupPasswordPage onLoginSuccess={(user) => handleUserUpdated(user)} />
+            } />
 
             {/* Enterprise Multi-Tenant Campus Routes - 100% Dedicated & Isolated */}
             <Route path="/enterprise" element={
@@ -235,6 +246,11 @@ const AppShell = ({
               </ProtectedRoute>
             } />
             <Route path="/interview/report/:id" element={
+              <ProtectedRoute isAuthenticated={isAuthenticated}>
+                <InterviewReportPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/interview-report/:id" element={
               <ProtectedRoute isAuthenticated={isAuthenticated}>
                 <InterviewReportPage />
               </ProtectedRoute>
@@ -355,4 +371,3 @@ export const App = () => {
 };
 
 export default App;
-

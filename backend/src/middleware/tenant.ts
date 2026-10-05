@@ -121,6 +121,68 @@ export function requireCollegeAdmin(req: Request, res: Response, next: NextFunct
   });
 }
 
+const LEGACY_PERMISSION_MAP: Record<string, string[]> = {
+  manageFaculty: ["FACULTY_VIEW", "FACULTY_CREATE", "FACULTY_EDIT"],
+  manageStudents: ["STUDENT_VIEW", "STUDENT_CREATE", "STUDENT_EDIT", "STUDENT_DELETE"],
+  distributeCredits: ["INTERVIEW_CREDIT_VIEW", "INTERVIEW_CREDIT_ASSIGN"],
+  viewAnalytics: ["REPORT_VIEW"],
+  exportReports: ["REPORT_EXPORT"],
+};
+
+/**
+ * Expands permissions created by the original enterprise UI into the canonical
+ * permissions used by the API. Keeping this at the authorization boundary lets
+ * existing faculty accounts continue to work without weakening endpoint checks.
+ */
+export function normalizeFacultyPermissions(permissions: string[] | null | undefined): string[] {
+  const normalized = new Set(permissions ?? []);
+  for (const permission of permissions ?? []) {
+    for (const canonicalPermission of LEGACY_PERMISSION_MAP[permission] ?? []) {
+      normalized.add(canonicalPermission);
+    }
+  }
+  return [...normalized];
+}
+
+export interface EnterprisePermissionDecision {
+  allowed: boolean;
+  inactiveFaculty: boolean;
+}
+
+/**
+ * Resolves one enterprise permission from authoritative faculty state. JWT
+ * permissions are retained only for roles without a faculty profile.
+ */
+export async function resolveEnterprisePermission(
+  req: Request,
+  permission: string
+): Promise<EnterprisePermissionDecision> {
+  if (!req.user) return { allowed: false, inactiveFaculty: false };
+  if (req.user.role === "super_admin") return { allowed: true, inactiveFaculty: false };
+
+  let permissions = normalizeFacultyPermissions(req.user.permissions);
+  if (req.user.role === "college_faculty" || req.user.role === "college_main_faculty") {
+    const faculty = await prisma.collegeFaculty.findFirst({
+      where: { userId: req.user.id, collegeId: req.collegeId ?? req.user.collegeId ?? undefined },
+      select: { permissions: true, isMainFaculty: true, status: true },
+    });
+
+    if (!faculty || faculty.status !== "active") {
+      return { allowed: false, inactiveFaculty: true };
+    }
+
+    permissions = normalizeFacultyPermissions(faculty.permissions);
+    req.user.permissions = permissions;
+    req.user.isMainFaculty = faculty.isMainFaculty;
+    if (faculty.isMainFaculty) return { allowed: true, inactiveFaculty: false };
+  }
+
+  return {
+    allowed: permissions.includes("all") || permissions.includes(permission),
+    inactiveFaculty: false,
+  };
+}
+
 /**
  * Middleware: Enforces specific granular RBAC permissions for enterprise operations.
  */
@@ -130,34 +192,15 @@ export function requirePermission(permission: string) {
       return res.status(401).json({ success: false, message: "Authentication required." });
     }
 
-    // Platform super_admin and college_main_faculty have root enterprise permissions
-    if (req.user.role === "super_admin" || req.user.role === "college_main_faculty" || req.user.isMainFaculty) {
-      return next();
-    }
-
-    // Check permissions on request or fetch from faculty profile
-    let permissions = req.user.permissions;
-    if (!permissions && req.user.collegeId) {
-      const faculty = await prisma.collegeFaculty.findUnique({
-        where: { userId: req.user.id },
-        select: { permissions: true, isMainFaculty: true, status: true },
+    const decision = await resolveEnterprisePermission(req, permission);
+    if (decision.inactiveFaculty) {
+      return res.status(403).json({
+        success: false,
+        message: "Your faculty staff profile is currently inactive or suspended.",
       });
-
-      if (faculty?.status !== "active") {
-        return res.status(403).json({
-          success: false,
-          message: "Your faculty staff profile is currently inactive or suspended.",
-        });
-      }
-
-      if (faculty?.isMainFaculty) {
-        return next();
-      }
-
-      permissions = faculty?.permissions || [];
     }
 
-    if (permissions && permissions.includes(permission)) {
+    if (decision.allowed) {
       return next();
     }
 

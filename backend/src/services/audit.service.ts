@@ -1,4 +1,6 @@
 import { prisma } from "../db/prisma.js";
+import type { Prisma } from "@prisma/client";
+import { sanitizeAuditValue } from "../utils/audit-sanitization.js";
 
 export interface LogEnterpriseAuditParams {
   collegeId?: string | null;
@@ -11,6 +13,8 @@ export interface LogEnterpriseAuditParams {
   ipAddress?: string | null;
   userAgent?: string | null;
   metadata?: any;
+  transactionClient?: Prisma.TransactionClient;
+  propagateErrors?: boolean;
 }
 
 /**
@@ -18,22 +22,30 @@ export interface LogEnterpriseAuditParams {
  */
 export async function logEnterpriseAudit(params: LogEnterpriseAuditParams) {
   try {
-    return await prisma.enterpriseAuditLog.create({
+    const client = params.transactionClient ?? prisma;
+    return await client.enterpriseAuditLog.create({
       data: {
         collegeId: params.collegeId || undefined,
         actorId: params.actorId,
         action: params.action,
         entity: params.entity,
         entityId: params.entityId,
-        oldValue: params.oldValue ? (typeof params.oldValue === "object" ? params.oldValue : { value: params.oldValue }) : undefined,
-        newValue: params.newValue ? (typeof params.newValue === "object" ? params.newValue : { value: params.newValue }) : undefined,
+        oldValue: params.oldValue ? sanitizeAuditValue(
+          typeof params.oldValue === "object" ? params.oldValue : { value: params.oldValue }
+        ) as Prisma.InputJsonValue : undefined,
+        newValue: params.newValue ? sanitizeAuditValue(
+          typeof params.newValue === "object" ? params.newValue : { value: params.newValue }
+        ) as Prisma.InputJsonValue : undefined,
         ipAddress: params.ipAddress,
         userAgent: params.userAgent,
-        metadata: params.metadata,
+        metadata: params.metadata
+          ? sanitizeAuditValue(params.metadata) as Prisma.InputJsonValue
+          : undefined,
       },
     });
   } catch (error) {
     console.error("Failed to write enterprise audit log:", error);
+    if (params.propagateErrors) throw error;
     return null;
   }
 }

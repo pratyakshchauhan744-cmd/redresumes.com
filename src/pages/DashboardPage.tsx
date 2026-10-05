@@ -8,6 +8,8 @@ import { backendApi, type AuthUser } from '../lib/backendApi';
 import type { LocalAccount } from '../types';
 import type { Page } from '../types';
 import { useNavigate } from 'react-router-dom';
+import { normalizeToCanonicalScore, formatScore } from '../utils/score';
+import { interviewReportPath } from '../lib/routes';
 
 const loadRazorpayScript = () => {
   return new Promise((resolve) => {
@@ -784,19 +786,20 @@ const CREDIT_PACKAGES: Record<string, { name: string; credits: number; price: nu
                 </div>
               ) : (
                 interviewHistory.slice(0, 5).map((session: any) => {
-                  const overallScore = Number(session.report?.overallScore);
-                  const hasScore = Number.isFinite(overallScore);
+                  const rawScore = session.report?.overallScore;
+                  const hasScore = rawScore !== null && rawScore !== undefined && !isNaN(Number(rawScore));
+                  const overallScore = hasScore ? normalizeToCanonicalScore(rawScore) : null;
 
                   return (
-                    <div key={session.id} onClick={() => navigate(`/interview/report/${session.id}`)} className="flex items-center justify-between rounded-xl border border-zinc-100 hover:border-primary/30 hover:bg-primary/5 cursor-pointer px-4 py-3 transition-colors dark:border-zinc-800 dark:hover:border-primary/40 dark:hover:bg-primary/10">
+                    <div key={session.id} onClick={() => navigate(interviewReportPath(session.id))} className="flex items-center justify-between rounded-xl border border-zinc-100 hover:border-primary/30 hover:bg-primary/5 cursor-pointer px-4 py-3 transition-colors dark:border-zinc-800 dark:hover:border-primary/40 dark:hover:bg-primary/10">
                       <div>
                         <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{session.targetRole}</p>
                         <p className="text-xs text-zinc-500 dark:text-zinc-400">{new Date(session.createdAt).toLocaleDateString()} • {session.companyType}</p>
                       </div>
-                      {hasScore && (
+                      {overallScore !== null && (
                         <div className="text-right">
-                          <span className={`text-sm font-bold ${overallScore >= 8 ? 'text-green-600 dark:text-green-400' : overallScore >= 6 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
-                            {overallScore.toFixed(1)}/10
+                          <span className={`text-sm font-bold ${overallScore >= 80 ? 'text-green-600 dark:text-green-400' : overallScore >= 60 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
+                            {formatScore(overallScore)}
                           </span>
                         </div>
                       )}

@@ -1,8 +1,17 @@
 import type { NextFunction, Request, Response } from "express";
 import { ZodError } from "zod";
 import { env } from "../config/env.js";
+import { isUniqueConstraintError } from "../utils/identity.js";
 
 export function errorHandler(error: unknown, _req: Request, res: Response, _next: NextFunction): void {
+  if (isUniqueConstraintError(error)) {
+    res.status(409).json({
+      success: false,
+      message: "An account or record with these unique details already exists.",
+    });
+    return;
+  }
+
   if (error instanceof ZodError) {
     // Build a user-friendly message from the first validation issue
     const firstIssue = error.errors[0];
@@ -24,12 +33,14 @@ export function errorHandler(error: unknown, _req: Request, res: Response, _next
   if (error instanceof Error) {
     console.error("Unhandled error encountered:", error);
     const lower = error.message.toLowerCase();
+    const prismaCode = typeof (error as any)?.code === "string" ? (error as any).code : "";
     const isDbError =
+      prismaCode.startsWith("P10") ||
       lower.includes("can't reach database server") ||
       lower.includes("cant reach database server") ||
+      lower.includes("econnrefused") ||
       lower.includes("postgres:5432") ||
-      lower.includes("localhost:5433") ||
-      lower.includes("prisma.");
+      lower.includes("localhost:5433");
 
     if (isDbError) {
       const message = env.NODE_ENV === "production"

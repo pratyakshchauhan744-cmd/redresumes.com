@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   GraduationCap,
   Users,
@@ -27,8 +27,224 @@ import {
   UserPlus,
   BookOpen,
   LogOut,
+  Pencil,
+  UserX,
 } from "lucide-react";
 import { backendApi, AuthUser } from "../lib/backendApi";
+import { isLocalAccessToken, setStoredAuthTokens } from "../lib/auth";
+import { EnterpriseReportRow } from "../types/enterpriseReports";
+import { EnterpriseAuditLog, AUDIT_ACTION_FILTER_OPTIONS } from "../types/enterpriseAudit";
+import {
+  formatEntityName,
+  getTargetUser,
+  formatAuditDetails,
+  calculatePaginationRange,
+} from "../utils/auditFormatting";
+import { interviewReportPath } from "../lib/routes";
+import {
+  getDistributionPreviewParams,
+  isDistributionPreviewValid,
+  type DistributionPreviewParams,
+} from "../utils/distributionPreview";
+import {
+  acquireRequestLock,
+  getFacultyCreationFeedback,
+  releaseRequestLock,
+} from "../utils/facultyCreation";
+import { hasEnterprisePermission } from "../utils/enterprisePermissions";
+import { getPaginationMeta } from "../utils/pagination";
+import {
+  DEFAULT_FACULTY_PERMISSIONS,
+  FACULTY_PERMISSION_OPTIONS,
+  cohortAccessKey,
+  getFacultyAuthorizationPayload,
+  resolveFacultyCohortAccess,
+  toggleCohortAccess,
+  toggleFacultyPermission,
+  type FacultyCohortAccessRule,
+  type FacultyAuthorizationValues,
+} from "../utils/facultyAccess";
+
+const STUDENT_PAGE_SIZE = 10;
+const FACULTY_PAGE_SIZE = 15;
+const CREDIT_PAGE_SIZE = 20;
+const REPORT_PAGE_SIZE = 10;
+
+interface FacultyFormValues extends FacultyAuthorizationValues {
+  name: string;
+  email: string;
+  phone: string;
+  employeeId: string;
+  department: string;
+  designation: string;
+  isMainFaculty: false;
+}
+
+const createEmptyFacultyForm = (): FacultyFormValues => ({
+  name: "",
+  email: "",
+  phone: "",
+  employeeId: "",
+  department: "Computer Science & Engineering",
+  designation: "Assistant Professor",
+  isMainFaculty: false,
+  permissions: [...DEFAULT_FACULTY_PERMISSIONS],
+  programAccess: [],
+  courseAccess: [],
+  sectionAccess: [],
+  batchAccess: [],
+  scopeUnrestricted: true,
+  cohortAccess: [],
+});
+
+function FacultyAuthorizationFields({
+  values,
+  filterOptions,
+  onChange,
+}: {
+  values: FacultyAuthorizationValues;
+  filterOptions: { cohorts: FacultyCohortAccessRule[] };
+  onChange: (values: FacultyAuthorizationValues) => void;
+}) {
+  return (
+    <div className="col-span-2 space-y-4 border-t border-zinc-800 pt-4">
+      <div>
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <label className="font-semibold text-zinc-200">Permissions</label>
+          <span className="text-[10px] text-zinc-500">Select only what this faculty member needs</span>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-2 rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
+          {FACULTY_PERMISSION_OPTIONS.map((permission) => (
+            <label key={permission.value} className="flex items-center gap-2 text-zinc-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={values.permissions.includes(permission.value)}
+                onChange={() => onChange({
+                  ...values,
+                  permissions: toggleFacultyPermission(values.permissions, permission.value),
+                })}
+                className="accent-rose-500"
+              />
+              <span>{permission.label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <div>
+            <label className="font-semibold text-zinc-200">Exact cohort access</label>
+            <p className="mt-0.5 text-[10px] text-zinc-500">
+              Each selection is one exact program, course, section, and batch combination.
+              {!values.scopeUnrestricted && values.cohortAccess.length === 0 && " No selection currently denies all cohort access."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onChange({
+              ...values,
+              programAccess: [],
+              courseAccess: [],
+              sectionAccess: [],
+              batchAccess: [],
+              scopeUnrestricted: true,
+              cohortAccess: [],
+            })}
+            className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-semibold ${
+              values.scopeUnrestricted
+                ? "border-emerald-700 bg-emerald-950/40 text-emerald-300"
+                : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-white"
+            }`}
+          >
+            All cohorts (unrestricted)
+          </button>
+        </div>
+        <div className="max-h-52 overflow-y-auto grid sm:grid-cols-2 gap-2 rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
+          {filterOptions.cohorts.length > 0 ? filterOptions.cohorts.map((cohort) => {
+            const selected = values.cohortAccess.some(
+              (value) => cohortAccessKey(value) === cohortAccessKey(cohort)
+            );
+            return (
+              <label key={cohortAccessKey(cohort)} className="flex items-start gap-2 rounded-lg border border-zinc-800 p-2 text-zinc-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selected}
+                  onChange={() => {
+                    const cohortAccess = toggleCohortAccess(values.cohortAccess, cohort);
+                    onChange({
+                      ...values,
+                      scopeUnrestricted: false,
+                      cohortAccess,
+                      programAccess: [...new Set(cohortAccess.map((item) => item.program))],
+                      courseAccess: [...new Set(cohortAccess.map((item) => item.course))],
+                      sectionAccess: [...new Set(cohortAccess.map((item) => item.section))],
+                      batchAccess: [...new Set(cohortAccess.map((item) => item.batch))],
+                    });
+                  }}
+                  className="mt-0.5 accent-rose-500"
+                />
+                <span>
+                  <span className="block font-medium text-zinc-200">{cohort.course} · Section {cohort.section}</span>
+                  <span className="block mt-0.5 text-[10px] text-zinc-500">{cohort.program} · Batch {cohort.batch}</span>
+                </span>
+              </label>
+            );
+          }) : (
+            <span className="col-span-2 text-[10px] text-zinc-500">No student cohorts have been configured yet.</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PaginationControls({
+  page,
+  total,
+  pageSize,
+  itemLabel,
+  onPageChange,
+}: {
+  page: number;
+  total: number;
+  pageSize: number;
+  itemLabel: string;
+  onPageChange: (page: number) => void;
+}) {
+  const meta = getPaginationMeta(page, total, pageSize);
+
+  return (
+    <div className="p-3 border-t border-zinc-800 bg-zinc-900/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-zinc-400">
+      <span>
+        Showing {meta.start}–{meta.end} of {total} {itemLabel}
+      </span>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={!meta.hasPrevious}
+          onClick={() => onPageChange(meta.page - 1)}
+          className="px-3 py-1 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-xs transition-colors"
+          aria-label={`Previous ${itemLabel} page`}
+        >
+          Previous
+        </button>
+        <span className="font-mono text-zinc-300 min-w-24 text-center">
+          Page {meta.page} of {meta.totalPages}
+        </span>
+        <button
+          type="button"
+          disabled={!meta.hasNext}
+          onClick={() => onPageChange(meta.page + 1)}
+          className="px-3 py-1 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-xs transition-colors"
+          aria-label={`Next ${itemLabel} page`}
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}
 
 interface EnterpriseDashboardPageProps {
   user: AuthUser;
@@ -40,6 +256,11 @@ type TabType = "overview" | "students" | "faculty" | "credits" | "reports" | "au
 
 export default function EnterpriseDashboardPage({ user, token, onLogout }: EnterpriseDashboardPageProps) {
   const [activeTab, setActiveTab] = useState<TabType>("overview");
+  const [effectiveToken, setEffectiveToken] = useState<string>(token);
+
+  useEffect(() => {
+    setEffectiveToken(token);
+  }, [token]);
   const [stats, setStats] = useState<any>(null);
   const [filterOptions, setFilterOptions] = useState<{
     programs: string[];
@@ -47,10 +268,11 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
     sections: string[];
     batches: string[];
     departments: string[];
-  }>({ programs: [], courses: [], sections: [], batches: [], departments: [] });
+    cohorts: FacultyCohortAccessRule[];
+  }>({ programs: [], courses: [], sections: [], batches: [], departments: [], cohorts: [] });
 
   const [loading, setLoading] = useState(true);
-  const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [feedback, setFeedback] = useState<{ type: "success" | "warning" | "error"; message: string } | null>(null);
 
   // Students tab state
   const [students, setStudents] = useState<any[]>([]);
@@ -69,11 +291,20 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
   // Faculty tab state
   const [facultyList, setFacultyList] = useState<any[]>([]);
   const [facultyTotal, setFacultyTotal] = useState(0);
+  const [facultyPage, setFacultyPage] = useState(1);
   const [isAddFacultyOpen, setIsAddFacultyOpen] = useState(false);
+  const [editingFaculty, setEditingFaculty] = useState<any | null>(null);
+  const [facultyCreationLoading, setFacultyCreationLoading] = useState(false);
+  const [facultyUpdateLoading, setFacultyUpdateLoading] = useState(false);
+  const [deactivatingFacultyId, setDeactivatingFacultyId] = useState<string | null>(null);
+  const [resendingFacultyId, setResendingFacultyId] = useState<string | null>(null);
+  const facultyCreationInFlightRef = useRef(false);
+  const facultyResendInFlightRef = useRef(false);
 
   // Credits tab state
   const [creditLedger, setCreditLedger] = useState<any[]>([]);
   const [creditTotal, setCreditTotal] = useState(0);
+  const [creditPage, setCreditPage] = useState(1);
   const [bulkDistData, setBulkDistData] = useState({
     creditsPerStudent: 2,
     reason: "Institutional mock interview allocation",
@@ -82,11 +313,18 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
     section: "",
     batch: "",
   });
-  const [distPreview, setDistPreview] = useState<any | null>(null);
+  const [distPreview, setDistPreview] = useState<(any & {
+    previewParams: DistributionPreviewParams;
+    previewRevision: number;
+  }) | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [distributionLoading, setDistributionLoading] = useState(false);
+  const [previewWasInvalidated, setPreviewWasInvalidated] = useState(false);
+  const distributionRevisionRef = useRef(0);
+  const previewRequestIdRef = useRef(0);
+  const distributionRequestInFlightRef = useRef(false);
 
-  // Reports tab state
-  const [reports, setReports] = useState<any[]>([]);
+  const [reports, setReports] = useState<EnterpriseReportRow[]>([]);
   const [reportTotal, setReportTotal] = useState(0);
   const [reportPage, setReportPage] = useState(1);
   const [reportSummary, setReportSummary] = useState<any | null>(null);
@@ -97,12 +335,15 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
   const [reportSearch, setReportSearch] = useState("");
 
   // Audit logs tab state
-  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [auditLogs, setAuditLogs] = useState<EnterpriseAuditLog[]>([]);
   const [auditTotal, setAuditTotal] = useState(0);
   const [auditPage, setAuditPage] = useState(1);
+  const [auditTotalPages, setAuditTotalPages] = useState(0);
   const [auditActionFilter, setAuditActionFilter] = useState("");
   const [auditSearch, setAuditSearch] = useState("");
   const [auditLoading, setAuditLoading] = useState(false);
+  const [selectedAuditLog, setSelectedAuditLog] = useState<EnterpriseAuditLog | null>(null);
+  const auditRequestIdRef = useRef(0);
 
   // Student Form Data
   const [studentForm, setStudentForm] = useState({
@@ -121,19 +362,8 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
   });
 
   // Faculty Form Data
-  const [facultyForm, setFacultyForm] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    employeeId: "",
-    department: "Computer Science & Engineering",
-    designation: "Assistant Professor",
-    isMainFaculty: false,
-    permissions: ["STUDENT_VIEW", "REPORT_VIEW", "REPORT_EXPORT", "INTERVIEW_CREDIT_VIEW"],
-    programAccess: [] as string[],
-    courseAccess: [] as string[],
-    sectionAccess: [] as string[],
-  });
+  const [facultyForm, setFacultyForm] = useState<FacultyFormValues>(createEmptyFacultyForm);
+  const [facultyEditForm, setFacultyEditForm] = useState<FacultyFormValues>(createEmptyFacultyForm);
 
   // Single assign form
   const [singleAssignAmount, setSingleAssignAmount] = useState(1);
@@ -151,20 +381,59 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
     errors: Array<{ row: number; email?: string; enrollmentNumber?: string; reason: string }>;
   } | null>(null);
   const [resendingStudentId, setResendingStudentId] = useState<string | null>(null);
+  const [resendConfirmationStudent, setResendConfirmationStudent] = useState<any | null>(null);
+  const resendRequestInFlightRef = useRef(false);
 
-  const canManageFaculty = user.isMainFaculty || user.permissions?.includes("all") || user.permissions?.includes("manageFaculty");
-  const canDistributeCredits = user.isMainFaculty || user.permissions?.includes("all") || user.permissions?.includes("distributeCredits");
+  const hasPermission = (permission: string) => hasEnterprisePermission(user, permission);
+
+  const canViewStudents = hasPermission("STUDENT_VIEW");
+  const canCreateStudents = hasPermission("STUDENT_CREATE");
+  const canViewFaculty = hasPermission("FACULTY_VIEW");
+  const canCreateFaculty = hasPermission("FACULTY_CREATE");
+  const canEditFaculty = hasPermission("FACULTY_EDIT");
+  const canManageFacultyAuthorization = user.role === "super_admin" ||
+    (user.role === "college_main_faculty" && user.isMainFaculty === true);
+  const canViewCredits = hasPermission("INTERVIEW_CREDIT_VIEW");
+  const canDistributeCredits = hasPermission("INTERVIEW_CREDIT_ASSIGN");
+  const canViewReports = hasPermission("REPORT_VIEW");
+  const canExportReports = hasPermission("REPORT_EXPORT");
+  const canViewAuditLogs = hasPermission("AUDIT_VIEW");
 
   // Initial Load
   const loadInitialData = async () => {
+    let activeToken = effectiveToken;
+    if (isLocalAccessToken(activeToken)) {
+      if (user.email.toLowerCase() === "faculty@apex.edu" || user.email.toLowerCase().includes("demo")) {
+        try {
+          const auth = await backendApi.login({ email: user.email.toLowerCase(), password: "Password@123" });
+          if (auth.accessToken) {
+            setStoredAuthTokens(auth.accessToken);
+            setEffectiveToken(auth.accessToken);
+            activeToken = auth.accessToken;
+          }
+        } catch (upgradeErr) {
+          console.warn("Auto-upgrade demo token to live session failed:", upgradeErr);
+        }
+      }
+
+      if (isLocalAccessToken(activeToken)) {
+        setLoading(false);
+        setFeedback({
+          type: "error",
+          message: "You are currently signed in with an offline demo session. Enterprise analytics require a live backend session. Please sign in with your enterprise credentials."
+        });
+        return;
+      }
+    }
+
     try {
       setLoading(true);
       const [statsRes, optionsRes] = await Promise.all([
-        backendApi.enterprise.getStats(token),
-        backendApi.enterprise.getFilterOptions(token),
+        backendApi.enterprise.getStats(activeToken),
+        backendApi.enterprise.getFilterOptions(activeToken),
       ]);
       setStats(statsRes);
-      setFilterOptions(optionsRes);
+      setFilterOptions({ ...optionsRes, cohorts: optionsRes.cohorts ?? [] });
     } catch (err: any) {
       console.error("Failed to load enterprise stats:", err);
       setFeedback({ type: "error", message: err.message || "Failed to load dashboard data" });
@@ -175,22 +444,23 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
 
   useEffect(() => {
     loadInitialData();
-  }, [token]);
+  }, [effectiveToken]);
 
   // Load Students
   const loadStudents = async () => {
+    if (!canViewStudents || isLocalAccessToken(effectiveToken)) return;
     try {
       const res = await backendApi.enterprise.listStudents(
         {
           page: studentPage,
-          limit: 10,
+          limit: STUDENT_PAGE_SIZE,
           search: studentSearch,
           program: studentProgram,
           course: studentCourse,
           section: studentSection,
           batch: studentBatch,
         },
-        token
+        effectiveToken
       );
       setStudents(res.students);
       setStudentTotal(res.total);
@@ -200,16 +470,24 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
   };
 
   useEffect(() => {
-    if (activeTab === "students" || activeTab === "overview") {
+    if (canViewStudents && !isLocalAccessToken(effectiveToken) && (activeTab === "students" || activeTab === "overview")) {
       loadStudents();
     }
-  }, [activeTab, studentPage, studentSearch, studentProgram, studentCourse, studentSection, studentBatch]);
+  }, [activeTab, effectiveToken, studentPage, studentSearch, studentProgram, studentCourse, studentSection, studentBatch]);
+
+  useEffect(() => {
+    const lastPage = getPaginationMeta(studentPage, studentTotal, STUDENT_PAGE_SIZE).page;
+    if (lastPage !== studentPage) setStudentPage(lastPage);
+  }, [studentPage, studentTotal]);
 
   // Load Faculty
   const loadFaculty = async () => {
-    if (!canManageFaculty) return;
+    if (!canViewFaculty || isLocalAccessToken(effectiveToken)) return;
     try {
-      const res = await backendApi.enterprise.listFaculty({}, token);
+      const res = await backendApi.enterprise.listFaculty(
+        { page: facultyPage, limit: FACULTY_PAGE_SIZE },
+        effectiveToken
+      );
       setFacultyList(res.faculty);
       setFacultyTotal(res.total);
     } catch (err: any) {
@@ -218,15 +496,24 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
   };
 
   useEffect(() => {
-    if (activeTab === "faculty") {
+    if (canViewFaculty && !isLocalAccessToken(effectiveToken) && activeTab === "faculty") {
       loadFaculty();
     }
-  }, [activeTab]);
+  }, [activeTab, effectiveToken, facultyPage]);
+
+  useEffect(() => {
+    const lastPage = getPaginationMeta(facultyPage, facultyTotal, FACULTY_PAGE_SIZE).page;
+    if (lastPage !== facultyPage) setFacultyPage(lastPage);
+  }, [facultyPage, facultyTotal]);
 
   // Load Credits Ledger
   const loadCredits = async () => {
+    if (!canViewCredits || isLocalAccessToken(effectiveToken)) return;
     try {
-      const res = await backendApi.enterprise.getCreditLedger({}, token);
+      const res = await backendApi.enterprise.getCreditLedger(
+        { page: creditPage, limit: CREDIT_PAGE_SIZE },
+        effectiveToken
+      );
       setCreditLedger(res.transactions);
       setCreditTotal(res.total);
     } catch (err: any) {
@@ -235,26 +522,32 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
   };
 
   useEffect(() => {
-    if (activeTab === "credits") {
+    if (canViewCredits && !isLocalAccessToken(effectiveToken) && activeTab === "credits") {
       loadCredits();
     }
-  }, [activeTab]);
+  }, [activeTab, effectiveToken, creditPage]);
+
+  useEffect(() => {
+    const lastPage = getPaginationMeta(creditPage, creditTotal, CREDIT_PAGE_SIZE).page;
+    if (lastPage !== creditPage) setCreditPage(lastPage);
+  }, [creditPage, creditTotal]);
 
   // Load Reports
   const loadReports = async () => {
+    if (!canViewReports || isLocalAccessToken(effectiveToken)) return;
     try {
       const [reportsRes, summaryRes] = await Promise.all([
         backendApi.enterprise.getReports(
           {
             page: reportPage,
-            limit: 10,
+            limit: REPORT_PAGE_SIZE,
             program: reportProgram,
             course: reportCourse,
             section: reportSection,
             batch: reportBatch,
             search: reportSearch,
           },
-          token
+          effectiveToken
         ),
         backendApi.enterprise.getReportSummary(
           {
@@ -263,7 +556,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
             section: reportSection,
             batch: reportBatch,
           },
-          token
+          effectiveToken
         ),
       ]);
       setReports(reportsRes.reports);
@@ -275,13 +568,20 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
   };
 
   useEffect(() => {
-    if (activeTab === "reports") {
+    if (canViewReports && !isLocalAccessToken(effectiveToken) && activeTab === "reports") {
       loadReports();
     }
-  }, [activeTab, reportPage, reportProgram, reportCourse, reportSection, reportBatch, reportSearch]);
+  }, [activeTab, effectiveToken, reportPage, reportProgram, reportCourse, reportSection, reportBatch, reportSearch]);
+
+  useEffect(() => {
+    const lastPage = getPaginationMeta(reportPage, reportTotal, REPORT_PAGE_SIZE).page;
+    if (lastPage !== reportPage) setReportPage(lastPage);
+  }, [reportPage, reportTotal]);
 
   // Load Audit Logs
   const loadAuditLogs = async () => {
+    if (!canViewAuditLogs || isLocalAccessToken(effectiveToken)) return;
+    const currentRequestId = ++auditRequestIdRef.current;
     try {
       setAuditLoading(true);
       const res = await backendApi.enterprise.getAuditLogs(
@@ -291,65 +591,128 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
           action: auditActionFilter || undefined,
           search: auditSearch || undefined,
         },
-        token
+        effectiveToken
       );
+      if (currentRequestId !== auditRequestIdRef.current) return;
       setAuditLogs(res.logs || []);
-      setAuditTotal(res.total || 0);
+      setAuditTotal(res.pagination?.total ?? 0);
+      setAuditTotalPages(res.pagination?.totalPages ?? 0);
     } catch (err: any) {
+      if (currentRequestId !== auditRequestIdRef.current) return;
       console.error("Failed to load audit logs:", err);
     } finally {
-      setAuditLoading(false);
+      if (currentRequestId === auditRequestIdRef.current) {
+        setAuditLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    if (activeTab === "audit") {
+    if (canViewAuditLogs && !isLocalAccessToken(effectiveToken) && activeTab === "audit") {
       loadAuditLogs();
     }
-  }, [activeTab, auditPage, auditActionFilter, auditSearch]);
+  }, [activeTab, effectiveToken, auditPage, auditActionFilter, auditSearch]);
+
+  const currentDistributionParams = getDistributionPreviewParams(bulkDistData);
+  const isCurrentPreviewValid = isDistributionPreviewValid(
+    currentDistributionParams,
+    distPreview?.previewParams ?? null,
+    distributionRevisionRef.current,
+    distPreview?.previewRevision ?? null
+  );
+
+  const updateBulkDistributionData = <K extends keyof typeof bulkDistData>(
+    field: K,
+    value: (typeof bulkDistData)[K]
+  ) => {
+    if (bulkDistData[field] === value) return;
+
+    if (field !== "reason") {
+      const hadPreviewOrPendingRequest = Boolean(distPreview) || previewLoading;
+      distributionRevisionRef.current += 1;
+      previewRequestIdRef.current += 1;
+      setDistPreview(null);
+      setPreviewLoading(false);
+      if (hadPreviewOrPendingRequest) setPreviewWasInvalidated(true);
+    }
+
+    setBulkDistData((current) => ({ ...current, [field]: value }));
+  };
 
   // Handle preview calculation
   const handleCalculatePreview = async () => {
+    if (distributionRequestInFlightRef.current) return;
+
+    const previewParams = getDistributionPreviewParams(bulkDistData);
+    const previewRevision = distributionRevisionRef.current;
+    const requestId = ++previewRequestIdRef.current;
+
     try {
       setPreviewLoading(true);
+      setDistPreview(null);
+      setPreviewWasInvalidated(false);
       const res = await backendApi.enterprise.previewCreditDistribution(
         {
-          creditsPerStudent: Number(bulkDistData.creditsPerStudent),
-          program: bulkDistData.program || undefined,
-          course: bulkDistData.course || undefined,
-          section: bulkDistData.section || undefined,
-          batch: bulkDistData.batch || undefined,
+          creditsPerStudent: previewParams.creditsPerStudent,
+          program: previewParams.program || undefined,
+          course: previewParams.course || undefined,
+          section: previewParams.section || undefined,
+          batch: previewParams.batch || undefined,
         },
-        token
+        effectiveToken
       );
-      setDistPreview(res);
+      if (
+        requestId !== previewRequestIdRef.current ||
+        previewRevision !== distributionRevisionRef.current
+      ) return;
+
+      setDistPreview({ ...res, previewParams, previewRevision });
     } catch (err: any) {
+      if (requestId !== previewRequestIdRef.current) return;
       setFeedback({ type: "error", message: err.message || "Failed to calculate preview" });
     } finally {
-      setPreviewLoading(false);
+      if (requestId === previewRequestIdRef.current) setPreviewLoading(false);
     }
   };
 
   // Handle bulk credit distribution
   const handleExecuteDistribution = async () => {
+    if (distributionRequestInFlightRef.current) return;
+
+    if (!distPreview || !isCurrentPreviewValid) {
+      setFeedback({
+        type: "error",
+        message: "Distribution settings changed. Please generate a new preview before confirming.",
+      });
+      return;
+    }
+
+    // Confirmation deliberately uses the immutable preview snapshot, never mutable form state.
+    const confirmedParams = distPreview.previewParams;
+    distributionRequestInFlightRef.current = true;
     try {
+      setDistributionLoading(true);
       const res = await backendApi.enterprise.distributeCredits(
         {
-          creditsPerStudent: Number(bulkDistData.creditsPerStudent),
+          creditsPerStudent: confirmedParams.creditsPerStudent,
           reason: bulkDistData.reason,
-          program: bulkDistData.program || undefined,
-          course: bulkDistData.course || undefined,
-          section: bulkDistData.section || undefined,
-          batch: bulkDistData.batch || undefined,
+          program: confirmedParams.program || undefined,
+          course: confirmedParams.course || undefined,
+          section: confirmedParams.section || undefined,
+          batch: confirmedParams.batch || undefined,
         },
-        token
+        effectiveToken
       );
       setFeedback({ type: "success", message: res.message });
       setDistPreview(null);
+      setPreviewWasInvalidated(false);
       loadInitialData();
       loadCredits();
     } catch (err: any) {
       setFeedback({ type: "error", message: err.message || "Distribution failed" });
+    } finally {
+      distributionRequestInFlightRef.current = false;
+      setDistributionLoading(false);
     }
   };
 
@@ -364,7 +727,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
           amount: Number(singleAssignAmount),
           reason: singleAssignReason,
         },
-        token
+        effectiveToken
       );
       setFeedback({
         type: "success",
@@ -382,7 +745,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
   const handleCreateStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await backendApi.enterprise.createStudent(studentForm, token);
+      await backendApi.enterprise.createStudent(studentForm, effectiveToken);
       setFeedback({ type: "success", message: `Student ${studentForm.name} onboarded successfully.` });
       setIsAddStudentOpen(false);
       loadStudents();
@@ -402,7 +765,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
       const res = await backendApi.enterprise.bulkImportFile(
         bulkImportFile,
         { atomic: bulkImportAtomic, initialCredits: bulkImportCredits },
-        token
+        effectiveToken
       );
       setBulkImportResult({
         totalProcessed: res.totalProcessed,
@@ -430,19 +793,27 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
     }
   };
 
-  // Handle resend student invitation credentials
+  // Send a password setup link only after explicit confirmation. The ref closes
+  // the same-render double-click window before React applies loading state.
   const handleResendInvite = async (student: any) => {
+    if (resendRequestInFlightRef.current) return;
+    resendRequestInFlightRef.current = true;
     try {
       setResendingStudentId(student.id);
-      await backendApi.enterprise.resendStudentInvite(student.id, token);
+      await backendApi.enterprise.resendStudentInvite(student.id, effectiveToken);
       setFeedback({
         type: "success",
-        message: `Welcome credentials resent to ${student.user?.name || student.name} (${student.user?.email || student.email}).`,
+        message: `Password setup email sent to ${student.user?.name || student.name} (${student.user?.email || student.email}).`,
       });
+      setResendConfirmationStudent(null);
       loadStudents();
     } catch (err: any) {
-      setFeedback({ type: "error", message: err.message || "Failed to resend invite credentials." });
+      setFeedback({
+        type: "error",
+        message: err.message || "Unable to send login email. The student's existing credentials remain unchanged.",
+      });
     } finally {
+      resendRequestInFlightRef.current = false;
       setResendingStudentId(null);
     }
   };
@@ -466,14 +837,127 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
   // Handle add faculty
   const handleCreateFaculty = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!acquireRequestLock(facultyCreationInFlightRef)) return;
+    setFacultyCreationLoading(true);
     try {
-      await backendApi.enterprise.createFaculty(facultyForm, token);
-      setFeedback({ type: "success", message: `Faculty ${facultyForm.name} added successfully.` });
+      const {
+        permissions,
+        programAccess,
+        courseAccess,
+        sectionAccess,
+        batchAccess,
+        scopeUnrestricted,
+        cohortAccess,
+        ...profile
+      } = facultyForm;
+      const result = await backendApi.enterprise.createFaculty({
+        ...profile,
+        ...getFacultyAuthorizationPayload(canManageFacultyAuthorization, {
+          permissions,
+          programAccess,
+          courseAccess,
+          sectionAccess,
+          batchAccess,
+          scopeUnrestricted,
+          cohortAccess,
+        }),
+      }, effectiveToken);
+      setFeedback(getFacultyCreationFeedback(result));
       setIsAddFacultyOpen(false);
-      loadFaculty();
-      loadInitialData();
+      setFacultyForm(createEmptyFacultyForm());
+      await Promise.all([loadFaculty(), loadInitialData()]);
     } catch (err: any) {
       setFeedback({ type: "error", message: err.message || "Failed to add faculty" });
+    } finally {
+      releaseRequestLock(facultyCreationInFlightRef);
+      setFacultyCreationLoading(false);
+    }
+  };
+
+  const openFacultyEditor = (faculty: any) => {
+    setFacultyEditForm({
+      name: faculty.user?.name || faculty.name || "",
+      email: faculty.user?.email || faculty.email || "",
+      phone: faculty.user?.phone || faculty.phone || "",
+      employeeId: faculty.employeeId || "",
+      department: faculty.department || "",
+      designation: faculty.designation || "",
+      isMainFaculty: false,
+      permissions: Array.isArray(faculty.permissions) ? [...faculty.permissions] : [],
+      programAccess: Array.isArray(faculty.programAccess) ? [...faculty.programAccess] : [],
+      courseAccess: Array.isArray(faculty.courseAccess) ? [...faculty.courseAccess] : [],
+      sectionAccess: Array.isArray(faculty.sectionAccess) ? [...faculty.sectionAccess] : [],
+      batchAccess: Array.isArray(faculty.batchAccess) ? [...faculty.batchAccess] : [],
+      scopeUnrestricted: typeof faculty.scopeUnrestricted === "boolean"
+        ? faculty.scopeUnrestricted
+        : ![faculty.programAccess, faculty.courseAccess, faculty.sectionAccess, faculty.batchAccess]
+          .some((values) => Array.isArray(values) && values.length > 0),
+      cohortAccess: resolveFacultyCohortAccess(faculty, filterOptions.cohorts),
+    });
+    setEditingFaculty(faculty);
+  };
+
+  const handleUpdateFaculty = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editingFaculty || facultyUpdateLoading) return;
+    setFacultyUpdateLoading(true);
+    try {
+      await backendApi.enterprise.updateFaculty(editingFaculty.id, {
+        name: facultyEditForm.name,
+        phone: facultyEditForm.phone,
+        employeeId: facultyEditForm.employeeId,
+        department: facultyEditForm.department,
+        designation: facultyEditForm.designation,
+        ...getFacultyAuthorizationPayload(canManageFacultyAuthorization, {
+          permissions: facultyEditForm.permissions,
+          programAccess: facultyEditForm.programAccess,
+          courseAccess: facultyEditForm.courseAccess,
+          sectionAccess: facultyEditForm.sectionAccess,
+          batchAccess: facultyEditForm.batchAccess,
+          scopeUnrestricted: facultyEditForm.scopeUnrestricted,
+          cohortAccess: facultyEditForm.cohortAccess,
+        }),
+      }, effectiveToken);
+      setFeedback({ type: "success", message: `Faculty member ${facultyEditForm.name} was updated.` });
+      setEditingFaculty(null);
+      await loadFaculty();
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message || "Failed to update faculty member" });
+    } finally {
+      setFacultyUpdateLoading(false);
+    }
+  };
+
+  const handleDeactivateFaculty = async (faculty: any) => {
+    const name = faculty.user?.name || faculty.name || "this faculty member";
+    if (!window.confirm(`Deactivate ${name}? They will no longer be able to sign in.`)) return;
+    setDeactivatingFacultyId(faculty.id);
+    try {
+      const result = await backendApi.enterprise.deleteFaculty(faculty.id, effectiveToken);
+      setFeedback({ type: "success", message: result.message || `${name} was deactivated.` });
+      await Promise.all([loadFaculty(), loadInitialData()]);
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message || "Failed to deactivate faculty member" });
+    } finally {
+      setDeactivatingFacultyId(null);
+    }
+  };
+
+  const handleResendFacultyInvite = async (faculty: any) => {
+    if (!acquireRequestLock(facultyResendInFlightRef)) return;
+    setResendingFacultyId(faculty.id);
+    try {
+      const result = await backendApi.enterprise.resendFacultyInvite(faculty.id, effectiveToken);
+      setFeedback({ type: "success", message: result.message });
+      await loadFaculty();
+    } catch (err: any) {
+      setFeedback({
+        type: "error",
+        message: err.message || "Unable to resend the invitation. The faculty account and credentials were not changed.",
+      });
+    } finally {
+      releaseRequestLock(facultyResendInFlightRef);
+      setResendingFacultyId(null);
     }
   };
 
@@ -488,7 +972,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
         section: reportSection,
         batch: reportBatch,
         search: reportSearch,
-      }, token);
+      }, effectiveToken);
       setFeedback({ type: "success", message: "Student reports successfully exported as sanitized CSV." });
     } catch (err: any) {
       setFeedback({ type: "error", message: err.message || "Failed to export CSV" });
@@ -505,7 +989,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
         section: reportSection,
         batch: reportBatch,
         search: reportSearch,
-      }, token);
+      }, effectiveToken);
       setFeedback({ type: "success", message: "Student reports successfully exported as Excel (.xlsx) workbook." });
     } catch (err: any) {
       setFeedback({ type: "error", message: err.message || "Failed to export Excel" });
@@ -513,59 +997,59 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
   };
 
   return (
-    <div className="min-h-screen bg-[#070a12] text-zinc-100 pb-20 select-none">
+    <div className="enterprise-dashboard min-h-screen bg-slate-50 text-slate-900 pb-20">
       {/* Top Banner Header */}
-      <div className="border-b border-zinc-800/80 bg-zinc-950/60 backdrop-blur-md sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <div className="enterprise-header border-b border-slate-200/80 bg-white/95 backdrop-blur-xl sticky top-0 z-30">
+        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-4 lg:py-5">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-rose-600/20 border border-rose-500/30 flex items-center justify-center text-rose-400">
-                <Building2 className="w-5 h-5" />
+              <div className="w-11 h-11 rounded-2xl bg-rose-50 border border-rose-100 shadow-sm flex items-center justify-center text-rose-600">
+                <Building2 className="w-5 h-5" strokeWidth={2.2} />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h1 className="text-lg font-bold text-white tracking-tight">
+                  <h1 className="text-xl sm:text-2xl font-bold text-slate-950 tracking-tight font-headline">
                     {user.college?.name || "Campus Enterprise Portal"}
                   </h1>
-                  <span className="px-2 py-0.5 rounded bg-rose-950/60 border border-rose-800/60 text-[10px] font-mono font-bold text-rose-400 uppercase">
+                  <span className="hidden sm:inline-flex px-2.5 py-1 rounded-full bg-rose-50 border border-rose-100 text-[10px] font-bold text-rose-700 uppercase tracking-wider">
                     {user.isMainFaculty ? "Main Faculty Admin" : "Faculty Evaluator"}
                   </span>
                 </div>
-                <p className="text-xs text-zinc-400">
-                  Code: <span className="font-mono text-zinc-300">{user.college?.code || "CAMPUS"}</span> &bull; Domain:{" "}
-                  <span className="font-mono text-zinc-300">{user.college?.domain || "institutional"}</span>
+                <p className="text-xs text-slate-500 mt-1">
+                  Code: <span className="font-mono font-medium text-slate-700">{user.college?.code || "CAMPUS"}</span> &bull; Domain:{" "}
+                  <span className="font-mono font-medium text-slate-700">{user.college?.domain || "institutional"}</span>
                 </p>
               </div>
             </div>
 
             {/* Quick Balance Badge */}
             <div className="flex items-center gap-3">
-              <div className="px-4 py-2 rounded-xl bg-emerald-950/30 border border-emerald-800/50 flex items-center gap-2.5">
-                <Coins className="w-4 h-4 text-emerald-400" />
+              {canViewCredits && <div className="px-3.5 sm:px-4 py-2 rounded-2xl bg-emerald-50 border border-emerald-100 shadow-sm flex items-center gap-2.5">
+                <Coins className="w-4 h-4 text-emerald-600" />
                 <div>
-                  <span className="text-[10px] text-zinc-400 font-medium uppercase block">Institutional Balance</span>
-                  <span className="text-sm font-bold text-emerald-300 font-mono">
+                  <span className="hidden sm:block text-[10px] text-emerald-700/70 font-semibold uppercase tracking-wider">Institutional Balance</span>
+                  <span className="text-sm font-bold text-emerald-700 font-mono">
                     {stats?.credits?.balance ?? 0} Credits
                   </span>
                 </div>
-              </div>
+              </div>}
               <button
                 onClick={loadInitialData}
                 disabled={loading}
-                className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
+                className="p-2.5 rounded-xl bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-500 hover:text-slate-900 shadow-sm transition-all duration-200"
                 title="Refresh Metrics"
               >
                 <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin text-rose-400" : ""}`} />
               </button>
 
               {/* Administrator Profile Pill */}
-              <div className="hidden lg:flex items-center gap-2.5 pl-3 border-l border-zinc-800/80">
-                <div className="w-8 h-8 rounded-full bg-rose-600/20 border border-rose-500/40 flex items-center justify-center text-xs font-bold text-rose-400">
+              <div className="hidden lg:flex items-center gap-2.5 pl-3 border-l border-slate-200">
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-rose-50 to-rose-100 border border-rose-200 flex items-center justify-center text-xs font-bold text-rose-700 shadow-sm">
                   {user.name ? user.name.charAt(0).toUpperCase() : "F"}
                 </div>
                 <div className="text-left">
-                  <span className="text-xs font-semibold text-white block leading-tight">{user.name}</span>
-                  <span className="text-[10px] text-zinc-400 font-mono block leading-tight">{user.email}</span>
+                  <span className="text-xs font-semibold text-slate-900 block leading-tight">{user.name}</span>
+                  <span className="text-[10px] text-slate-500 block leading-tight mt-0.5">{user.email}</span>
                 </div>
               </div>
 
@@ -583,7 +1067,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     }
                   }
                 }}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 hover:bg-rose-950/40 hover:border-rose-800/60 text-zinc-400 hover:text-rose-300 text-xs font-medium transition-all cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-white border border-slate-200 hover:bg-rose-50 hover:border-rose-200 text-slate-600 hover:text-rose-700 text-xs font-semibold shadow-sm transition-all duration-200"
                 title="Sign Out of Enterprise Session"
               >
                 <LogOut className="w-3.5 h-3.5" />
@@ -593,9 +1077,11 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
           </div>
 
           {/* Tab Navigation */}
-          <div className="flex items-center gap-2 mt-4 pt-2 border-t border-zinc-900 overflow-x-auto scrollbar-none">
+          <div className="enterprise-tabs flex items-center gap-1.5 mt-4 pt-3 border-t border-slate-100 overflow-x-auto scrollbar-none" role="tablist" aria-label="Enterprise dashboard sections">
             <button
               onClick={() => setActiveTab("overview")}
+              role="tab"
+              aria-selected={activeTab === "overview"}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
                 activeTab === "overview"
                   ? "bg-rose-600 text-white shadow-lg shadow-rose-950/50"
@@ -605,20 +1091,26 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
               <BarChart3 className="w-4 h-4" />
               Overview
             </button>
-            <button
-              onClick={() => setActiveTab("students")}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === "students"
-                  ? "bg-rose-600 text-white shadow-lg shadow-rose-950/50"
-                  : "text-zinc-400 hover:text-white hover:bg-zinc-900/60"
-              }`}
-            >
-              <GraduationCap className="w-4 h-4" />
-              Students Directory ({stats?.students?.total ?? 0})
-            </button>
-            {canManageFaculty && (
+            {canViewStudents && (
+              <button
+                onClick={() => setActiveTab("students")}
+                role="tab"
+                aria-selected={activeTab === "students"}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
+                  activeTab === "students"
+                    ? "bg-rose-600 text-white shadow-lg shadow-rose-950/50"
+                    : "text-zinc-400 hover:text-white hover:bg-zinc-900/60"
+                }`}
+              >
+                <GraduationCap className="w-4 h-4" />
+                Students Directory ({stats?.students?.total ?? 0})
+              </button>
+            )}
+            {canViewFaculty && (
               <button
                 onClick={() => setActiveTab("faculty")}
+                role="tab"
+                aria-selected={activeTab === "faculty"}
                 className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
                   activeTab === "faculty"
                     ? "bg-rose-600 text-white shadow-lg shadow-rose-950/50"
@@ -629,57 +1121,73 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 Faculty Members ({stats?.faculty?.total ?? 0})
               </button>
             )}
-            <button
-              onClick={() => setActiveTab("credits")}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === "credits"
-                  ? "bg-rose-600 text-white shadow-lg shadow-rose-950/50"
-                  : "text-zinc-400 hover:text-white hover:bg-zinc-900/60"
-              }`}
-            >
-              <Coins className="w-4 h-4" />
-              Interview Credits & Allocation
-            </button>
-            <button
-              onClick={() => setActiveTab("reports")}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === "reports"
-                  ? "bg-rose-600 text-white shadow-lg shadow-rose-950/50"
-                  : "text-zinc-400 hover:text-white hover:bg-zinc-900/60"
-              }`}
-            >
-              <FileText className="w-4 h-4" />
-              Cohort Reports & Analytics
-            </button>
-            <button
-              onClick={() => setActiveTab("audit")}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === "audit"
-                  ? "bg-rose-600 text-white shadow-lg shadow-rose-950/50"
-                  : "text-zinc-400 hover:text-white hover:bg-zinc-900/60"
-              }`}
-            >
-              <ShieldCheck className="w-4 h-4" />
-              Audit Logs
-            </button>
+            {canViewCredits && (
+              <button
+                onClick={() => setActiveTab("credits")}
+                role="tab"
+                aria-selected={activeTab === "credits"}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
+                  activeTab === "credits"
+                    ? "bg-rose-600 text-white shadow-lg shadow-rose-950/50"
+                    : "text-zinc-400 hover:text-white hover:bg-zinc-900/60"
+                }`}
+              >
+                <Coins className="w-4 h-4" />
+                Interview Credits & Allocation
+              </button>
+            )}
+            {canViewReports && (
+                <button
+                  onClick={() => setActiveTab("reports")}
+                  role="tab"
+                  aria-selected={activeTab === "reports"}
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
+                    activeTab === "reports"
+                      ? "bg-rose-600 text-white shadow-lg shadow-rose-950/50"
+                      : "text-zinc-400 hover:text-white hover:bg-zinc-900/60"
+                  }`}
+                >
+                  <FileText className="w-4 h-4" />
+                  Cohort Reports & Analytics
+                </button>
+            )}
+            {canViewAuditLogs && (
+              <button
+                onClick={() => setActiveTab("audit")}
+                role="tab"
+                aria-selected={activeTab === "audit"}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
+                  activeTab === "audit"
+                    ? "bg-rose-600 text-white shadow-lg shadow-rose-950/50"
+                    : "text-zinc-400 hover:text-white hover:bg-zinc-900/60"
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4" />
+                Audit Logs
+              </button>
+            )}
           </div>
         </div>
       </div>
 
       {/* Main Content Area */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
+      <div className="enterprise-main max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 lg:pt-8 space-y-6">
         {/* Feedback Alert */}
         {feedback && (
           <div
             className={`p-4 rounded-xl border flex items-start justify-between gap-3 text-xs ${
               feedback.type === "success"
                 ? "bg-emerald-950/40 border-emerald-800/60 text-emerald-200"
+                : feedback.type === "warning"
+                  ? "bg-amber-950/40 border-amber-800/60 text-amber-200"
                 : "bg-rose-950/40 border-rose-800/60 text-rose-200"
             }`}
           >
             <div className="flex items-center gap-2">
               {feedback.type === "success" ? (
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              ) : feedback.type === "warning" ? (
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
               ) : (
                 <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
               )}
@@ -695,10 +1203,10 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
         {/* 1. OVERVIEW TAB */}
         {/* ========================================================================= */}
         {activeTab === "overview" && (
-          <div className="space-y-6">
+          <div className="enterprise-tab-content space-y-6">
             {/* KPI Ribbon */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="p-5 rounded-xl bg-zinc-900/40 border border-zinc-800/80 glass-panel">
+              {canViewStudents && <div className="enterprise-kpi p-5 rounded-2xl bg-white border border-slate-200/80 glass-panel">
                 <div className="flex items-center justify-between text-zinc-400">
                   <span className="text-xs font-semibold uppercase tracking-wider">Enrolled Students</span>
                   <GraduationCap className="w-4 h-4 text-sky-400" />
@@ -711,9 +1219,9 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     {stats?.students?.active ?? 0} Active
                   </span>
                 </div>
-              </div>
+              </div>}
 
-              <div className="p-5 rounded-xl bg-zinc-900/40 border border-zinc-800/80 glass-panel">
+              {canViewReports && <div className="enterprise-kpi p-5 rounded-2xl bg-white border border-slate-200/80 glass-panel">
                 <div className="flex items-center justify-between text-zinc-400">
                   <span className="text-xs font-semibold uppercase tracking-wider">Interviews Completed</span>
                   <Award className="w-4 h-4 text-amber-400" />
@@ -726,9 +1234,9 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     of {stats?.interviews?.totalSessions ?? 0} started
                   </span>
                 </div>
-              </div>
+              </div>}
 
-              <div className="p-5 rounded-xl bg-zinc-900/40 border border-zinc-800/80 glass-panel">
+              {canViewReports && <div className="enterprise-kpi p-5 rounded-2xl bg-white border border-slate-200/80 glass-panel">
                 <div className="flex items-center justify-between text-zinc-400">
                   <span className="text-xs font-semibold uppercase tracking-wider">Cohort Avg Score</span>
                   <TrendingUp className="w-4 h-4 text-emerald-400" />
@@ -739,9 +1247,9 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   </span>
                   <span className="text-xs text-zinc-400">AI Evaluated</span>
                 </div>
-              </div>
+              </div>}
 
-              <div className="p-5 rounded-xl bg-zinc-900/40 border border-zinc-800/80 glass-panel">
+              {canViewCredits && <div className="enterprise-kpi p-5 rounded-2xl bg-white border border-slate-200/80 glass-panel">
                 <div className="flex items-center justify-between text-zinc-400">
                   <span className="text-xs font-semibold uppercase tracking-wider">Credit Distribution</span>
                   <Coins className="w-4 h-4 text-rose-400" />
@@ -754,19 +1262,22 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     ({stats?.credits?.balance ?? 0} left)
                   </span>
                 </div>
-              </div>
+              </div>}
             </div>
 
             {/* Quick Actions Panel */}
-            <div className="p-6 rounded-2xl bg-zinc-900/40 border border-zinc-800/80 glass-panel">
-              <h2 className="text-sm font-bold text-white mb-4">Quick Institutional Actions</h2>
+            <div className="enterprise-panel p-5 sm:p-6 rounded-3xl bg-white border border-slate-200/80 glass-panel">
+              <div className="mb-5">
+                <h2 className="text-base font-bold text-slate-950">Quick actions</h2>
+                <p className="text-xs text-slate-500 mt-1">Common tasks for managing your institution and cohorts.</p>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <button
+                {canCreateStudents && <button
                   onClick={() => {
                     setActiveTab("students");
                     setIsAddStudentOpen(true);
                   }}
-                  className="p-4 rounded-xl bg-zinc-950/80 border border-zinc-800/80 hover:border-rose-500/40 hover:bg-zinc-900/80 transition-all text-left flex items-start gap-3 group cursor-pointer"
+                  className="enterprise-action-card p-4 rounded-2xl bg-slate-50 border border-slate-200 hover:border-rose-200 hover:bg-rose-50/60 transition-all duration-200 text-left flex items-start gap-3 group"
                 >
                   <div className="p-2.5 rounded-lg bg-rose-600/20 text-rose-400 group-hover:scale-105 transition-transform">
                     <UserPlus className="w-5 h-5" />
@@ -775,13 +1286,13 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     <h3 className="text-xs font-bold text-zinc-200 group-hover:text-white">Onboard New Student</h3>
                     <p className="text-[11px] text-zinc-500 mt-0.5">Add individual student with roll number and program quota.</p>
                   </div>
-                </button>
+                </button>}
 
-                <button
+                {canDistributeCredits && <button
                   onClick={() => {
                     setActiveTab("credits");
                   }}
-                  className="p-4 rounded-xl bg-zinc-950/80 border border-zinc-800/80 hover:border-emerald-500/40 hover:bg-zinc-900/80 transition-all text-left flex items-start gap-3 group cursor-pointer"
+                  className="enterprise-action-card p-4 rounded-2xl bg-slate-50 border border-slate-200 hover:border-emerald-200 hover:bg-emerald-50/60 transition-all duration-200 text-left flex items-start gap-3 group"
                 >
                   <div className="p-2.5 rounded-lg bg-emerald-600/20 text-emerald-400 group-hover:scale-105 transition-transform">
                     <Coins className="w-5 h-5" />
@@ -790,11 +1301,11 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     <h3 className="text-xs font-bold text-zinc-200 group-hover:text-white">Bulk Credit Allocation</h3>
                     <p className="text-[11px] text-zinc-500 mt-0.5">Distribute interview credits across entire batches or sections.</p>
                   </div>
-                </button>
+                </button>}
 
-                <button
+                {canViewReports && <button
                   onClick={() => setActiveTab("reports")}
-                  className="p-4 rounded-xl bg-zinc-950/80 border border-zinc-800/80 hover:border-sky-500/40 hover:bg-zinc-900/80 transition-all text-left flex items-start gap-3 group cursor-pointer"
+                  className="enterprise-action-card p-4 rounded-2xl bg-slate-50 border border-slate-200 hover:border-sky-200 hover:bg-sky-50/60 transition-all duration-200 text-left flex items-start gap-3 group"
                 >
                   <div className="p-2.5 rounded-lg bg-sky-600/20 text-sky-400 group-hover:scale-105 transition-transform">
                     <FileText className="w-5 h-5" />
@@ -803,12 +1314,12 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     <h3 className="text-xs font-bold text-zinc-200 group-hover:text-white">Cohort Performance Reports</h3>
                     <p className="text-[11px] text-zinc-500 mt-0.5">Inspect AI evaluation metrics and export batch results.</p>
                   </div>
-                </button>
+                </button>}
               </div>
             </div>
 
             {/* Recent Students Preview */}
-            <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/40 overflow-hidden glass-panel">
+            {canViewStudents && <div className="enterprise-table-card rounded-3xl border border-slate-200/80 bg-white overflow-hidden glass-panel">
               <div className="p-4 border-b border-zinc-800/80 flex items-center justify-between">
                 <h3 className="text-xs font-bold text-zinc-200 uppercase tracking-wider">Recently Enrolled Cohort</h3>
                 <button
@@ -855,17 +1366,17 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   </tbody>
                 </table>
               </div>
-            </div>
+            </div>}
           </div>
         )}
 
         {/* ========================================================================= */}
         {/* 2. STUDENTS TAB */}
         {/* ========================================================================= */}
-        {activeTab === "students" && (
-          <div className="space-y-4">
+        {activeTab === "students" && canViewStudents && (
+          <div className="enterprise-tab-content space-y-5">
             {/* Filter Bar */}
-            <div className="p-4 rounded-xl bg-zinc-900/40 border border-zinc-800/80 glass-panel space-y-3">
+            <div className="enterprise-panel p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/80 glass-panel space-y-3">
               <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
@@ -881,7 +1392,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   />
                 </div>
 
-                <div className="flex items-center gap-2">
+                {canCreateStudents && <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
                       setBulkImportResult(null);
@@ -898,7 +1409,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   >
                     <Plus className="w-4 h-4" /> Add Student
                   </button>
-                </div>
+                </div>}
               </div>
 
               {/* Multi-Dimensional Cohort Filters */}
@@ -906,7 +1417,10 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 <div>
                   <select
                     value={studentProgram}
-                    onChange={(e) => setStudentProgram(e.target.value)}
+                    onChange={(e) => {
+                      setStudentProgram(e.target.value);
+                      setStudentPage(1);
+                    }}
                     className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-md text-xs text-zinc-300 focus:outline-none focus:border-rose-500"
                   >
                     <option value="">All Programs</option>
@@ -920,7 +1434,10 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 <div>
                   <select
                     value={studentCourse}
-                    onChange={(e) => setStudentCourse(e.target.value)}
+                    onChange={(e) => {
+                      setStudentCourse(e.target.value);
+                      setStudentPage(1);
+                    }}
                     className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-md text-xs text-zinc-300 focus:outline-none focus:border-rose-500"
                   >
                     <option value="">All Courses</option>
@@ -934,7 +1451,10 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 <div>
                   <select
                     value={studentSection}
-                    onChange={(e) => setStudentSection(e.target.value)}
+                    onChange={(e) => {
+                      setStudentSection(e.target.value);
+                      setStudentPage(1);
+                    }}
                     className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-md text-xs text-zinc-300 focus:outline-none focus:border-rose-500"
                   >
                     <option value="">All Sections</option>
@@ -948,7 +1468,10 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 <div>
                   <select
                     value={studentBatch}
-                    onChange={(e) => setStudentBatch(e.target.value)}
+                    onChange={(e) => {
+                      setStudentBatch(e.target.value);
+                      setStudentPage(1);
+                    }}
                     className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-md text-xs text-zinc-300 focus:outline-none focus:border-rose-500"
                   >
                     <option value="">All Batches</option>
@@ -963,7 +1486,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
             </div>
 
             {/* Students Table */}
-            <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/40 overflow-hidden glass-panel">
+            <div className="enterprise-table-card rounded-2xl border border-slate-200/80 bg-white overflow-hidden glass-panel">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-zinc-950/80 text-[10px] font-mono text-zinc-400 uppercase tracking-wider border-b border-zinc-800/80">
@@ -1014,13 +1537,15 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 border border-rose-500/20" title={student.emailError || "Email delivery failed"}>
                                   <AlertCircle className="w-3 h-3 text-rose-400" /> Failed
                                 </span>
-                                <button
-                                  onClick={() => handleResendInvite(student)}
-                                  disabled={resendingStudentId === student.id}
-                                  className="text-[10px] font-bold text-rose-300 hover:underline cursor-pointer"
-                                >
-                                  {resendingStudentId === student.id ? "Sending..." : "Resend"}
-                                </button>
+                                {canCreateStudents && (
+                                  <button
+                                    onClick={() => setResendConfirmationStudent(student)}
+                                    disabled={resendingStudentId === student.id}
+                                    className="text-[10px] font-bold text-rose-300 hover:underline cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    {resendingStudentId === student.id ? "Sending..." : "Resend"}
+                                  </button>
+                                )}
                               </div>
                             ) : student.invitationStatus === "sent" || student.invitationStatus === "delivered" ? (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
@@ -1048,18 +1573,20 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                                   + Credits
                                 </button>
                               )}
-                              <button
-                                onClick={() => handleResendInvite(student)}
-                                disabled={resendingStudentId === student.id}
-                                className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white"
-                                title="Resend Credentials via Email"
-                              >
-                                {resendingStudentId === student.id ? (
-                                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-rose-400" />
-                                ) : (
-                                  <Send className="w-3.5 h-3.5" />
-                                )}
-                              </button>
+                              {canCreateStudents && (
+                                <button
+                                  onClick={() => setResendConfirmationStudent(student)}
+                                  disabled={resendingStudentId === student.id}
+                                  className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                  title="Send Password Setup Email"
+                                >
+                                  {resendingStudentId === student.id ? (
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-rose-400" />
+                                  ) : (
+                                    <Send className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              )}
                               <button
                                 onClick={() => setSelectedStudentDetail(student)}
                                 className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white"
@@ -1073,7 +1600,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={7} className="px-6 py-12 text-center text-zinc-500 text-sm">
+                        <td colSpan={8} className="px-6 py-12 text-center text-zinc-500 text-sm">
                           No students match the selected filter criteria.
                         </td>
                       </tr>
@@ -1081,6 +1608,13 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   </tbody>
                 </table>
               </div>
+              <PaginationControls
+                page={studentPage}
+                total={studentTotal}
+                pageSize={STUDENT_PAGE_SIZE}
+                itemLabel="students"
+                onPageChange={setStudentPage}
+              />
             </div>
           </div>
         )}
@@ -1088,8 +1622,8 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
         {/* ========================================================================= */}
         {/* 3. FACULTY TAB */}
         {/* ========================================================================= */}
-        {activeTab === "faculty" && canManageFaculty && (
-          <div className="space-y-4">
+        {activeTab === "faculty" && canViewFaculty && (
+          <div className="enterprise-tab-content space-y-5">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-sm font-bold text-white">Department Faculty & Placement Officers</h2>
@@ -1097,15 +1631,20 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   Authorize faculty members to manage cohort interviews, view evaluations, and distribute credits.
                 </p>
               </div>
-              <button
-                onClick={() => setIsAddFacultyOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold transition-all cursor-pointer shadow-lg shadow-rose-950/40"
-              >
-                <Plus className="w-4 h-4" /> Add Faculty Member
-              </button>
+              {canCreateFaculty && (
+                <button
+                  onClick={() => {
+                    setFacultyForm(createEmptyFacultyForm());
+                    setIsAddFacultyOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold transition-all cursor-pointer shadow-lg shadow-rose-950/40"
+                >
+                  <Plus className="w-4 h-4" /> Add Faculty Member
+                </button>
+              )}
             </div>
 
-            <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/40 overflow-hidden glass-panel">
+            <div className="enterprise-table-card rounded-2xl border border-slate-200/80 bg-white overflow-hidden glass-panel">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-zinc-950/80 text-[10px] font-mono text-zinc-400 uppercase tracking-wider border-b border-zinc-800/80">
@@ -1115,10 +1654,11 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                       <th className="px-6 py-4">Designation</th>
                       <th className="px-6 py-4">Role / Permissions</th>
                       <th className="px-6 py-4">Status</th>
+                      <th className="px-6 py-4">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/40 text-zinc-300">
-                    {facultyList.map((fac) => (
+                    {facultyList.length > 0 ? facultyList.map((fac) => (
                       <tr key={fac.id} className="hover:bg-zinc-900/20">
                         <td className="px-6 py-4">
                           <div>
@@ -1154,11 +1694,67 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                             {fac.status}
                           </span>
                         </td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-wrap gap-2">
+                            {canEditFaculty && (!fac.isMainFaculty || canManageFacultyAuthorization) && (
+                              <button
+                                type="button"
+                                onClick={() => openFacultyEditor(fac)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 hover:bg-zinc-800"
+                              >
+                                <Pencil className="w-3.5 h-3.5" /> Edit
+                              </button>
+                            )}
+                            {canManageFacultyAuthorization && !fac.isMainFaculty && fac.userId !== user.id && fac.status !== "inactive" && (
+                              <button
+                                type="button"
+                                disabled={deactivatingFacultyId === fac.id}
+                                onClick={() => handleDeactivateFaculty(fac)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-rose-800/60 bg-rose-950/30 text-rose-300 hover:bg-rose-900/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {deactivatingFacultyId === fac.id ? (
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <UserX className="w-3.5 h-3.5" />
+                                )}
+                                Deactivate
+                              </button>
+                            )}
+                            {canCreateFaculty && fac.status === "invited" && (
+                              <button
+                                type="button"
+                                disabled={resendingFacultyId === fac.id}
+                                onClick={() => handleResendFacultyInvite(fac)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-amber-700/50 bg-amber-950/30 text-amber-300 hover:bg-amber-900/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {resendingFacultyId === fac.id ? (
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Send className="w-3.5 h-3.5" />
+                                )}
+                                Resend Invitation
+                              </button>
+                            )}
+                          </div>
+                        </td>
                       </tr>
-                    ))}
+                    )) : (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-12 text-center text-zinc-500 text-sm">
+                          No faculty members found.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
+              <PaginationControls
+                page={facultyPage}
+                total={facultyTotal}
+                pageSize={FACULTY_PAGE_SIZE}
+                itemLabel="faculty members"
+                onPageChange={setFacultyPage}
+              />
             </div>
           </div>
         )}
@@ -1166,11 +1762,11 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
         {/* ========================================================================= */}
         {/* 4. CREDITS TAB */}
         {/* ========================================================================= */}
-        {activeTab === "credits" && (
-          <div className="space-y-6">
+        {activeTab === "credits" && canViewCredits && (
+          <div className="enterprise-tab-content space-y-6">
             {/* Bulk Distribution Wizard */}
             {canDistributeCredits && (
-              <div className="p-6 rounded-2xl bg-zinc-900/40 border border-zinc-800/80 glass-panel space-y-4">
+              <div className="enterprise-panel p-5 sm:p-6 rounded-3xl bg-white border border-slate-200/80 glass-panel space-y-4">
                 <div className="flex items-center gap-3 border-b border-zinc-800 pb-3">
                   <div className="w-8 h-8 rounded-lg bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
                     <Coins className="w-4 h-4" />
@@ -1188,7 +1784,8 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     <label className="block text-zinc-300 font-medium mb-1">Target Program</label>
                     <select
                       value={bulkDistData.program}
-                      onChange={(e) => setBulkDistData({ ...bulkDistData, program: e.target.value })}
+                      onChange={(e) => updateBulkDistributionData("program", e.target.value)}
+                      disabled={distributionLoading}
                       className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-white focus:outline-none focus:border-emerald-500"
                     >
                       <option value="">All Programs</option>
@@ -1204,7 +1801,8 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     <label className="block text-zinc-300 font-medium mb-1">Target Course</label>
                     <select
                       value={bulkDistData.course}
-                      onChange={(e) => setBulkDistData({ ...bulkDistData, course: e.target.value })}
+                      onChange={(e) => updateBulkDistributionData("course", e.target.value)}
+                      disabled={distributionLoading}
                       className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-white focus:outline-none focus:border-emerald-500"
                     >
                       <option value="">All Courses</option>
@@ -1220,7 +1818,8 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     <label className="block text-zinc-300 font-medium mb-1">Target Batch</label>
                     <select
                       value={bulkDistData.batch}
-                      onChange={(e) => setBulkDistData({ ...bulkDistData, batch: e.target.value })}
+                      onChange={(e) => updateBulkDistributionData("batch", e.target.value)}
+                      disabled={distributionLoading}
                       className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-white focus:outline-none focus:border-emerald-500"
                     >
                       <option value="">All Batches</option>
@@ -1238,9 +1837,8 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                       type="number"
                       min={1}
                       value={bulkDistData.creditsPerStudent}
-                      onChange={(e) =>
-                        setBulkDistData({ ...bulkDistData, creditsPerStudent: Number(e.target.value) })
-                      }
+                      onChange={(e) => updateBulkDistributionData("creditsPerStudent", Number(e.target.value))}
+                      disabled={distributionLoading}
                       className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
                     />
                   </div>
@@ -1250,7 +1848,8 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     <input
                       type="text"
                       value={bulkDistData.reason}
-                      onChange={(e) => setBulkDistData({ ...bulkDistData, reason: e.target.value })}
+                      onChange={(e) => updateBulkDistributionData("reason", e.target.value)}
+                      disabled={distributionLoading}
                       placeholder="e.g. Placement Drive Pre-assessment Allowance"
                       className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-white focus:outline-none focus:border-emerald-500"
                     />
@@ -1260,11 +1859,16 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 <div className="flex items-center gap-3 pt-2">
                   <button
                     onClick={handleCalculatePreview}
-                    disabled={previewLoading}
+                    disabled={previewLoading || distributionLoading}
                     className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
                   >
                     {previewLoading ? "Calculating..." : "Preview Distribution Impact"}
                   </button>
+                  {previewWasInvalidated && !distPreview && (
+                    <p className="text-xs text-amber-400">
+                      Distribution settings changed. Please generate a new preview before confirming.
+                    </p>
+                  )}
                 </div>
 
                 {/* Preview Calculation Box */}
@@ -1309,10 +1913,16 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                       )}
                       <button
                         onClick={handleExecuteDistribution}
-                        disabled={!distPreview.hasSufficientBalance || distPreview.matchingStudentsCount === 0}
+                        disabled={
+                          distributionLoading ||
+                          !isCurrentPreviewValid ||
+                          !distPreview.hasSufficientBalance ||
+                          distPreview.matchingStudentsCount === 0
+                        }
                         className="ml-auto inline-flex items-center gap-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition-all disabled:opacity-40 cursor-pointer shadow-lg shadow-emerald-950/40"
                       >
-                        <Send className="w-3.5 h-3.5" /> Confirm & Distribute Credits
+                        <Send className="w-3.5 h-3.5" />
+                        {distributionLoading ? "Distributing..." : "Confirm & Distribute Credits"}
                       </button>
                     </div>
                   </div>
@@ -1321,7 +1931,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
             )}
 
             {/* Credit Transaction Ledger */}
-            <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/40 overflow-hidden glass-panel">
+            <div className="enterprise-table-card rounded-2xl border border-slate-200/80 bg-white overflow-hidden glass-panel">
               <div className="p-4 border-b border-zinc-800/80 flex items-center justify-between">
                 <h3 className="text-xs font-bold text-zinc-200 uppercase tracking-wider">
                   Credit Allocation Ledger History
@@ -1341,7 +1951,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/40 text-zinc-300">
-                    {creditLedger.map((tx) => (
+                    {creditLedger.length > 0 ? creditLedger.map((tx) => (
                       <tr key={tx.id} className="hover:bg-zinc-900/20">
                         <td className="px-6 py-4">
                           <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-zinc-900 border border-zinc-800 text-zinc-300">
@@ -1368,10 +1978,23 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                           {new Date(tx.createdAt).toLocaleDateString()}
                         </td>
                       </tr>
-                    ))}
+                    )) : (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-12 text-center text-zinc-500 text-sm">
+                          No credit transactions found.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
+              <PaginationControls
+                page={creditPage}
+                total={creditTotal}
+                pageSize={CREDIT_PAGE_SIZE}
+                itemLabel="credit transactions"
+                onPageChange={setCreditPage}
+              />
             </div>
           </div>
         )}
@@ -1379,12 +2002,12 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
         {/* ========================================================================= */}
         {/* 5. REPORTS TAB */}
         {/* ========================================================================= */}
-        {activeTab === "reports" && (
-          <div className="space-y-6">
+        {activeTab === "reports" && canViewReports && (
+          <div className="enterprise-tab-content space-y-6">
             {/* Summary Insights */}
             {reportSummary && (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="p-5 rounded-xl bg-zinc-900/40 border border-zinc-800/80 glass-panel">
+                <div className="enterprise-kpi p-5 rounded-2xl bg-white border border-slate-200/80 glass-panel">
                   <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
                     Total Evaluated Reports
                   </span>
@@ -1396,7 +2019,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   </div>
                 </div>
 
-                <div className="p-5 rounded-xl bg-zinc-900/40 border border-zinc-800/80 glass-panel">
+                <div className="enterprise-kpi p-5 rounded-2xl bg-white border border-slate-200/80 glass-panel">
                   <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
                     Cohort Average Score
                   </span>
@@ -1408,7 +2031,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   </div>
                 </div>
 
-                <div className="p-5 rounded-xl bg-zinc-900/40 border border-zinc-800/80 glass-panel">
+                <div className="enterprise-kpi p-5 rounded-2xl bg-white border border-slate-200/80 glass-panel">
                   <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
                     Score Distribution
                   </span>
@@ -1427,7 +2050,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
             )}
 
             {/* Filter Bar */}
-            <div className="p-4 rounded-xl bg-zinc-900/40 border border-zinc-800/80 glass-panel space-y-3">
+            <div className="enterprise-panel p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/80 glass-panel space-y-3">
               <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
@@ -1435,12 +2058,15 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     type="text"
                     placeholder="Search candidate name or roll number..."
                     value={reportSearch}
-                    onChange={(e) => setReportSearch(e.target.value)}
+                    onChange={(e) => {
+                      setReportSearch(e.target.value);
+                      setReportPage(1);
+                    }}
                     className="w-full pl-9 pr-4 py-2 bg-zinc-950/70 border border-zinc-800 rounded-lg text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-rose-500"
                   />
                 </div>
 
-                <div className="flex items-center gap-2">
+                {canExportReports && <div className="flex items-center gap-2">
                   <button
                     onClick={handleExportCsv}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
@@ -1453,7 +2079,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   >
                     <FileText className="w-3.5 h-3.5 text-rose-400" /> Export Excel (.xlsx)
                   </button>
-                </div>
+                </div>}
               </div>
 
               {/* Cohort Filter Row */}
@@ -1461,7 +2087,10 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 <div>
                   <select
                     value={reportProgram}
-                    onChange={(e) => setReportProgram(e.target.value)}
+                    onChange={(e) => {
+                      setReportProgram(e.target.value);
+                      setReportPage(1);
+                    }}
                     className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-md text-xs text-zinc-300 focus:outline-none focus:border-rose-500"
                   >
                     <option value="">All Programs</option>
@@ -1475,7 +2104,10 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 <div>
                   <select
                     value={reportCourse}
-                    onChange={(e) => setReportCourse(e.target.value)}
+                    onChange={(e) => {
+                      setReportCourse(e.target.value);
+                      setReportPage(1);
+                    }}
                     className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-md text-xs text-zinc-300 focus:outline-none focus:border-rose-500"
                   >
                     <option value="">All Courses</option>
@@ -1489,7 +2121,10 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 <div>
                   <select
                     value={reportSection}
-                    onChange={(e) => setReportSection(e.target.value)}
+                    onChange={(e) => {
+                      setReportSection(e.target.value);
+                      setReportPage(1);
+                    }}
                     className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-md text-xs text-zinc-300 focus:outline-none focus:border-rose-500"
                   >
                     <option value="">All Sections</option>
@@ -1503,7 +2138,10 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 <div>
                   <select
                     value={reportBatch}
-                    onChange={(e) => setReportBatch(e.target.value)}
+                    onChange={(e) => {
+                      setReportBatch(e.target.value);
+                      setReportPage(1);
+                    }}
                     className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-md text-xs text-zinc-300 focus:outline-none focus:border-rose-500"
                   >
                     <option value="">All Batches</option>
@@ -1518,7 +2156,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
             </div>
 
             {/* Reports Table */}
-            <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/40 overflow-hidden glass-panel">
+            <div className="enterprise-table-card rounded-2xl border border-slate-200/80 bg-white overflow-hidden glass-panel">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-zinc-950/80 text-[10px] font-mono text-zinc-400 uppercase tracking-wider border-b border-zinc-800/80">
@@ -1534,54 +2172,64 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   </thead>
                   <tbody className="divide-y divide-zinc-800/40 text-zinc-300">
                     {reports.length > 0 ? (
-                      reports.map((report) => (
-                        <tr key={report.id} className="hover:bg-zinc-900/20">
-                          <td className="px-6 py-4 font-semibold text-white">
-                            {report.session?.user?.name || "Student"}
-                          </td>
-                          <td className="px-6 py-4 font-mono text-zinc-400">
-                            {report.session?.user?.studentProfile?.enrollmentNumber || "—"} &bull;{" "}
-                            {report.session?.user?.studentProfile?.program}
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className="font-medium text-zinc-200 block">
-                              {report.session?.targetRole || "Software Engineer"}
-                            </span>
-                            <span className="text-[10px] font-mono text-zinc-500 capitalize">
-                              {report.session?.difficulty} level
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span
-                              className={`text-sm font-bold font-mono px-2 py-0.5 rounded ${
-                                report.overallScore >= 75
-                                  ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/25"
-                                  : report.overallScore >= 50
-                                  ? "bg-amber-500/10 text-amber-400 border border-amber-500/25"
-                                  : "bg-rose-500/10 text-rose-400 border border-rose-500/25"
-                              }`}
-                            >
-                              {report.overallScore}%
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 font-mono text-[11px] text-zinc-400">
-                            {report.speakingPace ?? "—"} WPM &bull; {report.fillerWords ?? 0} Fillers
-                          </td>
-                          <td className="px-6 py-4 font-mono text-zinc-500">
-                            {new Date(report.createdAt).toLocaleDateString()}
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <a
-                              href={`/interview-report/${report.id}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-[11px] inline-flex items-center gap-1 cursor-pointer"
-                            >
-                              <Eye className="w-3.5 h-3.5" /> Full Report
-                            </a>
-                          </td>
-                        </tr>
-                      ))
+                      reports.map((report) => {
+                        const scoreVal = Math.round(Number(report.overallScore));
+
+                        return (
+                          <tr key={report.reportId || report.id} className="hover:bg-zinc-900/20">
+                            <td className="px-6 py-4 font-semibold text-white">
+                              {report.student?.name || report.name || "Student"}
+                            </td>
+                            <td className="px-6 py-4 font-mono text-zinc-400">
+                              {report.student?.enrollmentNumber || report.enrollmentNumber || "—"} &bull;{" "}
+                              {report.student?.program || report.program || report.student?.course || "—"}
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="font-medium text-zinc-200 block">
+                                {report.targetRole}
+                              </span>
+                              <span className="text-[10px] font-mono text-zinc-500 capitalize">
+                                {report.difficulty || "Standard"} level
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span
+                                className={`text-sm font-bold font-mono px-2 py-0.5 rounded ${
+                                  scoreVal >= 80
+                                    ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/25"
+                                    : scoreVal >= 60
+                                    ? "bg-amber-500/10 text-amber-400 border border-amber-500/25"
+                                    : "bg-rose-500/10 text-rose-400 border border-rose-500/25"
+                                }`}
+                              >
+                                {scoreVal}%
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 font-mono text-[11px] text-zinc-400">
+                              {report.speakingPace !== null && report.speakingPace !== undefined
+                                ? `${report.speakingPace} WPM`
+                                : "—"}{" "}
+                              &bull;{" "}
+                              {report.fillerWords !== null && report.fillerWords !== undefined
+                                ? `${report.fillerWords} Fillers`
+                                : "—"}
+                            </td>
+                            <td className="px-6 py-4 font-mono text-zinc-500">
+                              {new Date(report.createdAt).toLocaleDateString()}
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <a
+                                href={interviewReportPath(report.sessionId)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-[11px] inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <Eye className="w-3.5 h-3.5" /> Full Report
+                              </a>
+                            </td>
+                          </tr>
+                        );
+                      })
                     ) : (
                       <tr>
                         <td colSpan={7} className="px-6 py-12 text-center text-zinc-500 text-sm">
@@ -1592,6 +2240,14 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   </tbody>
                 </table>
               </div>
+
+              <PaginationControls
+                page={reportPage}
+                total={reportTotal}
+                pageSize={REPORT_PAGE_SIZE}
+                itemLabel="interview evaluations"
+                onPageChange={setReportPage}
+              />
             </div>
           </div>
         )}
@@ -1599,10 +2255,10 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
         {/* ========================================================================= */}
         {/* AUDIT LOGS TAB */}
         {/* ========================================================================= */}
-        {activeTab === "audit" && (
-          <div className="space-y-6">
+        {activeTab === "audit" && canViewAuditLogs && (
+          <div className="enterprise-tab-content space-y-6">
             {/* Header info */}
-            <div className="p-6 rounded-2xl bg-zinc-900/40 border border-zinc-800/80 backdrop-blur-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="enterprise-panel p-5 sm:p-6 rounded-3xl bg-white border border-slate-200/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
@@ -1653,15 +2309,11 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   className="w-full px-3 py-2 bg-zinc-900/90 border border-zinc-800 rounded-lg text-xs text-zinc-300 focus:outline-none focus:border-rose-500/50"
                 >
                   <option value="">All Action Types</option>
-                  <option value="STUDENT_CREATED">Student Created</option>
-                  <option value="STUDENTS_IMPORTED">Students Imported (Bulk)</option>
-                  <option value="CREDITS_ALLOCATED">Credits Allocated (Super Admin)</option>
-                  <option value="CREDITS_DISTRIBUTED">Credits Distributed (Cohort)</option>
-                  <option value="FACULTY_INVITED">Faculty Invited</option>
-                  <option value="FACULTY_UPDATED">Faculty Updated</option>
-                  <option value="FACULTY_DEACTIVATED">Faculty Deactivated</option>
-                  <option value="REPORTS_EXPORTED">Reports Exported</option>
-                  <option value="REPORT_VIEWED">Report Viewed</option>
+                  {AUDIT_ACTION_FILTER_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -1693,19 +2345,19 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                         const actionColor =
                           log.action?.includes("CREATED") || log.action?.includes("IMPORTED")
                             ? "bg-emerald-950/50 border-emerald-800/60 text-emerald-400"
-                            : log.action?.includes("DISTRIBUTED") || log.action?.includes("ALLOCATED")
+                            : log.action?.includes("DISTRIBUTED") ||
+                              log.action?.includes("ALLOCATED") ||
+                              log.action?.includes("ASSIGNED")
                             ? "bg-purple-950/50 border-purple-800/60 text-purple-300"
                             : log.action?.includes("EXPORTED")
                             ? "bg-sky-950/50 border-sky-800/60 text-sky-300"
-                            : log.action?.includes("DEACTIVATED")
+                            : log.action?.includes("DEACTIVATED") || log.action?.includes("FAILED")
                             ? "bg-rose-950/50 border-rose-800/60 text-rose-400"
                             : "bg-amber-950/50 border-amber-800/60 text-amber-300";
 
-                        const detailsFormatted = log.details
-                          ? typeof log.details === "object"
-                            ? JSON.stringify(log.details)
-                            : String(log.details)
-                          : "-";
+                        const detailsFormatted = formatAuditDetails(log);
+                        const targetUser = getTargetUser(log);
+                        const entityName = formatEntityName(log.entity);
 
                         return (
                           <tr key={log.id} className="hover:bg-zinc-900/40 transition-colors">
@@ -1738,21 +2390,49 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                               )}
                             </td>
                             <td className="px-4 py-3">
-                              {log.targetUser ? (
+                              {targetUser ? (
                                 <div>
-                                  <div className="text-zinc-200 font-medium">{log.targetUser.name || log.targetUser.email}</div>
-                                  <div className="text-[10px] text-zinc-500 font-mono">{log.targetUser.email}</div>
+                                  <div className="text-zinc-200 font-medium">
+                                    {targetUser.name || targetUser.email}
+                                  </div>
+                                  {targetUser.email && targetUser.name && (
+                                    <div className="text-[10px] text-zinc-500 font-mono">{targetUser.email}</div>
+                                  )}
+                                  <div className="text-[10px] text-zinc-400 font-mono flex items-center gap-1.5 mt-0.5">
+                                    <span className="px-1.5 py-0.2 bg-zinc-800 rounded text-[9px] text-zinc-300">
+                                      {entityName}
+                                    </span>
+                                    {log.entityId && (
+                                      <span className="truncate max-w-[120px]" title={log.entityId}>
+                                        #{log.entityId.slice(-6)}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               ) : log.entityId ? (
-                                <span className="font-mono text-zinc-400 text-[10px]">{log.entityType ? `${log.entityType}: ` : ""}{log.entityId}</span>
+                                <div>
+                                  <div className="text-zinc-200 font-medium">{entityName}</div>
+                                  <div className="font-mono text-zinc-500 text-[10px] truncate max-w-[140px]" title={log.entityId}>
+                                    ID: {log.entityId}
+                                  </div>
+                                </div>
                               ) : (
-                                <span className="text-zinc-600">-</span>
+                                <div>
+                                  <div className="text-zinc-200 font-medium">{entityName}</div>
+                                </div>
                               )}
                             </td>
-                            <td className="px-4 py-3 max-w-xs truncate" title={detailsFormatted}>
-                              <code className="text-[10px] text-zinc-400 bg-zinc-900/80 px-1.5 py-0.5 rounded border border-zinc-800">
-                                {detailsFormatted.length > 60 ? detailsFormatted.slice(0, 60) + "..." : detailsFormatted}
-                              </code>
+                            <td className="px-4 py-3 max-w-xs">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedAuditLog(log)}
+                                className="group flex items-center gap-1.5 text-left max-w-full truncate"
+                                title="Click to inspect full audit details"
+                              >
+                                <code className="text-[10px] text-zinc-300 bg-zinc-900/90 group-hover:bg-zinc-800 px-2 py-1 rounded border border-zinc-800 transition-colors truncate block">
+                                  {detailsFormatted}
+                                </code>
+                              </button>
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap font-mono text-zinc-500 text-[10px]">
                               {log.ipAddress || "Internal"}
@@ -1774,7 +2454,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
               {/* Pagination */}
               <div className="p-3 border-t border-zinc-800 bg-zinc-900/30 flex items-center justify-between text-xs text-zinc-400">
                 <span>
-                  Showing {auditLogs.length} of {auditTotal} audit events
+                  {calculatePaginationRange(auditPage, 15, auditTotal).text}
                 </span>
                 <div className="flex items-center gap-2">
                   <button
@@ -1785,10 +2465,10 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     Previous
                   </button>
                   <span className="font-mono text-zinc-300">
-                    Page {auditPage} of {Math.max(1, Math.ceil(auditTotal / 15))}
+                    Page {auditTotal === 0 ? 1 : auditPage} of {Math.max(1, auditTotalPages)}
                   </span>
                   <button
-                    disabled={auditPage * 15 >= auditTotal || auditLoading}
+                    disabled={auditPage >= auditTotalPages || auditTotal === 0 || auditLoading}
                     onClick={() => setAuditPage((p) => p + 1)}
                     className="px-3 py-1 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 disabled:opacity-50 text-white rounded text-xs transition-colors"
                   >
@@ -1804,6 +2484,161 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
       {/* ========================================================================= */}
       {/* MODALS */}
       {/* ========================================================================= */}
+
+      {/* Audit Log Inspection Modal */}
+      {selectedAuditLog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="audit-inspection-title"
+            className="w-full max-w-2xl bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+          >
+            <div className="flex items-center justify-between p-5 border-b border-zinc-800 bg-zinc-900/50">
+              <div>
+                <h3 id="audit-inspection-title" className="text-base font-bold text-white flex items-center gap-2">
+                  <span>Audit Log Inspection</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full border border-zinc-700 bg-zinc-900 font-mono text-zinc-300">
+                    {selectedAuditLog.action}
+                  </span>
+                </h3>
+                <p className="text-xs text-zinc-400 mt-1 font-mono">
+                  {new Date(selectedAuditLog.createdAt).toLocaleString()} • {selectedAuditLog.id}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedAuditLog(null)}
+                className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800/80 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-4 bg-zinc-900/40 p-3 rounded-xl border border-zinc-800/80">
+                <div>
+                  <span className="text-zinc-500 uppercase text-[10px] font-semibold block">Actor</span>
+                  <span className="text-zinc-200 font-medium">{selectedAuditLog.actor?.name || selectedAuditLog.actor?.email || "System"}</span>
+                  {selectedAuditLog.actor?.email && (
+                    <span className="text-zinc-500 block font-mono text-[10px]">{selectedAuditLog.actor.email}</span>
+                  )}
+                  {selectedAuditLog.actor?.role && (
+                    <span className="text-zinc-400 block font-mono text-[9px] uppercase mt-0.5">
+                      {selectedAuditLog.actor.role.replace("college_", "").replace("_", " ")}
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <span className="text-zinc-500 uppercase text-[10px] font-semibold block">Target Entity</span>
+                  <span className="text-zinc-200 font-medium">{formatEntityName(selectedAuditLog.entity)}</span>
+                  {selectedAuditLog.entityId && (
+                    <span className="text-zinc-500 block font-mono text-[10px]">ID: {selectedAuditLog.entityId}</span>
+                  )}
+                  <span className="text-zinc-500 block font-mono text-[10px] mt-0.5">IP: {selectedAuditLog.ipAddress || "Internal"}</span>
+                </div>
+              </div>
+
+              {selectedAuditLog.oldValue !== null && selectedAuditLog.oldValue !== undefined && (
+                <div>
+                  <span className="text-zinc-400 font-semibold block mb-1">Previous State (Old Value)</span>
+                  <pre className="p-3 bg-zinc-900/80 rounded-lg border border-zinc-800 font-mono text-[11px] text-rose-300/90 overflow-x-auto">
+                    {JSON.stringify(selectedAuditLog.oldValue, null, 2)}
+                  </pre>
+                </div>
+              )}
+
+              {selectedAuditLog.newValue !== null && selectedAuditLog.newValue !== undefined && (
+                <div>
+                  <span className="text-zinc-400 font-semibold block mb-1">New State (New Value)</span>
+                  <pre className="p-3 bg-zinc-900/80 rounded-lg border border-zinc-800 font-mono text-[11px] text-emerald-300/90 overflow-x-auto">
+                    {JSON.stringify(selectedAuditLog.newValue, null, 2)}
+                  </pre>
+                </div>
+              )}
+
+              {selectedAuditLog.metadata !== null && selectedAuditLog.metadata !== undefined && (
+                <div>
+                  <span className="text-zinc-400 font-semibold block mb-1">Metadata</span>
+                  <pre className="p-3 bg-zinc-900/80 rounded-lg border border-zinc-800 font-mono text-[11px] text-zinc-300 overflow-x-auto">
+                    {JSON.stringify(selectedAuditLog.metadata, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-zinc-800 bg-zinc-900/30 flex justify-end">
+              <button
+                onClick={() => setSelectedAuditLog(null)}
+                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-xs font-medium transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Password setup email confirmation */}
+      {resendConfirmationStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="resend-credentials-title"
+            className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-5"
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-zinc-800 pb-3">
+              <div>
+                <h3 id="resend-credentials-title" className="text-sm font-bold text-white">Send password setup email?</h3>
+                <p className="mt-1 text-[11px] leading-5 text-zinc-400">
+                  A secure, single-use setup link will be sent. The student's current password will remain valid until they choose a new one.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={resendingStudentId === resendConfirmationStudent.id}
+                onClick={() => setResendConfirmationStudent(null)}
+                className="text-zinc-500 hover:text-white disabled:opacity-50"
+                aria-label="Cancel password setup email"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-xs">
+              <span className="block font-semibold text-white">
+                {resendConfirmationStudent.user?.name || resendConfirmationStudent.name}
+              </span>
+              <span className="mt-1 block font-mono text-zinc-400">
+                {resendConfirmationStudent.user?.email || resendConfirmationStudent.email}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={resendingStudentId === resendConfirmationStudent.id}
+                onClick={() => setResendConfirmationStudent(null)}
+                className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-lg text-xs disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={resendingStudentId === resendConfirmationStudent.id}
+                onClick={() => void handleResendInvite(resendConfirmationStudent)}
+                className="inline-flex items-center gap-1.5 px-5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {resendingStudentId === resendConfirmationStudent.id ? (
+                  <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Sending…</>
+                ) : (
+                  <><Send className="w-3.5 h-3.5" /> Send setup email</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Student Modal */}
       {isAddStudentOpen && (
@@ -2097,10 +2932,10 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
       {/* Add Faculty Modal */}
       {isAddFacultyOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-4">
+          <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
               <h3 className="text-sm font-bold text-white">Add Faculty Member</h3>
-              <button onClick={() => setIsAddFacultyOpen(false)} className="text-zinc-500 hover:text-white">
+              <button disabled={facultyCreationLoading} onClick={() => setIsAddFacultyOpen(false)} className="text-zinc-500 hover:text-white disabled:opacity-50">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -2137,6 +2972,15 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   />
                 </div>
                 <div>
+                  <label className="block text-zinc-300 mb-1">Phone</label>
+                  <input
+                    type="tel"
+                    value={facultyForm.phone}
+                    onChange={(e) => setFacultyForm({ ...facultyForm, phone: e.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-white"
+                  />
+                </div>
+                <div>
                   <label className="block text-zinc-300 mb-1">Department</label>
                   <input
                     type="text"
@@ -2154,21 +2998,135 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-white"
                   />
                 </div>
+                {canManageFacultyAuthorization && (
+                  <FacultyAuthorizationFields
+                    values={facultyForm}
+                    filterOptions={filterOptions}
+                    onChange={(authorization) => setFacultyForm({ ...facultyForm, ...authorization })}
+                  />
+                )}
               </div>
 
               <div className="pt-3 border-t border-zinc-800 flex items-center justify-end gap-2">
                 <button
                   type="button"
+                  disabled={facultyCreationLoading}
                   onClick={() => setIsAddFacultyOpen(false)}
-                  className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-lg text-xs"
+                  className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-lg text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold"
+                  disabled={facultyCreationLoading}
+                  className="inline-flex items-center gap-1.5 px-5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Send Invitation
+                  {facultyCreationLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  {facultyCreationLoading ? "Creating Faculty..." : "Send Invitation"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Faculty Modal */}
+      {editingFaculty && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-white">Edit Faculty Member</h3>
+                <p className="mt-1 text-[11px] text-zinc-500">Update profile details, permissions, and assigned cohort scope.</p>
+              </div>
+              <button
+                type="button"
+                disabled={facultyUpdateLoading}
+                onClick={() => setEditingFaculty(null)}
+                className="text-zinc-500 hover:text-white disabled:opacity-50"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateFaculty} className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-zinc-300 mb-1">Faculty Name *</label>
+                  <input
+                    required
+                    value={facultyEditForm.name}
+                    onChange={(event) => setFacultyEditForm({ ...facultyEditForm, name: event.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-zinc-300 mb-1">Email Address</label>
+                  <input
+                    disabled
+                    value={facultyEditForm.email}
+                    className="w-full px-3 py-2 bg-zinc-900/60 border border-zinc-800 rounded-lg text-zinc-500 cursor-not-allowed"
+                  />
+                </div>
+                <div>
+                  <label className="block text-zinc-300 mb-1">Phone</label>
+                  <input
+                    type="tel"
+                    value={facultyEditForm.phone}
+                    onChange={(event) => setFacultyEditForm({ ...facultyEditForm, phone: event.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-zinc-300 mb-1">Employee ID</label>
+                  <input
+                    value={facultyEditForm.employeeId}
+                    onChange={(event) => setFacultyEditForm({ ...facultyEditForm, employeeId: event.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-zinc-300 mb-1">Department</label>
+                  <input
+                    value={facultyEditForm.department}
+                    onChange={(event) => setFacultyEditForm({ ...facultyEditForm, department: event.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-zinc-300 mb-1">Designation</label>
+                  <input
+                    value={facultyEditForm.designation}
+                    onChange={(event) => setFacultyEditForm({ ...facultyEditForm, designation: event.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-white"
+                  />
+                </div>
+
+                {canManageFacultyAuthorization && (
+                  <FacultyAuthorizationFields
+                    values={facultyEditForm}
+                    filterOptions={filterOptions}
+                    onChange={(authorization) => setFacultyEditForm({ ...facultyEditForm, ...authorization })}
+                  />
+                )}
+              </div>
+
+              <div className="pt-3 border-t border-zinc-800 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={facultyUpdateLoading}
+                  onClick={() => setEditingFaculty(null)}
+                  className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-lg disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={facultyUpdateLoading}
+                  className="inline-flex items-center gap-1.5 px-5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg font-semibold disabled:opacity-50"
+                >
+                  {facultyUpdateLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  {facultyUpdateLoading ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </form>

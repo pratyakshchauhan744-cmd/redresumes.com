@@ -5,6 +5,8 @@ import { backendApi, type AuthUser } from '../lib/backendApi';
 import { LOCAL_ACCOUNTS_STORAGE_KEY, setStoredAuthTokens, USER_STORAGE_KEY, migrateGuestResumeToUser, parseGoogleJwt, sanitizeRedirectUrl } from '../lib/auth';
 import type { LocalAccount } from '../types';
 import { Seo } from '../components/Seo';
+import { SetupPasswordPage } from './SetupPasswordPage';
+import { getInvitationToken } from '../utils/invitationActivation';
 
 
 declare global {
@@ -38,6 +40,7 @@ declare global {
 export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => void }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const invitationToken = getInvitationToken(location.search);
   const redirectTarget = sanitizeRedirectUrl(new URLSearchParams(location.search).get('redirect'), '/dashboard');
   const initialIsEnterprise = new URLSearchParams(location.search).get('portal') === 'enterprise';
   const [isEnterprisePortal, setIsEnterprisePortal] = useState(initialIsEnterprise);
@@ -116,7 +119,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       role: 'college_main_faculty',
       credits: 480,
       isMainFaculty: true,
-      permissions: ['all', 'manageFaculty', 'manageStudents', 'distributeCredits', 'viewAnalytics', 'exportReports'],
+      permissions: ['all'],
       college: {
         id: 'clg_apex_demo',
         name: 'Apex Institute of Technology',
@@ -131,7 +134,7 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       role: 'college_faculty',
       credits: 480,
       isMainFaculty: false,
-      permissions: ['manageStudents', 'distributeCredits', 'viewAnalytics', 'exportReports'],
+      permissions: ['STUDENT_VIEW', 'STUDENT_CREATE', 'STUDENT_EDIT', 'REPORT_VIEW', 'REPORT_EXPORT', 'INTERVIEW_CREDIT_VIEW', 'INTERVIEW_CREDIT_ASSIGN'],
       college: {
         id: 'clg_apex_demo',
         name: 'Apex Institute of Technology',
@@ -566,6 +569,8 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
         const accounts = readLocalAccounts();
         const existing = accounts.find((account) => account.email.toLowerCase() === normalizedEmail);
         const demoUser: LocalAccount = {
+          ...matchingDemo,
+          ...existing,
           id: existing?.id || matchingDemo?.id || `local-demo-${Date.now()}`,
           name: existing?.name || matchingDemo?.name || normalizedEmail.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
           email: normalizedEmail,
@@ -859,6 +864,14 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       setIsSubmitting(false);
     }
   };
+
+  // Faculty invitation links use the same route as normal login, but render a
+  // verified activation flow whenever a bearer token is present. The optional
+  // email query parameter is deliberately ignored; the backend token response
+  // is the sole authority for account identity.
+  if (invitationToken) {
+    return <SetupPasswordPage invitationToken={invitationToken} onLoginSuccess={onLoginSuccess} />;
+  }
 
   return (
     <>

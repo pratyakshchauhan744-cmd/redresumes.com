@@ -8,6 +8,7 @@ import { invalidateCollegeCache } from "../../middleware/tenant.js";
 import { EmailService } from "../../services/email.service.js";
 import { logEnterpriseAudit } from "../../services/audit.service.js";
 import { env } from "../../config/env.js";
+import { normalizeEmailIdentity } from "../../utils/identity.js";
 
 const router = Router();
 
@@ -28,7 +29,7 @@ const createCollegeSchema = z.object({
   initialCredits: z.number().int().min(0).default(500),
   mainFaculty: z.object({
     name: z.string().min(2, "Main faculty name is required"),
-    email: z.string().email("Main faculty email is required"),
+    email: z.string().trim().email("Main faculty email is required"),
     phone: z.string().optional(),
     department: z.string().optional(),
     designation: z.string().optional().default("Head of Placement / Dean"),
@@ -38,7 +39,14 @@ const createCollegeSchema = z.object({
 // POST /api/admin/colleges - Create new college, credit account, and invite Main Faculty
 router.post("/", async (req, res, next) => {
   try {
-    const data = createCollegeSchema.parse(req.body);
+    const parsedData = createCollegeSchema.parse(req.body);
+    const data = {
+      ...parsedData,
+      mainFaculty: {
+        ...parsedData.mainFaculty,
+        email: normalizeEmailIdentity(parsedData.mainFaculty.email),
+      },
+    };
 
     const existingCollege = await prisma.college.findFirst({
       where: {
@@ -53,20 +61,22 @@ router.post("/", async (req, res, next) => {
       });
     }
 
-    const existingUser = await prisma.user.findUnique({
-      where: { email: data.mainFaculty.email },
+    const existingUser = await prisma.user.findFirst({
+      where: { email: { equals: data.mainFaculty.email, mode: "insensitive" } },
+      select: { id: true },
     });
 
-    if (existingUser && existingUser.collegeId) {
-      return res.status(400).json({
+    if (existingUser) {
+      return res.status(409).json({
         success: false,
-        message: "A user with the main faculty email is already affiliated with a college.",
+        message: "An account with this email already exists.",
       });
     }
 
-    // Generate secure temporary password & invitation token
-    const rawTempPassword = `Rr#${crypto.randomBytes(4).toString("hex")}!9`;
-    const passwordHash = await bcrypt.hash(rawTempPassword, 10);
+    // Store an undisclosed bootstrap hash. The Main Faculty chooses their real
+    // password only after accepting the single-use invitation.
+    const bootstrapSecret = crypto.randomBytes(32).toString("hex");
+    const passwordHash = await bcrypt.hash(bootstrapSecret, 10);
     const rawToken = crypto.randomBytes(32).toString("hex");
     const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
@@ -100,31 +110,18 @@ router.post("/", async (req, res, next) => {
           },
         });
 
-        // 3. Create or update Main Faculty User
-        let facultyUser = existingUser;
-        if (!facultyUser) {
-          facultyUser = await tx.user.create({
-            data: {
-              name: data.mainFaculty.name,
-              email: data.mainFaculty.email,
-              passwordHash,
-              role: "college_main_faculty",
-              collegeId: college.id,
-              phone: data.mainFaculty.phone,
-              isActive: true,
-            },
-          });
-        } else {
-          facultyUser = await tx.user.update({
-            where: { id: facultyUser.id },
-            data: {
-              role: "college_main_faculty",
-              collegeId: college.id,
-              passwordHash,
-              isActive: true,
-            },
-          });
-        }
+        // 3. Create a new Main Faculty identity. Existing identities are never converted.
+        const facultyUser = await tx.user.create({
+          data: {
+            name: data.mainFaculty.name,
+            email: data.mainFaculty.email,
+            passwordHash,
+            role: "college_main_faculty",
+            collegeId: college.id,
+            phone: data.mainFaculty.phone,
+            isActive: false,
+          },
+        });
 
       // 4. Create Main Faculty Profile
       const facultyProfile = await tx.collegeFaculty.create({
@@ -144,10 +141,11 @@ router.post("/", async (req, res, next) => {
             "FACULTY_EDIT",
             "REPORT_VIEW",
             "REPORT_EXPORT",
+            "AUDIT_VIEW",
             "INTERVIEW_CREDIT_VIEW",
             "INTERVIEW_CREDIT_ASSIGN",
           ],
-          status: "active",
+          status: "invited",
         },
       });
 
@@ -201,7 +199,6 @@ router.post("/", async (req, res, next) => {
       collegeName: data.name,
       isMainFaculty: true,
       activationLink,
-      tempPassword: rawTempPassword,
     });
 
     // Log Enterprise Audit
@@ -224,8 +221,6 @@ router.post("/", async (req, res, next) => {
       message: `College "${result.college.name}" created successfully. Invitation sent to Main Faculty.`,
       college: result.college,
       creditBalance: result.creditAccount.balance,
-      invitationToken: env.NODE_ENV !== "production" ? rawToken : undefined,
-      tempPassword: env.NODE_ENV !== "production" ? rawTempPassword : undefined,
     });
   } catch (error) {
     next(error);

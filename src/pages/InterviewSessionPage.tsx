@@ -5,6 +5,7 @@ import { useWebSpeech, VoiceState } from '../hooks/useWebSpeech';
 import { backendApi } from '../lib/backendApi';
 import { getStoredAccessToken } from '../lib/auth';
 import { Seo } from '../components/Seo';
+import { interviewReportPath } from '../lib/routes';
 
 type Message = {
   id: string;
@@ -294,7 +295,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
         const data = await backendApi.getInterviewSession(sessionId!, token);
 
         if (data.status === 'completed') {
-          navigate(`/interview/report/${sessionId}`);
+          navigate(interviewReportPath(sessionId!));
           return;
         }
 
@@ -552,7 +553,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
         isCompletedRef.current = true;
         handleAiSpeak("Thank you, the interview is now complete. Generating your comprehensive analysis report.");
         setTimeout(() => {
-          navigate(`/interview/report/${data.reportId || sessionId}`);
+          navigate(interviewReportPath(sessionId!));
         }, 4000);
       } else {
         setMessages(prev => [...prev, { id: `q-${data.nextQuestion!.id}`, role: 'ai', text: data.nextQuestion!.questionText }]);
@@ -607,7 +608,7 @@ export const InterviewSessionPage = ({ currentUser }: { currentUser: any }) => {
           fillerCount: totalFiller,
           confidence: avgConfidence
         }, token);
-        navigate(`/interview/report/${sessionId}`);
+        navigate(interviewReportPath(sessionId!));
       } catch (err: any) {
         setError(err.message || 'Error generating report');
       } finally {

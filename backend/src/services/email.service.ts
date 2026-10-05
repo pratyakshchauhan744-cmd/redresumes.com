@@ -115,7 +115,8 @@ export class EmailService {
   }
 
   /**
-   * Sends faculty invitation email with activation link & temporary credentials
+   * Sends a faculty invitation link. Faculty choose their password during
+   * invitation acceptance; plaintext credentials are never emailed.
    */
   static async sendFacultyInvitation({
     to,
@@ -123,14 +124,12 @@ export class EmailService {
     collegeName,
     isMainFaculty,
     activationLink,
-    tempPassword,
   }: {
     to: string;
     recipientName: string;
     collegeName: string;
     isMainFaculty: boolean;
     activationLink: string;
-    tempPassword?: string;
   }) {
     const roleTitle = isMainFaculty ? "Main Faculty Administrator" : "Faculty Member / Evaluator";
     const subject = `Welcome to RedResumes Enterprise — ${collegeName}`;
@@ -147,18 +146,6 @@ export class EmailService {
           <p style="color: #cbd5e1; font-size: 14px; line-height: 1.6;">
             You have been invited as <strong>${roleTitle}</strong> for <strong>${collegeName}</strong> on RedResumes.
           </p>
-
-          ${
-            tempPassword
-              ? `
-          <div style="background-color: #090d16; border: 1px dashed #334155; padding: 16px; border-radius: 8px; margin: 20px 0;">
-            <p style="margin: 0; font-size: 12px; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Your Login Credentials</p>
-            <p style="margin: 6px 0 0 0; font-size: 14px; color: #f8fafc;"><strong>Login ID:</strong> ${to}</p>
-            <p style="margin: 4px 0 0 0; font-size: 14px; color: #f43f5e; font-family: monospace;"><strong>Temporary Password:</strong> ${tempPassword}</p>
-          </div>
-          `
-              : ""
-          }
 
           <div style="text-align: center; margin: 28px 0 16px;">
             <a href="${activationLink}" style="display: inline-block; background-color: #e11d48; color: #ffffff; text-decoration: none; padding: 12px 28px; font-weight: 600; font-size: 14px; border-radius: 8px; box-shadow: 0 4px 14px rgba(225, 29, 72, 0.4);">
@@ -240,6 +227,49 @@ export class EmailService {
       console.error("sendStudentWelcomeEmail error:", err);
       return { success: false, error: err?.message || "Failed to send welcome email" };
     }
+  }
+
+  /**
+   * Sends a single-use password setup link without exposing or changing the
+   * student's current credential. The password changes only when the link is
+   * accepted through the invitation endpoint.
+   */
+  static async sendStudentPasswordSetupEmail({
+    to,
+    recipientName,
+    collegeName,
+    enrollmentNumber,
+    setupLink,
+  }: {
+    to: string;
+    recipientName: string;
+    collegeName: string;
+    enrollmentNumber: string;
+    setupLink: string;
+  }): Promise<{ success: boolean; error?: string; simulated?: boolean; messageId?: string }> {
+    const subject = `Set up your RedResumes password — ${collegeName}`;
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; background-color: #090d16; color: #f1f5f9; padding: 40px 24px; border-radius: 16px; border: 1px solid #1e293b;">
+        <h1 style="color: #f43f5e; margin: 0 0 24px; font-size: 26px;">RedResumes Campus</h1>
+        <div style="background-color: #0f172a; padding: 28px; border-radius: 12px; border: 1px solid #1e293b;">
+          <h2 style="color: #fff; font-size: 18px; margin-top: 0;">Set up your password</h2>
+          <p style="color: #cbd5e1; font-size: 14px; line-height: 1.6;">
+            Hello ${recipientName}, ${collegeName} requested a new password setup link for your student account
+            (${enrollmentNumber}). Your current password remains valid until you complete this setup.
+          </p>
+          <div style="text-align: center; margin: 28px 0 16px;">
+            <a href="${setupLink}" style="display: inline-block; background-color: #e11d48; color: #ffffff; text-decoration: none; padding: 12px 28px; font-weight: 600; font-size: 14px; border-radius: 8px;">
+              Choose a New Password
+            </a>
+          </div>
+          <p style="color: #94a3b8; font-size: 12px; line-height: 1.5;">
+            This single-use link expires in 24 hours. If you did not request it, ignore this email and continue using your existing password.
+          </p>
+        </div>
+      </div>
+    `;
+
+    return this.sendEmail({ to, subject, html });
   }
 
   /**

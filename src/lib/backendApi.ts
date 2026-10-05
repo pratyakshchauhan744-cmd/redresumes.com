@@ -1,5 +1,8 @@
 import { setStoredAuthTokens, clearStoredAuthTokens, getStoredAccessToken, isLocalAccessToken, sanitizeRedirectUrl } from "./auth";
 export { sanitizeRedirectUrl } from "./auth";
+import type { EnterpriseReportRow, EnterpriseReportsResponse } from "../types/enterpriseReports";
+import type { EnterpriseAuditLog, EnterpriseAuditLogsResponse } from "../types/enterpriseAudit";
+export type { EnterpriseAuditLog, EnterpriseAuditLogsResponse };
 
 const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
 const isBrowser = typeof window !== "undefined";
@@ -114,6 +117,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
 
   if (token) {
+    if (isLocalAccessToken(token) && !path.startsWith("/api/auth/")) {
+      throw new Error("This action needs a live backend session. Please sign in with a server-backed account.");
+    }
     headers.Authorization = `Bearer ${token}`;
   }
   let response: Response;
@@ -634,8 +640,8 @@ export const backendApi = {
   getInterviewSession: (sessionId: string, token: string) =>
     request<any>(`/api/interview/session/${sessionId}`, { token }),
 
-  getInterviewReport: (reportId: string, token: string) =>
-    request<any>(`/api/interview/report/${reportId}`, { token }),
+  getInterviewReport: (sessionId: string, token: string) =>
+    request<any>(`/api/interview/report/${sessionId}`, { token }),
 
   getInterviewHistory: (token: string) =>
     request<any[]>("/api/interview/history", { token }),
@@ -678,6 +684,7 @@ export const backendApi = {
         sections: string[];
         batches: string[];
         departments: string[];
+        cohorts: Array<{ program: string; course: string; section: string; batch: string }>;
       }>("/api/enterprise/filter-options", { token }),
 
     getStats: (token?: string) =>
@@ -711,11 +718,33 @@ export const backendApi = {
       programAccess?: string[];
       courseAccess?: string[];
       sectionAccess?: string[];
+      batchAccess?: string[];
+      scopeUnrestricted?: boolean;
+      cohortAccess?: Array<{ program: string; course: string; section: string; batch: string }>;
     }, token?: string) =>
-      request<any>("/api/enterprise/faculty", {
+      request<{
+        success: true;
+        facultyCreated: true;
+        invitationSent: boolean;
+        invitationStatus: "sent" | "delivery_failed";
+        message: string;
+        warning?: string;
+        faculty: any;
+      }>("/api/enterprise/faculty", {
         method: "POST",
         token,
         body
+      }),
+
+    resendFacultyInvite: (id: string, token?: string) =>
+      request<{
+        success: true;
+        invitationSent: true;
+        invitationStatus: "sent";
+        message: string;
+      }>(`/api/enterprise/faculty/${id}/resend-invite`, {
+        method: "POST",
+        token,
       }),
 
     updateFaculty: (id: string, body: any, token?: string) =>
@@ -828,8 +857,6 @@ export const backendApi = {
         success: boolean;
         message: string;
         invitationStatus: string;
-        emailError?: string;
-        tempPassword?: string;
       }>(`/api/enterprise/students/${studentId}/resend-invite`, {
         method: "POST",
         token,
@@ -906,7 +933,12 @@ export const backendApi = {
       page?: number;
       limit?: number;
       type?: string;
+      search?: string;
       studentId?: string;
+      program?: string;
+      course?: string;
+      section?: string;
+      batch?: string;
       startDate?: string;
       endDate?: string;
     } = {}, token?: string) => {
@@ -919,6 +951,7 @@ export const backendApi = {
         total: number;
         page: number;
         limit: number;
+        totalPages: number;
         collegeBalance: number;
       }>(`/api/enterprise/credits/ledger?${q.toString()}`, { token });
     },
@@ -940,13 +973,7 @@ export const backendApi = {
       Object.entries(params).forEach(([k, v]) => {
         if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
       });
-      return request<{
-        reports: any[];
-        total: number;
-        page: number;
-        limit: number;
-        totalPages: number;
-      }>(`/api/enterprise/reports?${q.toString()}`, { token });
+      return request<EnterpriseReportsResponse>(`/api/enterprise/reports?${q.toString()}`, { token });
     },
 
     getReportSummary: (params: {
@@ -1024,13 +1051,7 @@ export const backendApi = {
       Object.entries(params).forEach(([k, v]) => {
         if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
       });
-      return request<{
-        logs: any[];
-        total: number;
-        page: number;
-        limit: number;
-        totalPages: number;
-      }>(`/api/enterprise/audit-logs?${q.toString()}`, { token });
+      return request<EnterpriseAuditLogsResponse>(`/api/enterprise/audit-logs?${q.toString()}`, { token });
     },
 
     verifyInvitation: (tokenHash: string) =>
@@ -1044,7 +1065,7 @@ export const backendApi = {
         };
       }>(`/api/auth/invitations/verify/${tokenHash}`),
 
-    acceptInvitation: (body: { tokenHash: string; password?: string; name?: string }) =>
+    acceptInvitation: (body: { tokenHash: string; password: string; name?: string }) =>
       request<{
         success: boolean;
         message: string;

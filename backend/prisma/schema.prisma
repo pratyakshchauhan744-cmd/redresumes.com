@@ -264,6 +264,8 @@ model InterviewSession {
   analytics      AnalyticsEvent[]
 
   @@index([collegeId])
+  @@index([userId, status])
+  @@index([collegeId, userId])
 }
 
 model InterviewQuestion {
@@ -557,6 +559,7 @@ model CollegeStudent {
   @@index([collegeId, batch])
   @@index([collegeId, program, course, section])
   @@index([collegeId, status])
+  @@index([collegeId, batch(sort: Desc), enrollmentNumber])
 }
 
 model CollegeCreditAccount {
@@ -590,6 +593,7 @@ model CollegeCreditTransaction {
   @@index([studentId])
   @@index([createdById])
   @@index([createdAt])
+  @@index([collegeId, createdAt(sort: Desc)])
 }
 
 model Invitation {
@@ -611,6 +615,7 @@ model Invitation {
   @@index([email])
   @@index([tokenHash])
   @@index([status])
+  @@index([collegeId, role, email, createdAt(sort: Desc), id(sort: Desc)])
 }
 
 model EnterpriseAuditLog {
@@ -633,4 +638,23 @@ model EnterpriseAuditLog {
   @@index([actorId])
   @@index([action])
   @@index([createdAt])
+  @@index([collegeId, createdAt(sort: Desc)])
+  @@index([collegeId, action, createdAt(sort: Desc)])
+}
+
+// Financial operation receipts are retained permanently; no cascading deletion or TTL.
+model CreditIdempotencyRecord {
+  id           String   @id @default(cuid())
+  collegeId    String
+  actorId      String
+  operation    String
+  key          String   @db.VarChar(36)
+  payloadHash  String   @db.VarChar(64)
+  status       String   @default("PROCESSING")
+  responseStatus Int?
+  responseBody Json?
+  createdAt    DateTime @default(now())
+  completedAt  DateTime?
+
+  @@unique([collegeId, actorId, operation, key])
 }

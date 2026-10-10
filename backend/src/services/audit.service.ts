@@ -44,8 +44,9 @@ export async function logEnterpriseAudit(params: LogEnterpriseAuditParams) {
       },
     });
   } catch (error) {
-    console.error("Failed to write enterprise audit log:", error);
+    // Atomic callers handle failures; do not log Prisma errors containing audit payloads.
     if (params.propagateErrors) throw error;
+    console.error("Failed to write enterprise audit log:", error);
     return null;
   }
 }

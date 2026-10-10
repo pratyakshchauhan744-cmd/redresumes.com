@@ -6,6 +6,9 @@ import { prisma } from "../../db/prisma.js";
 import { signAccessToken, signRefreshToken } from "../../utils/jwt.js";
 import { logEnterpriseAudit } from "../../services/audit.service.js";
 
+import { persistRefreshToken, setRefreshCookie } from "./refresh-session.js";
+import { loadSessionContext } from "./session-context.js";
+
 const router = Router();
 const supportedInvitationRoles = new Set(["student", "college_faculty", "college_main_faculty"]);
 
@@ -247,22 +250,11 @@ router.post("/accept", async (req, res, next) => {
       });
     }
 
-    // Generate JWT tokens
-    const accessToken = signAccessToken({
-      sub: result.id,
-      email: result.email,
-      role: result.role,
-      collegeId: result.collegeId,
-      isMainFaculty: invitation.role === "college_main_faculty",
-    });
-
-    const refreshToken = signRefreshToken({
-      sub: result.id,
-      email: result.email,
-      role: result.role,
-      collegeId: result.collegeId,
-      isMainFaculty: invitation.role === "college_main_faculty",
-    });
+    const context = await loadSessionContext(result.id);
+    const accessToken = signAccessToken(context.payload);
+    const refreshToken = signRefreshToken(context.payload);
+    await persistRefreshToken(result.id, refreshToken);
+    setRefreshCookie(res, refreshToken);
 
     await logEnterpriseAudit({
       collegeId: invitation.collegeId,
@@ -276,14 +268,7 @@ router.post("/accept", async (req, res, next) => {
     res.json({
       success: true,
       message: "Account activated successfully.",
-      user: {
-        id: result.id,
-        name: result.name,
-        email: result.email,
-        role: result.role,
-        collegeId: result.collegeId,
-        collegeName: invitation.college.name,
-      },
+      user: { ...context.user, collegeName: invitation.college.name },
       accessToken,
       refreshToken,
     });

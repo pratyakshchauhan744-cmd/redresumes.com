@@ -24,3 +24,13 @@ export function hasEnterprisePermission(user: EnterprisePermissionUser, permissi
     PERMISSION_ALIASES[permission]?.some((alias) => user.permissions?.includes(alias))
   );
 }
+
+/** Matches POST /api/enterprise/students/:id/resend-invite. */
+export function canResendStudentInvitation(user: EnterprisePermissionUser): boolean {
+  return hasEnterprisePermission(user, "STUDENT_CREATE");
+}
+
+/** Hidden/stale values must never request credits after permission revocation. */
+export function authorizedInitialCredits(user: EnterprisePermissionUser, requested: number): number {
+  return hasEnterprisePermission(user, "INTERVIEW_CREDIT_ASSIGN") ? requested : 0;
+}

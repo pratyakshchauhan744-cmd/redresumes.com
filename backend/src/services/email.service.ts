@@ -55,7 +55,7 @@ export class EmailService {
         console.log(`[EMAIL] Sent via Gmail SMTP → ${to} | msgId: ${info.messageId}`);
         return { success: true, messageId: info.messageId };
       } catch (smtpErr: any) {
-        console.error("[EMAIL] Gmail SMTP failed:", smtpErr?.message || smtpErr);
+        console.error("[EMAIL] Gmail SMTP send failed; trying the next configured provider.");
         // Fall through to Resend as backup
       }
     }
@@ -70,14 +70,14 @@ export class EmailService {
           html,
         });
         if (result.error) {
-          console.warn("[EMAIL] Resend reported delivery error:", result.error);
+          console.warn("[EMAIL] Resend rejected the send; trying the next configured provider.");
           // Don't return failure here — fall through to SMTP
         } else {
           console.log(`[EMAIL] Sent via Resend → ${to} | msgId: ${result.data?.id}`);
           return { success: true, messageId: result.data?.id };
         }
       } catch (err: any) {
-        console.error("[EMAIL] Resend API failed:", err?.message || err);
+        console.error("[EMAIL] Resend send failed; trying the next configured provider.");
       }
     }
 
@@ -103,7 +103,7 @@ export class EmailService {
         console.log(`[EMAIL] Sent via SMTP → ${to} | msgId: ${info.messageId}`);
         return { success: true, messageId: info.messageId };
       } catch (smtpErr: any) {
-        console.error("[EMAIL] Generic SMTP failed:", smtpErr?.message || smtpErr);
+        console.error("[EMAIL] SMTP send failed.");
         return { success: false, error: smtpErr?.message || "SMTP delivery failed" };
       }
     }
@@ -224,7 +224,7 @@ export class EmailService {
     try {
       return await this.sendEmail({ to, subject, html });
     } catch (err: any) {
-      console.error("sendStudentWelcomeEmail error:", err);
+      console.error("Student welcome email send failed.");
       return { success: false, error: err?.message || "Failed to send welcome email" };
     }
   }

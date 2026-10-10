@@ -21,7 +21,12 @@ function buildDatabaseUrl(url: string): string {
       parsed.searchParams.set("connection_limit", "10");
     }
     if (!parsed.searchParams.has("pool_timeout")) {
-      parsed.searchParams.set("pool_timeout", "20");
+      parsed.searchParams.set("pool_timeout", "60");
+    }
+    // Remote database proxies can take longer than Prisma's 5s default to
+    // establish a connection. Preserve explicitly configured URL settings.
+    if (!parsed.searchParams.has("connect_timeout")) {
+      parsed.searchParams.set("connect_timeout", "30");
     }
     return parsed.toString();
   } catch {
@@ -39,4 +44,3 @@ export const prisma = new PrismaClient({
   },
   log: env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
 });
-

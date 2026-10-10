@@ -1,4 +1,7 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import { invitationFeedback, invitationRetryFailure, safeInvitationError, completeStudentOnboarding, studentCreationFailure } from "../utils/studentOnboarding";
+import { authorizedInitialCredits } from "../utils/enterprisePermissions";
+import { beginCreditSubmission } from "../utils/creditIdempotency";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   GraduationCap,
   Users,
@@ -30,8 +33,10 @@ import {
   Pencil,
   UserX,
 } from "lucide-react";
-import { backendApi, AuthUser } from "../lib/backendApi";
+import { backendApi, AuthUser, isAbortError } from "../lib/backendApi";
 import { isLocalAccessToken, setStoredAuthTokens } from "../lib/auth";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import { AccessibleDialog } from "../components/AccessibleDialog";
 import { EnterpriseReportRow } from "../types/enterpriseReports";
 import { EnterpriseAuditLog, AUDIT_ACTION_FILTER_OPTIONS } from "../types/enterpriseAudit";
 import {
@@ -51,8 +56,13 @@ import {
   getFacultyCreationFeedback,
   releaseRequestLock,
 } from "../utils/facultyCreation";
-import { hasEnterprisePermission } from "../utils/enterprisePermissions";
+import {
+  canResendStudentInvitation,
+  hasEnterprisePermission,
+} from "../utils/enterprisePermissions";
 import { getPaginationMeta } from "../utils/pagination";
+import type { CreditLedgerTransaction } from "../types/creditLedger";
+import { getCreditLedgerActorLabel } from "../utils/creditLedger";
 import {
   DEFAULT_FACULTY_PERMISSIONS,
   FACULTY_PERMISSION_OPTIONS,
@@ -64,11 +74,18 @@ import {
   type FacultyCohortAccessRule,
   type FacultyAuthorizationValues,
 } from "../utils/facultyAccess";
+import {
+  isOfflineOrDemoToken,
+  getInitialLoadingStates,
+  getOfflineFallbackStats,
+  getTableEmptyMessage,
+} from "../utils/enterpriseLoading";
 
 const STUDENT_PAGE_SIZE = 10;
 const FACULTY_PAGE_SIZE = 15;
 const CREDIT_PAGE_SIZE = 20;
 const REPORT_PAGE_SIZE = 10;
+const SEARCH_DEBOUNCE_MS = 400;
 
 interface FacultyFormValues extends FacultyAuthorizationValues {
   name: string;
@@ -97,6 +114,21 @@ const createEmptyFacultyForm = (): FacultyFormValues => ({
   cohortAccess: [],
 });
 
+const createEmptyStudentForm = () => ({
+  name: "",
+  email: "",
+  phone: "",
+  enrollmentNumber: "",
+  program: "B.Tech",
+  course: "Computer Science & Engineering",
+  department: "Computer Science",
+  section: "A",
+  batch: "2022-2026",
+  semester: 6,
+  gender: "Male",
+  initialCredits: 2,
+});
+
 function FacultyAuthorizationFields({
   values,
   filterOptions,
@@ -107,7 +139,7 @@ function FacultyAuthorizationFields({
   onChange: (values: FacultyAuthorizationValues) => void;
 }) {
   return (
-    <div className="col-span-2 space-y-4 border-t border-zinc-800 pt-4">
+    <div className="sm:col-span-2 space-y-4 border-t border-zinc-800 pt-4">
       <div>
         <div className="flex items-center justify-between gap-3 mb-2">
           <label className="font-semibold text-zinc-200">Permissions</label>
@@ -246,21 +278,128 @@ function PaginationControls({
   );
 }
 
+function TableStatusRow({
+  colSpan,
+  loading,
+  error,
+  loadingMessage,
+  onRetry,
+}: {
+  colSpan: number;
+  loading: boolean;
+  error: string | null;
+  loadingMessage: string;
+  onRetry: () => void;
+}) {
+  if (!loading && !error) return null;
+
+  return (
+    <tr>
+      <td colSpan={colSpan} className="px-6 py-12 text-center text-zinc-500 text-sm">
+        {loading ? (
+          <>
+            <RefreshCw className="w-5 h-5 mx-auto animate-spin text-rose-500 mb-2" />
+            {loadingMessage}
+          </>
+        ) : (
+          <div className="flex flex-col items-center gap-3 text-rose-300">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" />
+              <span>{error}</span>
+            </div>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs font-semibold"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Retry
+            </button>
+          </div>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function SectionStatus({
+  loading,
+  error,
+  loadingMessage,
+  onRetry,
+}: {
+  loading: boolean;
+  error: string | null;
+  loadingMessage: string;
+  onRetry: () => void;
+}) {
+  if (!loading && !error) return null;
+
+  return (
+    <div className={`p-4 rounded-xl border text-xs flex items-center justify-between gap-3 ${
+      error
+        ? "bg-rose-950/40 border-rose-800/60 text-rose-200"
+        : "bg-zinc-900/40 border-zinc-800 text-zinc-400"
+    }`}>
+      <div className="flex items-center gap-2">
+        {loading ? (
+          <RefreshCw className="w-4 h-4 animate-spin text-rose-400" />
+        ) : (
+          <AlertCircle className="w-4 h-4 text-rose-400" />
+        )}
+        <span>{loading ? loadingMessage : error}</span>
+      </div>
+      {error && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 font-semibold shrink-0"
+        >
+          <RefreshCw className="w-3.5 h-3.5" /> Retry
+        </button>
+      )}
+    </div>
+  );
+}
+
 interface EnterpriseDashboardPageProps {
   user: AuthUser;
   token: string;
+  initialTab?: TabType;
   onLogout?: () => void;
 }
 
 type TabType = "overview" | "students" | "faculty" | "credits" | "reports" | "audit";
 
-export default function EnterpriseDashboardPage({ user, token, onLogout }: EnterpriseDashboardPageProps) {
-  const [activeTab, setActiveTab] = useState<TabType>("overview");
+export default function EnterpriseDashboardPage({ user, token, initialTab = "overview", onLogout }: EnterpriseDashboardPageProps) {
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab);
   const [effectiveToken, setEffectiveToken] = useState<string>(token);
 
-  useEffect(() => {
-    setEffectiveToken(token);
-  }, [token]);
+  const hasPermission = useCallback((permission: string) => hasEnterprisePermission(user, permission), [user]);
+
+  const canViewStudents = hasPermission("STUDENT_VIEW");
+  const canCreateStudents = hasPermission("STUDENT_CREATE");
+  const canResendStudentInvite = canResendStudentInvitation(user);
+  const canViewFaculty = hasPermission("FACULTY_VIEW");
+  const canCreateFaculty = hasPermission("FACULTY_CREATE");
+  const canEditFaculty = hasPermission("FACULTY_EDIT");
+  const canManageFacultyAuthorization = user.role === "super_admin" ||
+    (user.role === "college_main_faculty" && user.isMainFaculty === true);
+  const canViewCredits = hasPermission("INTERVIEW_CREDIT_VIEW");
+  const canDistributeCredits = hasPermission("INTERVIEW_CREDIT_ASSIGN");
+  const canViewReports = hasPermission("REPORT_VIEW");
+  const canExportReports = hasPermission("REPORT_EXPORT");
+  const canViewAuditLogs = hasPermission("AUDIT_VIEW");
+
+  const tabPermissions = useMemo(() => ({
+    canViewStudents,
+    canViewFaculty,
+    canViewCredits,
+    canViewReports,
+    canViewAuditLogs,
+  }), [canViewStudents, canViewFaculty, canViewCredits, canViewReports, canViewAuditLogs]);
+
+  const initialLoading = useMemo(() => getInitialLoadingStates(token, tabPermissions), []);
+
   const [stats, setStats] = useState<any>(null);
   const [filterOptions, setFilterOptions] = useState<{
     programs: string[];
@@ -271,8 +410,29 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
     cohorts: FacultyCohortAccessRule[];
   }>({ programs: [], courses: [], sections: [], batches: [], departments: [], cohorts: [] });
 
-  const [loading, setLoading] = useState(true);
-  const [feedback, setFeedback] = useState<{ type: "success" | "warning" | "error"; message: string } | null>(null);
+  const [statsLoading, setStatsLoading] = useState(initialLoading.statsLoading);
+  const [statsError, setStatsError] = useState<string | null>(null);
+  const [filterOptionsLoading, setFilterOptionsLoading] = useState(initialLoading.filterOptionsLoading);
+  const [filterOptionsError, setFilterOptionsError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ type: "success" | "warning" | "info" | "error"; message: string } | null>(null);
+
+  const setAllOfflineLoadingSettled = useCallback(() => {
+    setStatsLoading(false);
+    setFilterOptionsLoading(false);
+    setStudentsLoading(false);
+    setFacultyLoading(false);
+    setCreditsLoading(false);
+    setReportsLoading(false);
+    setReportSummaryLoading(false);
+    setAuditLoading(false);
+  }, []);
+
+  useEffect(() => {
+    setEffectiveToken(token);
+    if (isOfflineOrDemoToken(token)) {
+      setAllOfflineLoadingSettled();
+    }
+  }, [token, setAllOfflineLoadingSettled]);
 
   // Students tab state
   const [students, setStudents] = useState<any[]>([]);
@@ -283,6 +443,8 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
   const [studentCourse, setStudentCourse] = useState("");
   const [studentSection, setStudentSection] = useState("");
   const [studentBatch, setStudentBatch] = useState("");
+  const [studentsLoading, setStudentsLoading] = useState(initialLoading.studentsLoading);
+  const [studentsError, setStudentsError] = useState<string | null>(null);
   const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [selectedStudentDetail, setSelectedStudentDetail] = useState<any | null>(null);
@@ -292,19 +454,25 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
   const [facultyList, setFacultyList] = useState<any[]>([]);
   const [facultyTotal, setFacultyTotal] = useState(0);
   const [facultyPage, setFacultyPage] = useState(1);
+  const [facultyLoading, setFacultyLoading] = useState(initialLoading.facultyLoading);
+  const [facultyError, setFacultyError] = useState<string | null>(null);
   const [isAddFacultyOpen, setIsAddFacultyOpen] = useState(false);
   const [editingFaculty, setEditingFaculty] = useState<any | null>(null);
   const [facultyCreationLoading, setFacultyCreationLoading] = useState(false);
+  const [facultyCreationError, setFacultyCreationError] = useState<string | null>(null);
   const [facultyUpdateLoading, setFacultyUpdateLoading] = useState(false);
+  const [facultyUpdateError, setFacultyUpdateError] = useState<string | null>(null);
   const [deactivatingFacultyId, setDeactivatingFacultyId] = useState<string | null>(null);
   const [resendingFacultyId, setResendingFacultyId] = useState<string | null>(null);
   const facultyCreationInFlightRef = useRef(false);
   const facultyResendInFlightRef = useRef(false);
 
   // Credits tab state
-  const [creditLedger, setCreditLedger] = useState<any[]>([]);
+  const [creditLedger, setCreditLedger] = useState<CreditLedgerTransaction[]>([]);
   const [creditTotal, setCreditTotal] = useState(0);
   const [creditPage, setCreditPage] = useState(1);
+  const [creditsLoading, setCreditsLoading] = useState(initialLoading.creditsLoading);
+  const [creditsError, setCreditsError] = useState<string | null>(null);
   const [bulkDistData, setBulkDistData] = useState({
     creditsPerStudent: 2,
     reason: "Institutional mock interview allocation",
@@ -333,6 +501,13 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
   const [reportSection, setReportSection] = useState("");
   const [reportBatch, setReportBatch] = useState("");
   const [reportSearch, setReportSearch] = useState("");
+  const exportRequestInFlightRef = useRef(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
+  const [reportsLoading, setReportsLoading] = useState(initialLoading.reportsLoading);
+  const [reportsError, setReportsError] = useState<string | null>(null);
+  const [reportSummaryLoading, setReportSummaryLoading] = useState(initialLoading.reportSummaryLoading);
+  const [reportSummaryError, setReportSummaryError] = useState<string | null>(null);
 
   // Audit logs tab state
   const [auditLogs, setAuditLogs] = useState<EnterpriseAuditLog[]>([]);
@@ -341,25 +516,33 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
   const [auditTotalPages, setAuditTotalPages] = useState(0);
   const [auditActionFilter, setAuditActionFilter] = useState("");
   const [auditSearch, setAuditSearch] = useState("");
-  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditLoading, setAuditLoading] = useState(initialLoading.auditLoading);
+  const [auditError, setAuditError] = useState<string | null>(null);
   const [selectedAuditLog, setSelectedAuditLog] = useState<EnterpriseAuditLog | null>(null);
+  const statsRequestIdRef = useRef(0);
+  const filterOptionsRequestIdRef = useRef(0);
+  const studentRequestIdRef = useRef(0);
+  const facultyRequestIdRef = useRef(0);
+  const creditRequestIdRef = useRef(0);
+  const reportsRequestIdRef = useRef(0);
+  const reportSummaryRequestIdRef = useRef(0);
   const auditRequestIdRef = useRef(0);
+  const statsAbortControllerRef = useRef<AbortController | null>(null);
+  const filterOptionsAbortControllerRef = useRef<AbortController | null>(null);
+  const reportSummaryAbortControllerRef = useRef<AbortController | null>(null);
+  const studentAbortControllerRef = useRef<AbortController | null>(null);
+  const reportsAbortControllerRef = useRef<AbortController | null>(null);
+  const auditAbortControllerRef = useRef<AbortController | null>(null);
 
   // Student Form Data
-  const [studentForm, setStudentForm] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    enrollmentNumber: "",
-    program: "B.Tech",
-    course: "Computer Science & Engineering",
-    department: "Computer Science",
-    section: "A",
-    batch: "2022-2026",
-    semester: 6,
-    gender: "Male",
-    initialCredits: 2,
+  const [studentForm, setStudentForm] = useState(() => {
+    const form = createEmptyStudentForm();
+    return { ...form, initialCredits: authorizedInitialCredits(user, form.initialCredits) };
   });
+  const [studentCreationLoading, setStudentCreationLoading] = useState(false);
+  const [studentCreationFeedbackType, setStudentCreationFeedbackType] = useState<"error" | "warning" | "info" | "success">("error");
+  const [studentCreationError, setStudentCreationError] = useState<string | null>(null);
+  const studentCreationInFlightRef = useRef(false);
 
   // Faculty Form Data
   const [facultyForm, setFacultyForm] = useState<FacultyFormValues>(createEmptyFacultyForm);
@@ -374,35 +557,89 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
   const [bulkImportAtomic, setBulkImportAtomic] = useState(false);
   const [bulkImportCredits, setBulkImportCredits] = useState(0);
   const [bulkImportLoading, setBulkImportLoading] = useState(false);
+  const [bulkImportError, setBulkImportError] = useState<string | null>(null);
+  const bulkImportInFlightRef = useRef(false);
   const [bulkImportResult, setBulkImportResult] = useState<{
     totalProcessed: number;
     totalCreated: number;
     totalFailed: number;
+    emailsSent: number;
+    emailsFailed: number;
     errors: Array<{ row: number; email?: string; enrollmentNumber?: string; reason: string }>;
   } | null>(null);
   const [resendingStudentId, setResendingStudentId] = useState<string | null>(null);
   const [resendConfirmationStudent, setResendConfirmationStudent] = useState<any | null>(null);
   const resendRequestInFlightRef = useRef(false);
+  const facultyUpdateInFlightRef = useRef(false);
+  const singleAssignInFlightRef = useRef(false);
+  const [singleAssignLoading, setSingleAssignLoading] = useState(false);
+  const [singleAssignError, setSingleAssignError] = useState<string | null>(null);
 
-  const hasPermission = (permission: string) => hasEnterprisePermission(user, permission);
+  useEffect(() => {
+    if (!canDistributeCredits) {
+      setStudentForm(form => form.initialCredits === 0 ? form : { ...form, initialCredits: 0 });
+      setBulkImportCredits(0);
+    }
+  }, [canDistributeCredits]);
+  const loading = statsLoading || filterOptionsLoading;
+  const debouncedStudentSearch = useDebouncedValue(studentSearch, SEARCH_DEBOUNCE_MS);
+  const debouncedReportSearch = useDebouncedValue(reportSearch, SEARCH_DEBOUNCE_MS);
+  const debouncedAuditSearch = useDebouncedValue(auditSearch, SEARCH_DEBOUNCE_MS);
 
-  const canViewStudents = hasPermission("STUDENT_VIEW");
-  const canCreateStudents = hasPermission("STUDENT_CREATE");
-  const canViewFaculty = hasPermission("FACULTY_VIEW");
-  const canCreateFaculty = hasPermission("FACULTY_CREATE");
-  const canEditFaculty = hasPermission("FACULTY_EDIT");
-  const canManageFacultyAuthorization = user.role === "super_admin" ||
-    (user.role === "college_main_faculty" && user.isMainFaculty === true);
-  const canViewCredits = hasPermission("INTERVIEW_CREDIT_VIEW");
-  const canDistributeCredits = hasPermission("INTERVIEW_CREDIT_ASSIGN");
-  const canViewReports = hasPermission("REPORT_VIEW");
-  const canExportReports = hasPermission("REPORT_EXPORT");
-  const canViewAuditLogs = hasPermission("AUDIT_VIEW");
+  const loadStats = async (activeToken = effectiveToken) => {
+    if (isOfflineOrDemoToken(activeToken)) {
+      setStatsLoading(false);
+      return;
+    }
+    statsAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    statsAbortControllerRef.current = controller;
+    const currentRequestId = ++statsRequestIdRef.current;
+    setStatsLoading(true);
+    setStatsError(null);
+    try {
+      const statsRes = await backendApi.enterprise.getStats(activeToken, controller.signal);
+      if (currentRequestId !== statsRequestIdRef.current) return;
+      setStats(statsRes);
+    } catch (err: any) {
+      if (isAbortError(err)) return;
+      if (currentRequestId !== statsRequestIdRef.current) return;
+      console.error("Failed to load enterprise statistics:", err);
+      setStatsError("Failed to load dashboard statistics.");
+    } finally {
+      if (currentRequestId === statsRequestIdRef.current) setStatsLoading(false);
+    }
+  };
+
+  const loadFilterOptions = async (activeToken = effectiveToken) => {
+    if (isOfflineOrDemoToken(activeToken)) {
+      setFilterOptionsLoading(false);
+      return;
+    }
+    filterOptionsAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    filterOptionsAbortControllerRef.current = controller;
+    const currentRequestId = ++filterOptionsRequestIdRef.current;
+    setFilterOptionsLoading(true);
+    setFilterOptionsError(null);
+    try {
+      const optionsRes = await backendApi.enterprise.getFilterOptions(activeToken, controller.signal);
+      if (currentRequestId !== filterOptionsRequestIdRef.current) return;
+      setFilterOptions({ ...optionsRes, cohorts: optionsRes.cohorts ?? [] });
+    } catch (err: any) {
+      if (isAbortError(err)) return;
+      if (currentRequestId !== filterOptionsRequestIdRef.current) return;
+      console.error("Failed to load enterprise filter options:", err);
+      setFilterOptionsError("Failed to load filter options.");
+    } finally {
+      if (currentRequestId === filterOptionsRequestIdRef.current) setFilterOptionsLoading(false);
+    }
+  };
 
   // Initial Load
   const loadInitialData = async () => {
     let activeToken = effectiveToken;
-    if (isLocalAccessToken(activeToken)) {
+    if (isOfflineOrDemoToken(activeToken)) {
       if (user.email.toLowerCase() === "faculty@apex.edu" || user.email.toLowerCase().includes("demo")) {
         try {
           const auth = await backendApi.login({ email: user.email.toLowerCase(), password: "Password@123" });
@@ -416,64 +653,97 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
         }
       }
 
-      if (isLocalAccessToken(activeToken)) {
-        setLoading(false);
+      if (isOfflineOrDemoToken(activeToken)) {
+        setAllOfflineLoadingSettled();
+        setStatsError(null);
+        setFilterOptionsError(null);
+        setStats((prev: any) => prev || getOfflineFallbackStats());
         setFeedback({
-          type: "error",
-          message: "You are currently signed in with an offline demo session. Enterprise analytics require a live backend session. Please sign in with your enterprise credentials."
+          type: "info",
+          message: "You are currently signed in with an offline demo session. Live enterprise data is unavailable. Please sign in with your enterprise credentials."
         });
         return;
       }
     }
 
-    try {
-      setLoading(true);
-      const [statsRes, optionsRes] = await Promise.all([
-        backendApi.enterprise.getStats(activeToken),
-        backendApi.enterprise.getFilterOptions(activeToken),
-      ]);
-      setStats(statsRes);
-      setFilterOptions({ ...optionsRes, cohorts: optionsRes.cohorts ?? [] });
-    } catch (err: any) {
-      console.error("Failed to load enterprise stats:", err);
-      setFeedback({ type: "error", message: err.message || "Failed to load dashboard data" });
-    } finally {
-      setLoading(false);
-    }
+    await Promise.allSettled([loadStats(activeToken), loadFilterOptions(activeToken)]);
   };
 
   useEffect(() => {
     loadInitialData();
+    return () => {
+      statsAbortControllerRef.current?.abort();
+      filterOptionsAbortControllerRef.current?.abort();
+      statsRequestIdRef.current += 1;
+      filterOptionsRequestIdRef.current += 1;
+    };
   }, [effectiveToken]);
 
   // Load Students
   const loadStudents = async () => {
-    if (!canViewStudents || isLocalAccessToken(effectiveToken)) return;
+    if (!canViewStudents || isOfflineOrDemoToken(effectiveToken)) {
+      setStudentsLoading(false);
+      return;
+    }
+    studentAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    studentAbortControllerRef.current = controller;
+    const currentRequestId = ++studentRequestIdRef.current;
+    setStudentsLoading(true);
+    setStudentsError(null);
     try {
       const res = await backendApi.enterprise.listStudents(
         {
           page: studentPage,
           limit: STUDENT_PAGE_SIZE,
-          search: studentSearch,
+          search: debouncedStudentSearch,
           program: studentProgram,
           course: studentCourse,
           section: studentSection,
           batch: studentBatch,
         },
-        effectiveToken
+        effectiveToken,
+        controller.signal
       );
+      if (currentRequestId !== studentRequestIdRef.current) return;
       setStudents(res.students);
       setStudentTotal(res.total);
     } catch (err: any) {
+      if (currentRequestId !== studentRequestIdRef.current) return;
+      if (isAbortError(err)) return;
       console.error("Failed to load students:", err);
+      setStudentsError("Failed to load students.");
+    } finally {
+      if (currentRequestId === studentRequestIdRef.current) {
+        if (studentAbortControllerRef.current === controller) studentAbortControllerRef.current = null;
+        setStudentsLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    if (canViewStudents && !isLocalAccessToken(effectiveToken) && (activeTab === "students" || activeTab === "overview")) {
-      loadStudents();
+    studentAbortControllerRef.current?.abort();
+    studentRequestIdRef.current += 1;
+    setStudentsLoading(false);
+  }, [studentSearch]);
+
+  useEffect(() => {
+    if (!canViewStudents) {
+      setStudentsLoading(false);
+      return;
     }
-  }, [activeTab, effectiveToken, studentPage, studentSearch, studentProgram, studentCourse, studentSection, studentBatch]);
+    if (activeTab === "students" || activeTab === "overview") {
+      if (isOfflineOrDemoToken(effectiveToken)) {
+        setStudentsLoading(false);
+      } else {
+        loadStudents();
+      }
+    }
+    return () => {
+      studentAbortControllerRef.current?.abort();
+      studentRequestIdRef.current += 1;
+    };
+  }, [activeTab, effectiveToken, studentPage, debouncedStudentSearch, studentProgram, studentCourse, studentSection, studentBatch, canViewStudents]);
 
   useEffect(() => {
     const lastPage = getPaginationMeta(studentPage, studentTotal, STUDENT_PAGE_SIZE).page;
@@ -482,24 +752,46 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
 
   // Load Faculty
   const loadFaculty = async () => {
-    if (!canViewFaculty || isLocalAccessToken(effectiveToken)) return;
+    if (!canViewFaculty || isOfflineOrDemoToken(effectiveToken)) {
+      setFacultyLoading(false);
+      return;
+    }
+    const currentRequestId = ++facultyRequestIdRef.current;
+    setFacultyLoading(true);
+    setFacultyError(null);
     try {
       const res = await backendApi.enterprise.listFaculty(
         { page: facultyPage, limit: FACULTY_PAGE_SIZE },
         effectiveToken
       );
+      if (currentRequestId !== facultyRequestIdRef.current) return;
       setFacultyList(res.faculty);
       setFacultyTotal(res.total);
     } catch (err: any) {
+      if (currentRequestId !== facultyRequestIdRef.current) return;
       console.error("Failed to load faculty:", err);
+      setFacultyError("Failed to load faculty.");
+    } finally {
+      if (currentRequestId === facultyRequestIdRef.current) setFacultyLoading(false);
     }
   };
 
   useEffect(() => {
-    if (canViewFaculty && !isLocalAccessToken(effectiveToken) && activeTab === "faculty") {
-      loadFaculty();
+    if (!canViewFaculty) {
+      setFacultyLoading(false);
+      return;
     }
-  }, [activeTab, effectiveToken, facultyPage]);
+    if (activeTab === "faculty") {
+      if (isOfflineOrDemoToken(effectiveToken)) {
+        setFacultyLoading(false);
+      } else {
+        loadFaculty();
+      }
+    }
+    return () => {
+      facultyRequestIdRef.current += 1;
+    };
+  }, [activeTab, effectiveToken, facultyPage, canViewFaculty]);
 
   useEffect(() => {
     const lastPage = getPaginationMeta(facultyPage, facultyTotal, FACULTY_PAGE_SIZE).page;
@@ -508,24 +800,46 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
 
   // Load Credits Ledger
   const loadCredits = async () => {
-    if (!canViewCredits || isLocalAccessToken(effectiveToken)) return;
+    if (!canViewCredits || isOfflineOrDemoToken(effectiveToken)) {
+      setCreditsLoading(false);
+      return;
+    }
+    const currentRequestId = ++creditRequestIdRef.current;
+    setCreditsLoading(true);
+    setCreditsError(null);
     try {
       const res = await backendApi.enterprise.getCreditLedger(
         { page: creditPage, limit: CREDIT_PAGE_SIZE },
         effectiveToken
       );
+      if (currentRequestId !== creditRequestIdRef.current) return;
       setCreditLedger(res.transactions);
       setCreditTotal(res.total);
     } catch (err: any) {
+      if (currentRequestId !== creditRequestIdRef.current) return;
       console.error("Failed to load credit ledger:", err);
+      setCreditsError("Failed to load credit transactions.");
+    } finally {
+      if (currentRequestId === creditRequestIdRef.current) setCreditsLoading(false);
     }
   };
 
   useEffect(() => {
-    if (canViewCredits && !isLocalAccessToken(effectiveToken) && activeTab === "credits") {
-      loadCredits();
+    if (!canViewCredits) {
+      setCreditsLoading(false);
+      return;
     }
-  }, [activeTab, effectiveToken, creditPage]);
+    if (activeTab === "credits") {
+      if (isOfflineOrDemoToken(effectiveToken)) {
+        setCreditsLoading(false);
+      } else {
+        loadCredits();
+      }
+    }
+    return () => {
+      creditRequestIdRef.current += 1;
+    };
+  }, [activeTab, effectiveToken, creditPage, canViewCredits]);
 
   useEffect(() => {
     const lastPage = getPaginationMeta(creditPage, creditTotal, CREDIT_PAGE_SIZE).page;
@@ -534,44 +848,121 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
 
   // Load Reports
   const loadReports = async () => {
-    if (!canViewReports || isLocalAccessToken(effectiveToken)) return;
+    if (!canViewReports || isOfflineOrDemoToken(effectiveToken)) {
+      setReportsLoading(false);
+      return;
+    }
+    reportsAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    reportsAbortControllerRef.current = controller;
+    const currentRequestId = ++reportsRequestIdRef.current;
+    setReportsLoading(true);
+    setReportsError(null);
     try {
-      const [reportsRes, summaryRes] = await Promise.all([
-        backendApi.enterprise.getReports(
-          {
-            page: reportPage,
-            limit: REPORT_PAGE_SIZE,
-            program: reportProgram,
-            course: reportCourse,
-            section: reportSection,
-            batch: reportBatch,
-            search: reportSearch,
-          },
-          effectiveToken
-        ),
-        backendApi.enterprise.getReportSummary(
-          {
-            program: reportProgram,
-            course: reportCourse,
-            section: reportSection,
-            batch: reportBatch,
-          },
-          effectiveToken
-        ),
-      ]);
+      const reportsRes = await backendApi.enterprise.getReports(
+        {
+          page: reportPage,
+          limit: REPORT_PAGE_SIZE,
+          program: reportProgram,
+          course: reportCourse,
+          section: reportSection,
+          batch: reportBatch,
+          search: debouncedReportSearch,
+        },
+        effectiveToken,
+        controller.signal
+      );
+      if (currentRequestId !== reportsRequestIdRef.current) return;
       setReports(reportsRes.reports);
       setReportTotal(reportsRes.total);
-      setReportSummary(summaryRes);
     } catch (err: any) {
+      if (currentRequestId !== reportsRequestIdRef.current) return;
+      if (isAbortError(err)) return;
       console.error("Failed to load reports:", err);
+      setReportsError("Failed to load reports.");
+    } finally {
+      if (currentRequestId === reportsRequestIdRef.current) {
+        if (reportsAbortControllerRef.current === controller) reportsAbortControllerRef.current = null;
+        setReportsLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    if (canViewReports && !isLocalAccessToken(effectiveToken) && activeTab === "reports") {
-      loadReports();
+    reportsAbortControllerRef.current?.abort();
+    reportsRequestIdRef.current += 1;
+    setReportsLoading(false);
+  }, [reportSearch]);
+
+  const loadReportSummary = async () => {
+    if (!canViewReports || isOfflineOrDemoToken(effectiveToken)) {
+      setReportSummaryLoading(false);
+      return;
     }
-  }, [activeTab, effectiveToken, reportPage, reportProgram, reportCourse, reportSection, reportBatch, reportSearch]);
+    reportSummaryAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    reportSummaryAbortControllerRef.current = controller;
+    const currentRequestId = ++reportSummaryRequestIdRef.current;
+    setReportSummaryLoading(true);
+    setReportSummaryError(null);
+    try {
+      const summaryRes = await backendApi.enterprise.getReportSummary(
+        {
+          program: reportProgram,
+          course: reportCourse,
+          section: reportSection,
+          batch: reportBatch,
+        },
+        effectiveToken,
+        controller.signal
+      );
+      if (currentRequestId !== reportSummaryRequestIdRef.current) return;
+      setReportSummary(summaryRes);
+    } catch (err: any) {
+      if (isAbortError(err)) return;
+      if (currentRequestId !== reportSummaryRequestIdRef.current) return;
+      console.error("Failed to load report summary:", err);
+      setReportSummaryError("Failed to load report summary.");
+    } finally {
+      if (currentRequestId === reportSummaryRequestIdRef.current) setReportSummaryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!canViewReports) {
+      setReportsLoading(false);
+      return;
+    }
+    if (activeTab === "reports") {
+      if (isOfflineOrDemoToken(effectiveToken)) {
+        setReportsLoading(false);
+      } else {
+        loadReports();
+      }
+    }
+    return () => {
+      reportsAbortControllerRef.current?.abort();
+      reportsRequestIdRef.current += 1;
+    };
+  }, [activeTab, effectiveToken, reportPage, reportProgram, reportCourse, reportSection, reportBatch, debouncedReportSearch, canViewReports]);
+
+  useEffect(() => {
+    if (!canViewReports) {
+      setReportSummaryLoading(false);
+      return;
+    }
+    if (activeTab === "reports") {
+      if (isOfflineOrDemoToken(effectiveToken)) {
+        setReportSummaryLoading(false);
+      } else {
+        loadReportSummary();
+      }
+    }
+    return () => {
+      reportSummaryAbortControllerRef.current?.abort();
+      reportSummaryRequestIdRef.current += 1;
+    };
+  }, [activeTab, effectiveToken, reportProgram, reportCourse, reportSection, reportBatch, canViewReports]);
 
   useEffect(() => {
     const lastPage = getPaginationMeta(reportPage, reportTotal, REPORT_PAGE_SIZE).page;
@@ -580,18 +971,26 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
 
   // Load Audit Logs
   const loadAuditLogs = async () => {
-    if (!canViewAuditLogs || isLocalAccessToken(effectiveToken)) return;
+    if (!canViewAuditLogs || isOfflineOrDemoToken(effectiveToken)) {
+      setAuditLoading(false);
+      return;
+    }
+    auditAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    auditAbortControllerRef.current = controller;
     const currentRequestId = ++auditRequestIdRef.current;
     try {
       setAuditLoading(true);
+      setAuditError(null);
       const res = await backendApi.enterprise.getAuditLogs(
         {
           page: auditPage,
           limit: 15,
           action: auditActionFilter || undefined,
-          search: auditSearch || undefined,
+          search: debouncedAuditSearch || undefined,
         },
-        effectiveToken
+        effectiveToken,
+        controller.signal
       );
       if (currentRequestId !== auditRequestIdRef.current) return;
       setAuditLogs(res.logs || []);
@@ -599,19 +998,40 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
       setAuditTotalPages(res.pagination?.totalPages ?? 0);
     } catch (err: any) {
       if (currentRequestId !== auditRequestIdRef.current) return;
+      if (isAbortError(err)) return;
       console.error("Failed to load audit logs:", err);
+      setAuditError("Failed to load audit logs.");
     } finally {
       if (currentRequestId === auditRequestIdRef.current) {
+        if (auditAbortControllerRef.current === controller) auditAbortControllerRef.current = null;
         setAuditLoading(false);
       }
     }
   };
 
   useEffect(() => {
-    if (canViewAuditLogs && !isLocalAccessToken(effectiveToken) && activeTab === "audit") {
-      loadAuditLogs();
+    auditAbortControllerRef.current?.abort();
+    auditRequestIdRef.current += 1;
+    setAuditLoading(false);
+  }, [auditSearch]);
+
+  useEffect(() => {
+    if (!canViewAuditLogs) {
+      setAuditLoading(false);
+      return;
     }
-  }, [activeTab, effectiveToken, auditPage, auditActionFilter, auditSearch]);
+    if (activeTab === "audit") {
+      if (isOfflineOrDemoToken(effectiveToken)) {
+        setAuditLoading(false);
+      } else {
+        loadAuditLogs();
+      }
+    }
+    return () => {
+      auditAbortControllerRef.current?.abort();
+      auditRequestIdRef.current += 1;
+    };
+  }, [activeTab, effectiveToken, auditPage, auditActionFilter, debouncedAuditSearch, canViewAuditLogs]);
 
   const currentDistributionParams = getDistributionPreviewParams(bulkDistData);
   const isCurrentPreviewValid = isDistributionPreviewValid(
@@ -692,17 +1112,17 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
     distributionRequestInFlightRef.current = true;
     try {
       setDistributionLoading(true);
-      const res = await backendApi.enterprise.distributeCredits(
-        {
-          creditsPerStudent: confirmedParams.creditsPerStudent,
-          reason: bulkDistData.reason,
-          program: confirmedParams.program || undefined,
-          course: confirmedParams.course || undefined,
-          section: confirmedParams.section || undefined,
-          batch: confirmedParams.batch || undefined,
-        },
-        effectiveToken
-      );
+      const payload = {
+        creditsPerStudent: confirmedParams.creditsPerStudent,
+        reason: bulkDistData.reason,
+        program: confirmedParams.program || undefined,
+        course: confirmedParams.course || undefined,
+        section: confirmedParams.section || undefined,
+        batch: confirmedParams.batch || undefined,
+      };
+      const submission = await beginCreditSubmission(user.id, user.collegeId, "BULK_DISTRIBUTION", payload);
+      const res = await backendApi.enterprise.distributeCredits(payload, effectiveToken, submission.key);
+      await submission.complete();
       setFeedback({ type: "success", message: res.message });
       setDistPreview(null);
       setPreviewWasInvalidated(false);
@@ -719,16 +1139,18 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
   // Handle single student credit assign
   const handleAssignStudentCredit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!singleAssignStudent) return;
+    if (!singleAssignStudent || !acquireRequestLock(singleAssignInFlightRef)) return;
+    setSingleAssignLoading(true);
+    setSingleAssignError(null);
     try {
-      await backendApi.enterprise.assignStudentCredits(
-        {
-          studentId: singleAssignStudent.id,
-          amount: Number(singleAssignAmount),
-          reason: singleAssignReason,
-        },
-        effectiveToken
-      );
+      const payload = {
+        studentId: singleAssignStudent.id,
+        amount: Number(singleAssignAmount),
+        reason: singleAssignReason,
+      };
+      const submission = await beginCreditSubmission(user.id, user.collegeId, "STUDENT_ASSIGNMENT", payload);
+      await backendApi.enterprise.assignStudentCredits(payload, effectiveToken, submission.key);
+      await submission.complete();
       setFeedback({
         type: "success",
         message: `Successfully allocated ${singleAssignAmount} credits to ${singleAssignStudent.user?.name}`,
@@ -737,58 +1159,95 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
       loadStudents();
       loadInitialData();
     } catch (err: any) {
-      setFeedback({ type: "error", message: err.message || "Assignment failed" });
+      const message = err.message || "Assignment failed";
+      setSingleAssignError(message);
+    } finally {
+      releaseRequestLock(singleAssignInFlightRef);
+      setSingleAssignLoading(false);
     }
   };
 
   // Handle add student
   const handleCreateStudent = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!acquireRequestLock(studentCreationInFlightRef)) return;
+    setStudentCreationLoading(true);
+    setStudentCreationError(null);
+    let submission: { key: string; complete: () => Promise<void> } | null = null;
     try {
-      await backendApi.enterprise.createStudent(studentForm, effectiveToken);
-      setFeedback({ type: "success", message: `Student ${studentForm.name} onboarded successfully.` });
-      setIsAddStudentOpen(false);
+      const payload = {
+        ...studentForm,
+        initialCredits: authorizedInitialCredits(user, studentForm.initialCredits),
+      };
+      if (user?.id && user?.collegeId) {
+        submission = await beginCreditSubmission(user.id, user.collegeId, "STUDENT_CREATION", payload);
+      }
+      const feedback = await completeStudentOnboarding(
+        () => backendApi.enterprise.createStudent(payload, effectiveToken, submission?.key),
+        async () => {
+          if (submission) await submission.complete();
+          setStudentForm(() => {
+            const form = createEmptyStudentForm();
+            return { ...form, initialCredits: authorizedInitialCredits(user, form.initialCredits) };
+          });
+          setIsAddStudentOpen(false);
+          loadStudents();
+          loadInitialData();
+        }
+      );
+      setFeedback(feedback);
+      if (feedback.type === "error") {
+        setStudentCreationFeedbackType("error");
+        setStudentCreationError(feedback.message);
+      }
+    } catch (err: unknown) {
+      const feedback = studentCreationFailure(err);
+      setStudentCreationFeedbackType(feedback.type);
+      setStudentCreationError(feedback.message);
+      setFeedback(feedback);
       loadStudents();
-      loadInitialData();
-    } catch (err: any) {
-      setFeedback({ type: "error", message: err.message || "Failed to add student" });
+    } finally {
+      releaseRequestLock(studentCreationInFlightRef);
+      setStudentCreationLoading(false);
     }
   };
 
   // Handle bulk import file upload
   const handleBulkImportFileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!bulkImportFile) return;
+    if (!bulkImportFile || !acquireRequestLock(bulkImportInFlightRef)) return;
     try {
       setBulkImportLoading(true);
+      setBulkImportError(null);
       setBulkImportResult(null);
       const res = await backendApi.enterprise.bulkImportFile(
         bulkImportFile,
-        { atomic: bulkImportAtomic, initialCredits: bulkImportCredits },
+        { atomic: bulkImportAtomic, initialCredits: authorizedInitialCredits(user, bulkImportCredits) },
         effectiveToken
       );
       setBulkImportResult({
         totalProcessed: res.totalProcessed,
         totalCreated: res.totalCreated,
         totalFailed: res.totalFailed,
+        emailsSent: res.emailsSent,
+        emailsFailed: res.emailsFailed,
         errors: res.errors || [],
       });
       if (res.totalCreated > 0) {
         setFeedback({
-          type: "success",
-          message: `Successfully created ${res.totalCreated} student accounts. Welcome credentials dispatched via email.`,
+          type: res.emailsFailed > 0 ? "warning" : "success",
+          message: `Created ${res.totalCreated} student accounts. Welcome emails accepted by the email service: ${res.emailsSent}; failed: ${res.emailsFailed}.`,
         });
         loadStudents();
         loadInitialData();
       } else if (res.totalFailed > 0) {
-        setFeedback({
-          type: "error",
-          message: `Bulk import completed with ${res.totalFailed} failure(s). Please review the errors below.`,
-        });
+        setBulkImportError(`Bulk import completed with ${res.totalFailed} failure(s). Please review the errors below.`);
       }
     } catch (err: any) {
-      setFeedback({ type: "error", message: err.message || "Failed to process bulk import file." });
+      const message = err.message || "Failed to process bulk import file.";
+      setBulkImportError(message);
     } finally {
+      releaseRequestLock(bulkImportInFlightRef);
       setBulkImportLoading(false);
     }
   };
@@ -796,22 +1255,19 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
   // Send a password setup link only after explicit confirmation. The ref closes
   // the same-render double-click window before React applies loading state.
   const handleResendInvite = async (student: any) => {
+    if (!canResendStudentInvite) return;
     if (resendRequestInFlightRef.current) return;
     resendRequestInFlightRef.current = true;
     try {
       setResendingStudentId(student.id);
-      await backendApi.enterprise.resendStudentInvite(student.id, effectiveToken);
-      setFeedback({
-        type: "success",
-        message: `Password setup email sent to ${student.user?.name || student.name} (${student.user?.email || student.email}).`,
-      });
+      const result = await backendApi.enterprise.resendStudentInvite(student.id, effectiveToken);
+      setFeedback(invitationFeedback(result));
       setResendConfirmationStudent(null);
       loadStudents();
-    } catch (err: any) {
-      setFeedback({
-        type: "error",
-        message: err.message || "Unable to send login email. The student's existing credentials remain unchanged.",
-      });
+    } catch (err: unknown) {
+      setFeedback(invitationRetryFailure(err));
+      setResendConfirmationStudent(null);
+      loadStudents();
     } finally {
       resendRequestInFlightRef.current = false;
       setResendingStudentId(null);
@@ -839,6 +1295,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
     e.preventDefault();
     if (!acquireRequestLock(facultyCreationInFlightRef)) return;
     setFacultyCreationLoading(true);
+    setFacultyCreationError(null);
     try {
       const {
         permissions,
@@ -867,7 +1324,8 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
       setFacultyForm(createEmptyFacultyForm());
       await Promise.all([loadFaculty(), loadInitialData()]);
     } catch (err: any) {
-      setFeedback({ type: "error", message: err.message || "Failed to add faculty" });
+      const message = err.message || "Failed to add faculty";
+      setFacultyCreationError(message);
     } finally {
       releaseRequestLock(facultyCreationInFlightRef);
       setFacultyCreationLoading(false);
@@ -875,6 +1333,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
   };
 
   const openFacultyEditor = (faculty: any) => {
+    setFacultyUpdateError(null);
     setFacultyEditForm({
       name: faculty.user?.name || faculty.name || "",
       email: faculty.user?.email || faculty.email || "",
@@ -899,8 +1358,9 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
 
   const handleUpdateFaculty = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!editingFaculty || facultyUpdateLoading) return;
+    if (!editingFaculty || !acquireRequestLock(facultyUpdateInFlightRef)) return;
     setFacultyUpdateLoading(true);
+    setFacultyUpdateError(null);
     try {
       await backendApi.enterprise.updateFaculty(editingFaculty.id, {
         name: facultyEditForm.name,
@@ -922,8 +1382,10 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
       setEditingFaculty(null);
       await loadFaculty();
     } catch (err: any) {
-      setFeedback({ type: "error", message: err.message || "Failed to update faculty member" });
+      const message = err.message || "Failed to update faculty member";
+      setFacultyUpdateError(message);
     } finally {
+      releaseRequestLock(facultyUpdateInFlightRef);
       setFacultyUpdateLoading(false);
     }
   };
@@ -963,7 +1425,9 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
 
   // CSV Export
   const handleExportCsv = async () => {
+    if (!acquireRequestLock(exportRequestInFlightRef)) return;
     try {
+      setExportingCsv(true);
       setFeedback(null);
       await backendApi.enterprise.downloadReports({
         format: 'csv',
@@ -976,11 +1440,16 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
       setFeedback({ type: "success", message: "Student reports successfully exported as sanitized CSV." });
     } catch (err: any) {
       setFeedback({ type: "error", message: err.message || "Failed to export CSV" });
+    } finally {
+      releaseRequestLock(exportRequestInFlightRef);
+      setExportingCsv(false);
     }
   };
 
   const handleExportExcel = async () => {
+    if (!acquireRequestLock(exportRequestInFlightRef)) return;
     try {
+      setExportingExcel(true);
       setFeedback(null);
       await backendApi.enterprise.downloadReports({
         format: 'xlsx',
@@ -993,6 +1462,9 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
       setFeedback({ type: "success", message: "Student reports successfully exported as Excel (.xlsx) workbook." });
     } catch (err: any) {
       setFeedback({ type: "error", message: err.message || "Failed to export Excel" });
+    } finally {
+      releaseRequestLock(exportRequestInFlightRef);
+      setExportingExcel(false);
     }
   };
 
@@ -1029,7 +1501,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 <div>
                   <span className="hidden sm:block text-[10px] text-emerald-700/70 font-semibold uppercase tracking-wider">Institutional Balance</span>
                   <span className="text-sm font-bold text-emerald-700 font-mono">
-                    {stats?.credits?.balance ?? 0} Credits
+                    {statsLoading ? "Loading…" : statsError ? "Unavailable" : `${stats?.credits?.balance ?? 0} Credits`}
                   </span>
                 </div>
               </div>}
@@ -1103,7 +1575,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 }`}
               >
                 <GraduationCap className="w-4 h-4" />
-                Students Directory ({stats?.students?.total ?? 0})
+                Students Directory ({statsError ? "—" : stats?.students?.total ?? 0})
               </button>
             )}
             {canViewFaculty && (
@@ -1118,7 +1590,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 }`}
               >
                 <Users className="w-4 h-4" />
-                Faculty Members ({stats?.faculty?.total ?? 0})
+                Faculty Members ({statsError ? "—" : stats?.faculty?.total ?? 0})
               </button>
             )}
             {canViewCredits && (
@@ -1175,12 +1647,17 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
         {/* Feedback Alert */}
         {feedback && (
           <div
+            role={feedback.type === "error" ? "alert" : "status"}
+            aria-live={feedback.type === "error" ? "assertive" : "polite"}
+            aria-atomic="true"
             className={`p-4 rounded-xl border flex items-start justify-between gap-3 text-xs ${
               feedback.type === "success"
                 ? "bg-emerald-950/40 border-emerald-800/60 text-emerald-200"
                 : feedback.type === "warning"
                   ? "bg-amber-950/40 border-amber-800/60 text-amber-200"
-                : "bg-rose-950/40 border-rose-800/60 text-rose-200"
+                : feedback.type === "info"
+                  ? "bg-sky-950/40 border-sky-800/60 text-sky-200"
+                  : "bg-rose-950/40 border-rose-800/60 text-rose-200"
             }`}
           >
             <div className="flex items-center gap-2">
@@ -1188,15 +1665,26 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
               ) : feedback.type === "warning" ? (
                 <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+              ) : feedback.type === "info" ? (
+                <AlertCircle className="w-4 h-4 text-sky-400 shrink-0" />
               ) : (
                 <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
               )}
               <span>{feedback.message}</span>
             </div>
-            <button onClick={() => setFeedback(null)} className="text-zinc-400 hover:text-white">
+            <button onClick={() => setFeedback(null)} className="text-zinc-400 hover:text-white" aria-label="Dismiss notification">
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
+        )}
+
+        {(["students", "faculty", "credits", "reports"] as TabType[]).includes(activeTab) && (
+          <SectionStatus
+            loading={filterOptionsLoading}
+            error={filterOptionsError}
+            loadingMessage="Loading filter options..."
+            onRetry={() => loadFilterOptions()}
+          />
         )}
 
         {/* ========================================================================= */}
@@ -1205,6 +1693,14 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
         {activeTab === "overview" && (
           <div className="enterprise-tab-content space-y-6">
             {/* KPI Ribbon */}
+            {statsLoading || statsError ? (
+              <SectionStatus
+                loading={statsLoading}
+                error={statsError}
+                loadingMessage="Loading dashboard statistics..."
+                onRetry={() => loadStats()}
+              />
+            ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {canViewStudents && <div className="enterprise-kpi p-5 rounded-2xl bg-white border border-slate-200/80 glass-panel">
                 <div className="flex items-center justify-between text-zinc-400">
@@ -1264,6 +1760,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 </div>
               </div>}
             </div>
+            )}
 
             {/* Quick Actions Panel */}
             <div className="enterprise-panel p-5 sm:p-6 rounded-3xl bg-white border border-slate-200/80 glass-panel">
@@ -1275,6 +1772,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 {canCreateStudents && <button
                   onClick={() => {
                     setActiveTab("students");
+                    setStudentCreationError(null);
                     setIsAddStudentOpen(true);
                   }}
                   className="enterprise-action-card p-4 rounded-2xl bg-slate-50 border border-slate-200 hover:border-rose-200 hover:bg-rose-50/60 transition-all duration-200 text-left flex items-start gap-3 group"
@@ -1341,7 +1839,15 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/40 text-zinc-300">
-                    {students.slice(0, 5).map((s) => (
+                    {studentsLoading || studentsError ? (
+                      <TableStatusRow
+                        colSpan={5}
+                        loading={studentsLoading}
+                        error={studentsError}
+                        loadingMessage="Loading recently enrolled students..."
+                        onRetry={loadStudents}
+                      />
+                    ) : students.length > 0 ? students.slice(0, 5).map((s) => (
                       <tr key={s.id} className="hover:bg-zinc-900/20">
                         <td className="px-6 py-3 font-medium text-white">{s.user?.name}</td>
                         <td className="px-6 py-3 font-mono text-zinc-400">
@@ -1362,7 +1868,13 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                           </button>
                         </td>
                       </tr>
-                    ))}
+                    )) : (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center text-zinc-500 text-sm">
+                          {getTableEmptyMessage(isOfflineOrDemoToken(effectiveToken), "No recently enrolled students found.")}
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1397,6 +1909,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     onClick={() => {
                       setBulkImportResult(null);
                       setBulkImportFile(null);
+                      setBulkImportError(null);
                       setIsBulkImportOpen(true);
                     }}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 rounded-lg text-xs font-semibold transition-all cursor-pointer"
@@ -1404,7 +1917,10 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     <Upload className="w-4 h-4 text-sky-400" /> Bulk Import
                   </button>
                   <button
-                    onClick={() => setIsAddStudentOpen(true)}
+                    onClick={() => {
+                      setStudentCreationError(null);
+                      setIsAddStudentOpen(true);
+                    }}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold transition-all cursor-pointer shadow-lg shadow-rose-950/40"
                   >
                     <Plus className="w-4 h-4" /> Add Student
@@ -1502,7 +2018,15 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/40 text-zinc-300">
-                    {students.length > 0 ? (
+                    {studentsLoading || studentsError ? (
+                      <TableStatusRow
+                        colSpan={8}
+                        loading={studentsLoading}
+                        error={studentsError}
+                        loadingMessage="Loading students..."
+                        onRetry={loadStudents}
+                      />
+                    ) : students.length > 0 ? (
                       students.map((student) => (
                         <tr key={student.id} className="hover:bg-zinc-900/20 transition-colors">
                           <td className="px-6 py-4">
@@ -1532,12 +2056,12 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                             <span className="text-[10px] text-zinc-500 font-mono block">Credits</span>
                           </td>
                           <td className="px-6 py-4">
-                            {student.invitationStatus === "failed" ? (
+                            {student.invitationStatus === "failed" || student.invitationStatus === "delivery_failed" ? (
                               <div className="flex items-center gap-1.5">
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 border border-rose-500/20" title={student.emailError || "Email delivery failed"}>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 border border-rose-500/20" title={safeInvitationError(student.emailError)}>
                                   <AlertCircle className="w-3 h-3 text-rose-400" /> Failed
                                 </span>
-                                {canCreateStudents && (
+                                {canResendStudentInvite && (
                                   <button
                                     onClick={() => setResendConfirmationStudent(student)}
                                     disabled={resendingStudentId === student.id}
@@ -1549,11 +2073,11 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                               </div>
                             ) : student.invitationStatus === "sent" || student.invitationStatus === "delivered" ? (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                                <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Delivered
+                                <CheckCircle2 className="w-3 h-3 text-emerald-400" /> {student.invitationStatus === "delivered" ? "Delivered" : "Sent"}
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                                Pending
+                                {student.invitationStatus === "pending" ? "Pending" : student.invitationStatus === "accepted" ? "Accepted" : student.invitationStatus === "expired" ? "Expired" : student.invitationStatus === "revoked" ? "Revoked" : "Unknown"}
                               </span>
                             )}
                           </td>
@@ -1566,14 +2090,17 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                             <div className="flex items-center justify-end gap-2">
                               {canDistributeCredits && (
                                 <button
-                                  onClick={() => setSingleAssignStudent(student)}
+                                  onClick={() => {
+                                    setSingleAssignError(null);
+                                    setSingleAssignStudent(student);
+                                  }}
                                   className="px-2.5 py-1.5 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-800/60 text-emerald-300 text-xs font-medium cursor-pointer"
                                   title="Assign Credits"
                                 >
                                   + Credits
                                 </button>
                               )}
-                              {canCreateStudents && (
+                              {canResendStudentInvite && (
                                 <button
                                   onClick={() => setResendConfirmationStudent(student)}
                                   disabled={resendingStudentId === student.id}
@@ -1601,20 +2128,22 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     ) : (
                       <tr>
                         <td colSpan={8} className="px-6 py-12 text-center text-zinc-500 text-sm">
-                          No students match the selected filter criteria.
+                          {getTableEmptyMessage(isOfflineOrDemoToken(effectiveToken), "No students match the selected filter criteria.")}
                         </td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
-              <PaginationControls
-                page={studentPage}
-                total={studentTotal}
-                pageSize={STUDENT_PAGE_SIZE}
-                itemLabel="students"
-                onPageChange={setStudentPage}
-              />
+              {!studentsLoading && !studentsError && (
+                <PaginationControls
+                  page={studentPage}
+                  total={studentTotal}
+                  pageSize={STUDENT_PAGE_SIZE}
+                  itemLabel="students"
+                  onPageChange={setStudentPage}
+                />
+              )}
             </div>
           </div>
         )}
@@ -1635,6 +2164,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 <button
                   onClick={() => {
                     setFacultyForm(createEmptyFacultyForm());
+                    setFacultyCreationError(null);
                     setIsAddFacultyOpen(true);
                   }}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold transition-all cursor-pointer shadow-lg shadow-rose-950/40"
@@ -1658,7 +2188,15 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/40 text-zinc-300">
-                    {facultyList.length > 0 ? facultyList.map((fac) => (
+                    {facultyLoading || facultyError ? (
+                      <TableStatusRow
+                        colSpan={6}
+                        loading={facultyLoading}
+                        error={facultyError}
+                        loadingMessage="Loading faculty..."
+                        onRetry={loadFaculty}
+                      />
+                    ) : facultyList.length > 0 ? facultyList.map((fac) => (
                       <tr key={fac.id} className="hover:bg-zinc-900/20">
                         <td className="px-6 py-4">
                           <div>
@@ -1741,20 +2279,22 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     )) : (
                       <tr>
                         <td colSpan={6} className="px-6 py-12 text-center text-zinc-500 text-sm">
-                          No faculty members found.
+                          {getTableEmptyMessage(isOfflineOrDemoToken(effectiveToken), "No faculty members found.")}
                         </td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
-              <PaginationControls
-                page={facultyPage}
-                total={facultyTotal}
-                pageSize={FACULTY_PAGE_SIZE}
-                itemLabel="faculty members"
-                onPageChange={setFacultyPage}
-              />
+              {!facultyLoading && !facultyError && (
+                <PaginationControls
+                  page={facultyPage}
+                  total={facultyTotal}
+                  pageSize={FACULTY_PAGE_SIZE}
+                  itemLabel="faculty members"
+                  onPageChange={setFacultyPage}
+                />
+              )}
             </div>
           </div>
         )}
@@ -1951,7 +2491,15 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/40 text-zinc-300">
-                    {creditLedger.length > 0 ? creditLedger.map((tx) => (
+                    {creditsLoading || creditsError ? (
+                      <TableStatusRow
+                        colSpan={6}
+                        loading={creditsLoading}
+                        error={creditsError}
+                        loadingMessage="Loading credit transactions..."
+                        onRetry={loadCredits}
+                      />
+                    ) : creditLedger.length > 0 ? creditLedger.map((tx) => (
                       <tr key={tx.id} className="hover:bg-zinc-900/20">
                         <td className="px-6 py-4">
                           <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-zinc-900 border border-zinc-800 text-zinc-300">
@@ -1971,8 +2519,11 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                         </td>
                         <td className="px-6 py-4 font-mono text-zinc-400">{tx.balanceAfter}</td>
                         <td className="px-6 py-4 text-zinc-300 max-w-[250px] truncate">{tx.reason}</td>
-                        <td className="px-6 py-4 font-mono text-[11px] text-zinc-400">
-                          {tx.createdBy?.name || "System"}
+                        <td className="px-6 py-4 text-[11px] text-zinc-400">
+                          <span className="block font-medium text-zinc-300">
+                            {getCreditLedgerActorLabel(tx.performedBy)}
+                          </span>
+                          <span className="block font-mono text-[10px] text-zinc-500">{tx.performedBy.email}</span>
                         </td>
                         <td className="px-6 py-4 font-mono text-zinc-500">
                           {new Date(tx.createdAt).toLocaleDateString()}
@@ -1981,20 +2532,22 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     )) : (
                       <tr>
                         <td colSpan={6} className="px-6 py-12 text-center text-zinc-500 text-sm">
-                          No credit transactions found.
+                          {getTableEmptyMessage(isOfflineOrDemoToken(effectiveToken), "No credit transactions found.")}
                         </td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
-              <PaginationControls
-                page={creditPage}
-                total={creditTotal}
-                pageSize={CREDIT_PAGE_SIZE}
-                itemLabel="credit transactions"
-                onPageChange={setCreditPage}
-              />
+              {!creditsLoading && !creditsError && (
+                <PaginationControls
+                  page={creditPage}
+                  total={creditTotal}
+                  pageSize={CREDIT_PAGE_SIZE}
+                  itemLabel="credit transactions"
+                  onPageChange={setCreditPage}
+                />
+              )}
             </div>
           </div>
         )}
@@ -2005,7 +2558,14 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
         {activeTab === "reports" && canViewReports && (
           <div className="enterprise-tab-content space-y-6">
             {/* Summary Insights */}
-            {reportSummary && (
+            {reportSummaryLoading || reportSummaryError ? (
+              <SectionStatus
+                loading={reportSummaryLoading}
+                error={reportSummaryError}
+                loadingMessage="Loading report summary..."
+                onRetry={loadReportSummary}
+              />
+            ) : reportSummary && (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="enterprise-kpi p-5 rounded-2xl bg-white border border-slate-200/80 glass-panel">
                   <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
@@ -2056,28 +2616,53 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                   <input
                     type="text"
-                    placeholder="Search candidate name or roll number..."
+                    placeholder="Search candidate name, role, email, or roll number..."
                     value={reportSearch}
                     onChange={(e) => {
                       setReportSearch(e.target.value);
                       setReportPage(1);
                     }}
-                    className="w-full pl-9 pr-4 py-2 bg-zinc-950/70 border border-zinc-800 rounded-lg text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-rose-500"
+                    className="w-full pl-9 pr-8 py-2 bg-zinc-950/70 border border-zinc-800 rounded-lg text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-rose-500"
                   />
+                  {reportSearch && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReportSearch("");
+                        setReportPage(1);
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200 transition-colors"
+                      title="Clear search"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
 
                 {canExportReports && <div className="flex items-center gap-2">
                   <button
                     onClick={handleExportCsv}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                    disabled={exportingCsv || exportingExcel}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed text-zinc-200 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
                   >
-                    <Download className="w-3.5 h-3.5 text-zinc-400" /> Export CSV
+                    {exportingCsv ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-zinc-400" />
+                    ) : (
+                      <Download className="w-3.5 h-3.5 text-zinc-400" />
+                    )}
+                    {exportingCsv ? "Exporting CSV..." : "Export CSV"}
                   </button>
                   <button
                     onClick={handleExportExcel}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/30 text-rose-300 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                    disabled={exportingCsv || exportingExcel}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-rose-600/20 hover:bg-rose-600/30 disabled:opacity-50 disabled:cursor-not-allowed border border-rose-500/30 text-rose-300 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
                   >
-                    <FileText className="w-3.5 h-3.5 text-rose-400" /> Export Excel (.xlsx)
+                    {exportingExcel ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-rose-400" />
+                    ) : (
+                      <FileText className="w-3.5 h-3.5 text-rose-400" />
+                    )}
+                    {exportingExcel ? "Exporting Excel..." : "Export Excel (.xlsx)"}
                   </button>
                 </div>}
               </div>
@@ -2171,7 +2756,15 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/40 text-zinc-300">
-                    {reports.length > 0 ? (
+                    {reportsLoading || reportsError ? (
+                      <TableStatusRow
+                        colSpan={7}
+                        loading={reportsLoading}
+                        error={reportsError}
+                        loadingMessage="Loading reports..."
+                        onRetry={loadReports}
+                      />
+                    ) : reports.length > 0 ? (
                       reports.map((report) => {
                         const scoreVal = Math.round(Number(report.overallScore));
 
@@ -2233,7 +2826,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     ) : (
                       <tr>
                         <td colSpan={7} className="px-6 py-12 text-center text-zinc-500 text-sm">
-                          No interview evaluation records found.
+                          {getTableEmptyMessage(isOfflineOrDemoToken(effectiveToken), "No interview evaluation records found.")}
                         </td>
                       </tr>
                     )}
@@ -2241,13 +2834,15 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 </table>
               </div>
 
-              <PaginationControls
-                page={reportPage}
-                total={reportTotal}
-                pageSize={REPORT_PAGE_SIZE}
-                itemLabel="interview evaluations"
-                onPageChange={setReportPage}
-              />
+              {!reportsLoading && !reportsError && (
+                <PaginationControls
+                  page={reportPage}
+                  total={reportTotal}
+                  pageSize={REPORT_PAGE_SIZE}
+                  itemLabel="interview evaluations"
+                  onPageChange={setReportPage}
+                />
+              )}
             </div>
           </div>
         )}
@@ -2333,13 +2928,14 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/60 font-normal">
-                    {auditLoading ? (
-                      <tr>
-                        <td colSpan={6} className="px-6 py-12 text-center text-zinc-500">
-                          <RefreshCw className="w-5 h-5 mx-auto animate-spin text-rose-500 mb-2" />
-                          Loading institutional audit logs...
-                        </td>
-                      </tr>
+                    {auditLoading || auditError ? (
+                      <TableStatusRow
+                        colSpan={6}
+                        loading={auditLoading}
+                        error={auditError}
+                        loadingMessage="Loading institutional audit logs..."
+                        onRetry={loadAuditLogs}
+                      />
                     ) : auditLogs.length > 0 ? (
                       auditLogs.map((log) => {
                         const actionColor =
@@ -2443,7 +3039,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     ) : (
                       <tr>
                         <td colSpan={6} className="px-6 py-12 text-center text-zinc-500">
-                          No audit trail records found matching your filters.
+                          {getTableEmptyMessage(isOfflineOrDemoToken(effectiveToken), "No audit trail records found matching your filters.")}
                         </td>
                       </tr>
                     )}
@@ -2452,7 +3048,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
               </div>
 
               {/* Pagination */}
-              <div className="p-3 border-t border-zinc-800 bg-zinc-900/30 flex items-center justify-between text-xs text-zinc-400">
+              {!auditLoading && !auditError && <div className="p-3 border-t border-zinc-800 bg-zinc-900/30 flex items-center justify-between text-xs text-zinc-400">
                 <span>
                   {calculatePaginationRange(auditPage, 15, auditTotal).text}
                 </span>
@@ -2475,7 +3071,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     Next
                   </button>
                 </div>
-              </div>
+              </div>}
             </div>
           </div>
         )}
@@ -2487,13 +3083,11 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
 
       {/* Audit Log Inspection Modal */}
       {selectedAuditLog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="audit-inspection-title"
-            className="w-full max-w-2xl bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
-          >
+        <AccessibleDialog
+          titleId="audit-inspection-title"
+          onClose={() => setSelectedAuditLog(null)}
+          className="w-full max-w-2xl bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+        >
             <div className="flex items-center justify-between p-5 border-b border-zinc-800 bg-zinc-900/50">
               <div>
                 <h3 id="audit-inspection-title" className="text-base font-bold text-white flex items-center gap-2">
@@ -2508,6 +3102,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
               </div>
               <button
                 onClick={() => setSelectedAuditLog(null)}
+                aria-label="Close audit log inspection"
                 className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-zinc-800/80 transition-colors"
               >
                 <X className="w-5 h-5" />
@@ -2515,7 +3110,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
             </div>
 
             <div className="p-6 overflow-y-auto space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-4 bg-zinc-900/40 p-3 rounded-xl border border-zinc-800/80">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-zinc-900/40 p-3 rounded-xl border border-zinc-800/80">
                 <div>
                   <span className="text-zinc-500 uppercase text-[10px] font-semibold block">Actor</span>
                   <span className="text-zinc-200 font-medium">{selectedAuditLog.actor?.name || selectedAuditLog.actor?.email || "System"}</span>
@@ -2574,23 +3169,22 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 Close
               </button>
             </div>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
 
       {/* Password setup email confirmation */}
-      {resendConfirmationStudent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="resend-credentials-title"
-            className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-5"
-          >
+      {resendConfirmationStudent && canResendStudentInvite && (
+        <AccessibleDialog
+          titleId="resend-credentials-title"
+          descriptionId="resend-credentials-description"
+          closeDisabled={resendingStudentId === resendConfirmationStudent.id}
+          onClose={() => setResendConfirmationStudent(null)}
+          className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-5"
+        >
             <div className="flex items-start justify-between gap-4 border-b border-zinc-800 pb-3">
               <div>
                 <h3 id="resend-credentials-title" className="text-sm font-bold text-white">Send password setup email?</h3>
-                <p className="mt-1 text-[11px] leading-5 text-zinc-400">
+                <p id="resend-credentials-description" className="mt-1 text-[11px] leading-5 text-zinc-400">
                   A secure, single-use setup link will be sent. The student's current password will remain valid until they choose a new one.
                 </p>
               </div>
@@ -2636,26 +3230,36 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 )}
               </button>
             </div>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
 
       {/* Add Student Modal */}
       {isAddStudentOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-4">
+        <AccessibleDialog
+          titleId="add-student-title"
+          closeDisabled={studentCreationLoading}
+          onClose={() => setIsAddStudentOpen(false)}
+          className="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-zinc-950 border border-zinc-800 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4"
+        >
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-              <h3 className="text-sm font-bold text-white">Enroll Student</h3>
-              <button onClick={() => setIsAddStudentOpen(false)} className="text-zinc-500 hover:text-white">
+              <h3 id="add-student-title" className="text-sm font-bold text-white">Enroll Student</h3>
+              <button type="button" disabled={studentCreationLoading} onClick={() => setIsAddStudentOpen(false)} className="text-zinc-500 hover:text-white disabled:opacity-50" aria-label="Close add student dialog">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateStudent} className="space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-3">
+            <form onSubmit={handleCreateStudent} className="space-y-3 text-xs" aria-busy={studentCreationLoading}>
+              {studentCreationError && (
+                <div role={studentCreationFeedbackType === "error" ? "alert" : "status"} className={`rounded-lg border p-3 ${studentCreationFeedbackType === "error" ? "border-rose-800/60 bg-rose-950/40 text-rose-200" : "border-amber-800/60 bg-amber-950/40 text-amber-200"}`}>
+                  {studentCreationError}
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-zinc-300 mb-1">Full Name *</label>
+                  <label htmlFor="student-name" className="block text-zinc-300 mb-1">Full Name *</label>
                   <input
+                    id="student-name"
+                    data-dialog-autofocus
                     required
                     type="text"
                     value={studentForm.name}
@@ -2664,8 +3268,9 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   />
                 </div>
                 <div>
-                  <label className="block text-zinc-300 mb-1">Email Address *</label>
+                  <label htmlFor="student-email" className="block text-zinc-300 mb-1">Email Address *</label>
                   <input
+                    id="student-email"
                     required
                     type="email"
                     value={studentForm.email}
@@ -2674,8 +3279,9 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   />
                 </div>
                 <div>
-                  <label className="block text-zinc-300 mb-1">Enrollment / Roll No *</label>
+                  <label htmlFor="student-enrollment" className="block text-zinc-300 mb-1">Enrollment / Roll No *</label>
                   <input
+                    id="student-enrollment"
                     required
                     type="text"
                     value={studentForm.enrollmentNumber}
@@ -2684,8 +3290,9 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   />
                 </div>
                 <div>
-                  <label className="block text-zinc-300 mb-1">Program *</label>
+                  <label htmlFor="student-program" className="block text-zinc-300 mb-1">Program *</label>
                   <input
+                    id="student-program"
                     required
                     type="text"
                     value={studentForm.program}
@@ -2694,8 +3301,9 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   />
                 </div>
                 <div>
-                  <label className="block text-zinc-300 mb-1">Course / Branch *</label>
+                  <label htmlFor="student-course" className="block text-zinc-300 mb-1">Course / Branch *</label>
                   <input
+                    id="student-course"
                     required
                     type="text"
                     value={studentForm.course}
@@ -2704,8 +3312,9 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   />
                 </div>
                 <div>
-                  <label className="block text-zinc-300 mb-1">Section *</label>
+                  <label htmlFor="student-section" className="block text-zinc-300 mb-1">Section *</label>
                   <input
+                    id="student-section"
                     required
                     type="text"
                     value={studentForm.section}
@@ -2714,8 +3323,9 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   />
                 </div>
                 <div>
-                  <label className="block text-zinc-300 mb-1">Batch *</label>
+                  <label htmlFor="student-batch" className="block text-zinc-300 mb-1">Batch *</label>
                   <input
+                    id="student-batch"
                     required
                     type="text"
                     value={studentForm.batch}
@@ -2723,9 +3333,11 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-white"
                   />
                 </div>
+                {canDistributeCredits ? (
                 <div>
-                  <label className="block text-zinc-300 mb-1">Initial Credits</label>
+                  <label htmlFor="student-initial-credits" className="block text-zinc-300 mb-1">Initial Credits</label>
                   <input
+                    id="student-initial-credits"
                     type="number"
                     min={0}
                     value={studentForm.initialCredits}
@@ -2733,64 +3345,89 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-white font-mono"
                   />
                 </div>
+                ) : (
+                  <p className="text-zinc-400">Students will start with zero credits. Credit assignment requires additional permission.</p>
+                )}
               </div>
 
               <div className="pt-3 border-t border-zinc-800 flex items-center justify-end gap-2">
                 <button
                   type="button"
+                  disabled={studentCreationLoading}
                   onClick={() => setIsAddStudentOpen(false)}
-                  className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-lg text-xs"
+                  className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-lg text-xs disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold"
+                  disabled={studentCreationLoading}
+                  aria-busy={studentCreationLoading}
+                  className="inline-flex items-center gap-1.5 px-5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Enroll Student
+                  {studentCreationLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  {studentCreationLoading ? "Adding Student..." : "Enroll Student"}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
 
       {/* Bulk Import Students Modal */}
       {isBulkImportOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-xl bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+        <AccessibleDialog
+          titleId="bulk-import-title"
+          descriptionId="bulk-import-description"
+          closeDisabled={bulkImportLoading}
+          onClose={() => {
+            setIsBulkImportOpen(false);
+            setBulkImportResult(null);
+            setBulkImportFile(null);
+          }}
+          className="w-full max-w-xl bg-zinc-950 border border-zinc-800 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto"
+        >
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
               <div>
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <h3 id="bulk-import-title" className="text-sm font-bold text-white flex items-center gap-2">
                   <Upload className="w-4 h-4 text-sky-400" /> Bulk Import Students
                 </h3>
-                <p className="text-[11px] text-zinc-400 mt-0.5">
+                <p id="bulk-import-description" className="text-[11px] text-zinc-400 mt-0.5">
                   Upload an Excel (.xlsx, .xls) or CSV cohort spreadsheet
                 </p>
               </div>
               <button
+                type="button"
+                disabled={bulkImportLoading}
                 onClick={() => {
                   setIsBulkImportOpen(false);
                   setBulkImportResult(null);
                   setBulkImportFile(null);
                 }}
-                className="text-zinc-500 hover:text-white"
+                className="text-zinc-500 hover:text-white disabled:opacity-50"
+                aria-label="Close bulk import dialog"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleBulkImportFileSubmit} className="space-y-4 text-xs">
+            <form onSubmit={handleBulkImportFileSubmit} className="space-y-4 text-xs" aria-busy={bulkImportLoading}>
+              {bulkImportError && (
+                <div role="alert" className="rounded-lg border border-rose-800/60 bg-rose-950/40 p-3 text-rose-200">
+                  {bulkImportError}
+                </div>
+              )}
               {/* File upload zone */}
               <div className="border-2 border-dashed border-zinc-800 hover:border-sky-500/60 rounded-xl p-6 text-center transition-all bg-zinc-900/30">
                 <input
                   type="file"
                   id="excelFileInput"
                   accept=".xlsx, .xls, .csv"
+                  disabled={bulkImportLoading}
                   onChange={(e) => {
                     if (e.target.files && e.target.files[0]) {
                       setBulkImportFile(e.target.files[0]);
                       setBulkImportResult(null);
+                      setBulkImportError(null);
                     }
                   }}
                   className="hidden"
@@ -2828,10 +3465,12 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {canDistributeCredits ? (
                 <div>
-                  <label className="block text-zinc-300 mb-1">Initial Credits Per Student</label>
+                  <label htmlFor="bulk-initial-credits" className="block text-zinc-300 mb-1">Initial Credits Per Student</label>
                   <input
+                    id="bulk-initial-credits"
                     type="number"
                     min={0}
                     value={bulkImportCredits}
@@ -2840,6 +3479,9 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     placeholder="0"
                   />
                 </div>
+                ) : (
+                  <p className="text-zinc-400">Students will start with zero credits. Remove positive credit values from the uploaded file; credit assignment requires additional permission.</p>
+                )}
                 <div className="flex flex-col justify-end">
                   <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg bg-zinc-900/50 border border-zinc-800/80">
                     <input
@@ -2863,7 +3505,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                     <span className="font-bold text-white text-xs">Import Execution Summary</span>
                     <span className="font-mono text-zinc-400 text-[11px]">Total: {bulkImportResult.totalProcessed}</span>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
                     <div className="p-2 rounded-lg bg-emerald-950/30 border border-emerald-800/40">
                       <span className="text-lg font-bold font-mono text-emerald-400 block">{bulkImportResult.totalCreated}</span>
                       <span className="text-[10px] text-zinc-400 uppercase font-semibold">Created</span>
@@ -2873,8 +3515,11 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                       <span className="text-[10px] text-zinc-400 uppercase font-semibold">Failed</span>
                     </div>
                     <div className="p-2 rounded-lg bg-sky-950/30 border border-sky-800/40">
-                      <span className="text-lg font-bold font-mono text-sky-400 block">{bulkImportResult.totalCreated}</span>
+                      <span className="text-lg font-bold font-mono text-sky-400 block">{bulkImportResult.emailsSent}</span>
                       <span className="text-[10px] text-zinc-400 uppercase font-semibold">Emails Sent</span>
+                      {bulkImportResult.emailsFailed > 0 && (
+                        <span className="text-[9px] text-amber-400 block">{bulkImportResult.emailsFailed} failed</span>
+                      )}
                     </div>
                   </div>
 
@@ -2899,18 +3544,20 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
               <div className="pt-3 border-t border-zinc-800 flex items-center justify-end gap-2">
                 <button
                   type="button"
+                  disabled={bulkImportLoading}
                   onClick={() => {
                     setIsBulkImportOpen(false);
                     setBulkImportResult(null);
                     setBulkImportFile(null);
                   }}
-                  className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-lg text-xs"
+                  className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-lg text-xs disabled:opacity-50"
                 >
                   Close
                 </button>
                 <button
                   type="submit"
                   disabled={!bulkImportFile || bulkImportLoading}
+                  aria-busy={bulkImportLoading}
                   className="px-5 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-lg shadow-sky-950/40"
                 >
                   {bulkImportLoading ? (
@@ -2925,26 +3572,36 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
 
       {/* Add Faculty Modal */}
       {isAddFacultyOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-4">
+        <AccessibleDialog
+          titleId="add-faculty-title"
+          closeDisabled={facultyCreationLoading}
+          onClose={() => setIsAddFacultyOpen(false)}
+          className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-zinc-950 border border-zinc-800 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4"
+        >
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-              <h3 className="text-sm font-bold text-white">Add Faculty Member</h3>
-              <button disabled={facultyCreationLoading} onClick={() => setIsAddFacultyOpen(false)} className="text-zinc-500 hover:text-white disabled:opacity-50">
+              <h3 id="add-faculty-title" className="text-sm font-bold text-white">Add Faculty Member</h3>
+              <button type="button" disabled={facultyCreationLoading} onClick={() => setIsAddFacultyOpen(false)} className="text-zinc-500 hover:text-white disabled:opacity-50" aria-label="Close add faculty dialog">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateFaculty} className="space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-3">
+            <form onSubmit={handleCreateFaculty} className="space-y-3 text-xs" aria-busy={facultyCreationLoading}>
+              {facultyCreationError && (
+                <div role="alert" className="rounded-lg border border-rose-800/60 bg-rose-950/40 p-3 text-rose-200">
+                  {facultyCreationError}
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-zinc-300 mb-1">Faculty Name *</label>
+                  <label htmlFor="faculty-name" className="block text-zinc-300 mb-1">Faculty Name *</label>
                   <input
+                    id="faculty-name"
+                    data-dialog-autofocus
                     required
                     type="text"
                     value={facultyForm.name}
@@ -2953,8 +3610,9 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   />
                 </div>
                 <div>
-                  <label className="block text-zinc-300 mb-1">Email Address *</label>
+                  <label htmlFor="faculty-email" className="block text-zinc-300 mb-1">Email Address *</label>
                   <input
+                    id="faculty-email"
                     required
                     type="email"
                     value={facultyForm.email}
@@ -2963,8 +3621,9 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   />
                 </div>
                 <div>
-                  <label className="block text-zinc-300 mb-1">Employee ID</label>
+                  <label htmlFor="faculty-employee-id" className="block text-zinc-300 mb-1">Employee ID</label>
                   <input
+                    id="faculty-employee-id"
                     type="text"
                     value={facultyForm.employeeId}
                     onChange={(e) => setFacultyForm({ ...facultyForm, employeeId: e.target.value })}
@@ -2972,8 +3631,9 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   />
                 </div>
                 <div>
-                  <label className="block text-zinc-300 mb-1">Phone</label>
+                  <label htmlFor="faculty-phone" className="block text-zinc-300 mb-1">Phone</label>
                   <input
+                    id="faculty-phone"
                     type="tel"
                     value={facultyForm.phone}
                     onChange={(e) => setFacultyForm({ ...facultyForm, phone: e.target.value })}
@@ -2981,17 +3641,19 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   />
                 </div>
                 <div>
-                  <label className="block text-zinc-300 mb-1">Department</label>
+                  <label htmlFor="faculty-department" className="block text-zinc-300 mb-1">Department</label>
                   <input
+                    id="faculty-department"
                     type="text"
                     value={facultyForm.department}
                     onChange={(e) => setFacultyForm({ ...facultyForm, department: e.target.value })}
                     className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-white"
                   />
                 </div>
-                <div className="col-span-2">
-                  <label className="block text-zinc-300 mb-1">Designation</label>
+                <div className="sm:col-span-2">
+                  <label htmlFor="faculty-designation" className="block text-zinc-300 mb-1">Designation</label>
                   <input
+                    id="faculty-designation"
                     type="text"
                     value={facultyForm.designation}
                     onChange={(e) => setFacultyForm({ ...facultyForm, designation: e.target.value })}
@@ -3019,41 +3681,54 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 <button
                   type="submit"
                   disabled={facultyCreationLoading}
+                  aria-busy={facultyCreationLoading}
                   className="inline-flex items-center gap-1.5 px-5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {facultyCreationLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                  {facultyCreationLoading ? "Creating Faculty..." : "Send Invitation"}
+                  {facultyCreationLoading ? "Sending Invitation..." : "Send Invitation"}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
 
       {/* Edit Faculty Modal */}
       {editingFaculty && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-4">
+        <AccessibleDialog
+          titleId="edit-faculty-title"
+          descriptionId="edit-faculty-description"
+          closeDisabled={facultyUpdateLoading}
+          onClose={() => setEditingFaculty(null)}
+          className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-zinc-950 border border-zinc-800 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4"
+        >
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
               <div>
-                <h3 className="text-sm font-bold text-white">Edit Faculty Member</h3>
-                <p className="mt-1 text-[11px] text-zinc-500">Update profile details, permissions, and assigned cohort scope.</p>
+                <h3 id="edit-faculty-title" className="text-sm font-bold text-white">Edit Faculty Member</h3>
+                <p id="edit-faculty-description" className="mt-1 text-[11px] text-zinc-500">Update profile details, permissions, and assigned cohort scope.</p>
               </div>
               <button
                 type="button"
                 disabled={facultyUpdateLoading}
                 onClick={() => setEditingFaculty(null)}
                 className="text-zinc-500 hover:text-white disabled:opacity-50"
+                aria-label="Close edit faculty dialog"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleUpdateFaculty} className="space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-3">
+            <form onSubmit={handleUpdateFaculty} className="space-y-3 text-xs" aria-busy={facultyUpdateLoading}>
+              {facultyUpdateError && (
+                <div role="alert" className="rounded-lg border border-rose-800/60 bg-rose-950/40 p-3 text-rose-200">
+                  {facultyUpdateError}
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-zinc-300 mb-1">Faculty Name *</label>
+                  <label htmlFor="edit-faculty-name" className="block text-zinc-300 mb-1">Faculty Name *</label>
                   <input
+                    id="edit-faculty-name"
+                    data-dialog-autofocus
                     required
                     value={facultyEditForm.name}
                     onChange={(event) => setFacultyEditForm({ ...facultyEditForm, name: event.target.value })}
@@ -3061,16 +3736,18 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   />
                 </div>
                 <div>
-                  <label className="block text-zinc-300 mb-1">Email Address</label>
+                  <label htmlFor="edit-faculty-email" className="block text-zinc-300 mb-1">Email Address</label>
                   <input
+                    id="edit-faculty-email"
                     disabled
                     value={facultyEditForm.email}
                     className="w-full px-3 py-2 bg-zinc-900/60 border border-zinc-800 rounded-lg text-zinc-500 cursor-not-allowed"
                   />
                 </div>
                 <div>
-                  <label className="block text-zinc-300 mb-1">Phone</label>
+                  <label htmlFor="edit-faculty-phone" className="block text-zinc-300 mb-1">Phone</label>
                   <input
+                    id="edit-faculty-phone"
                     type="tel"
                     value={facultyEditForm.phone}
                     onChange={(event) => setFacultyEditForm({ ...facultyEditForm, phone: event.target.value })}
@@ -3078,24 +3755,27 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   />
                 </div>
                 <div>
-                  <label className="block text-zinc-300 mb-1">Employee ID</label>
+                  <label htmlFor="edit-faculty-employee-id" className="block text-zinc-300 mb-1">Employee ID</label>
                   <input
+                    id="edit-faculty-employee-id"
                     value={facultyEditForm.employeeId}
                     onChange={(event) => setFacultyEditForm({ ...facultyEditForm, employeeId: event.target.value })}
                     className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-white font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block text-zinc-300 mb-1">Department</label>
+                  <label htmlFor="edit-faculty-department" className="block text-zinc-300 mb-1">Department</label>
                   <input
+                    id="edit-faculty-department"
                     value={facultyEditForm.department}
                     onChange={(event) => setFacultyEditForm({ ...facultyEditForm, department: event.target.value })}
                     className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-zinc-300 mb-1">Designation</label>
+                  <label htmlFor="edit-faculty-designation" className="block text-zinc-300 mb-1">Designation</label>
                   <input
+                    id="edit-faculty-designation"
                     value={facultyEditForm.designation}
                     onChange={(event) => setFacultyEditForm({ ...facultyEditForm, designation: event.target.value })}
                     className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-white"
@@ -3123,6 +3803,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 <button
                   type="submit"
                   disabled={facultyUpdateLoading}
+                  aria-busy={facultyUpdateLoading}
                   className="inline-flex items-center gap-1.5 px-5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg font-semibold disabled:opacity-50"
                 >
                   {facultyUpdateLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
@@ -3130,22 +3811,30 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
 
       {/* Single Assign Credit Modal */}
       {singleAssignStudent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-sm bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-4">
+        <AccessibleDialog
+          titleId="assign-credit-title"
+          closeDisabled={singleAssignLoading}
+          onClose={() => setSingleAssignStudent(null)}
+          className="w-full max-w-sm bg-zinc-950 border border-zinc-800 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4"
+        >
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-              <h3 className="text-sm font-bold text-white">Assign Credits to Student</h3>
-              <button onClick={() => setSingleAssignStudent(null)} className="text-zinc-500 hover:text-white">
+              <h3 id="assign-credit-title" className="text-sm font-bold text-white">Assign Credits to Student</h3>
+              <button type="button" disabled={singleAssignLoading} onClick={() => setSingleAssignStudent(null)} className="text-zinc-500 hover:text-white disabled:opacity-50" aria-label="Close assign credits dialog">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleAssignStudentCredit} className="space-y-3 text-xs">
+            <form onSubmit={handleAssignStudentCredit} className="space-y-3 text-xs" aria-busy={singleAssignLoading}>
+              {singleAssignError && (
+                <div role="alert" className="rounded-lg border border-rose-800/60 bg-rose-950/40 p-3 text-rose-200">
+                  {singleAssignError}
+                </div>
+              )}
               <div>
                 <span className="text-zinc-400 block mb-1">Student:</span>
                 <span className="text-white font-bold block">{singleAssignStudent.user?.name}</span>
@@ -3153,8 +3842,10 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
               </div>
 
               <div>
-                <label className="block text-zinc-300 mb-1">Amount to Add *</label>
+                <label htmlFor="assign-credit-amount" className="block text-zinc-300 mb-1">Amount to Add *</label>
                 <input
+                  id="assign-credit-amount"
+                  data-dialog-autofocus
                   required
                   type="number"
                   min={1}
@@ -3165,8 +3856,9 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
               </div>
 
               <div>
-                <label className="block text-zinc-300 mb-1">Reason *</label>
+                <label htmlFor="assign-credit-reason" className="block text-zinc-300 mb-1">Reason *</label>
                 <input
+                  id="assign-credit-reason"
                   required
                   type="text"
                   value={singleAssignReason}
@@ -3178,33 +3870,41 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
               <div className="pt-3 border-t border-zinc-800 flex items-center justify-end gap-2">
                 <button
                   type="button"
+                  disabled={singleAssignLoading}
                   onClick={() => setSingleAssignStudent(null)}
-                  className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-lg text-xs"
+                  className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 rounded-lg text-xs disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold"
+                  disabled={singleAssignLoading}
+                  aria-busy={singleAssignLoading}
+                  className="inline-flex items-center gap-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold disabled:opacity-50"
                 >
-                  Grant Credits
+                  {singleAssignLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  {singleAssignLoading ? "Granting..." : "Grant Credits"}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
 
       {/* Student Details Slideout */}
       {selectedStudentDetail && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-xs">
-          <div className="w-full max-w-md bg-zinc-950 border-l border-zinc-800 p-6 flex flex-col justify-between overflow-y-auto space-y-6">
+        <AccessibleDialog
+          titleId="student-details-title"
+          onClose={() => setSelectedStudentDetail(null)}
+          overlayClassName="justify-end"
+          className="w-full max-w-md bg-zinc-950 border-l border-zinc-800 p-4 sm:p-6 flex flex-col justify-between overflow-y-auto space-y-6"
+        >
             <div className="space-y-4">
               <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-                <h3 className="text-sm font-bold text-white">Student Cohort Record</h3>
+                <h3 id="student-details-title" className="text-sm font-bold text-white">Student Cohort Record</h3>
                 <button
                   onClick={() => setSelectedStudentDetail(null)}
                   className="text-zinc-500 hover:text-white"
+                  aria-label="Close student details"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -3223,7 +3923,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 p-3 bg-zinc-900/40 rounded-xl border border-zinc-800/80">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-zinc-900/40 rounded-xl border border-zinc-800/80">
                   <div>
                     <span className="text-zinc-500 uppercase text-[9px] block">Roll Number</span>
                     <span className="font-mono text-zinc-200 font-bold">
@@ -3256,8 +3956,7 @@ export default function EnterpriseDashboardPage({ user, token, onLogout }: Enter
                 Close Drawer
               </button>
             </div>
-          </div>
-        </div>
+        </AccessibleDialog>
       )}
     </div>
   );

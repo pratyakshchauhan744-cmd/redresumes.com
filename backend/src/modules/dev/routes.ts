@@ -8,6 +8,8 @@ import { prisma } from "../../db/prisma.js";
 import { env } from "../../config/env.js";
 import { signAccessToken, signRefreshToken } from "../../utils/jwt.js";
 
+import { loadSessionContext } from "../auth/session-context.js";
+
 const router = Router();
 const REFRESH_COOKIE_NAME = "rr_refresh_token";
 const REFRESH_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -365,7 +367,7 @@ router.post("/login", async (req, res, next) => {
       return;
     }
 
-    const payload = { sub: user.id, role: user.role as any, email: user.email };
+    const { payload } = await loadSessionContext(user.id);
     const accessToken = signAccessToken(payload);
     const refreshToken = signRefreshToken(payload);
 

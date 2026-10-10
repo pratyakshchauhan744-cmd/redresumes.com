@@ -29,6 +29,16 @@ export function invalidateCollegeCache(collegeId: string) {
 }
 
 export async function requireTenant(req: Request, res: Response, next: NextFunction) {
+  try {
+    return await resolveTenant(req, res, next);
+  } catch (error) {
+    // Express 4 does not forward rejected async middleware promises itself.
+    // Database outages must reach the error handler, never terminate the API.
+    next(error);
+  }
+}
+
+async function resolveTenant(req: Request, res: Response, next: NextFunction) {
   if (!req.user) {
     return res.status(401).json({ success: false, message: "Authentication required." });
   }
@@ -149,37 +159,127 @@ export interface EnterprisePermissionDecision {
   inactiveFaculty: boolean;
 }
 
-/**
- * Resolves one enterprise permission from authoritative faculty state. JWT
- * permissions are retained only for roles without a faculty profile.
- */
-export async function resolveEnterprisePermission(
-  req: Request,
-  permission: string
-): Promise<EnterprisePermissionDecision> {
-  if (!req.user) return { allowed: false, inactiveFaculty: false };
-  if (req.user.role === "super_admin") return { allowed: true, inactiveFaculty: false };
+export class EnterpriseAuthorizationError extends Error {}
+export interface EnterpriseAuthorization {
+  root: boolean;
+  permissions: string[];
+  fingerprint: string;
+}
+// Only memoize within this HTTP request. No process/distributed authorization
+// cache can outlive a membership change committed before the next request.
+const requestAuthorization = new WeakMap<Request, Promise<EnterpriseAuthorization>>();
 
-  let permissions = normalizeFacultyPermissions(req.user.permissions);
-  if (req.user.role === "college_faculty" || req.user.role === "college_main_faculty") {
-    const faculty = await prisma.collegeFaculty.findFirst({
-      where: { userId: req.user.id, collegeId: req.collegeId ?? req.user.collegeId ?? undefined },
-      select: { permissions: true, isMainFaculty: true, status: true },
+export function resolveEnterpriseAuthorization(req: Request, fresh = false): Promise<EnterpriseAuthorization> {
+  const existing = fresh ? undefined : requestAuthorization.get(req);
+  if (existing) return existing;
+  const resolution = (async () => {
+    if (!req.user || !req.collegeId) throw new EnterpriseAuthorizationError("Active institutional access is required.");
+    const current = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        isActive: true, role: true, collegeId: true,
+        college: { select: { status: true } },
+        facultyProfile: { select: {
+          collegeId: true, status: true, isMainFaculty: true, permissions: true,
+          programAccess: true, courseAccess: true, sectionAccess: true, batchAccess: true,
+          scopeUnrestricted: true, cohortAccess: true,
+        } },
+      },
     });
-
-    if (!faculty || faculty.status !== "active") {
-      return { allowed: false, inactiveFaculty: true };
+    if (!current?.isActive || current.role !== req.user.role) {
+      throw new EnterpriseAuthorizationError("Your institutional access is unavailable or revoked.");
     }
-
-    permissions = normalizeFacultyPermissions(faculty.permissions);
+    if (current.role === "super_admin") return { root: true, permissions: ["all"], fingerprint: "super_admin" };
+    const faculty = current.facultyProfile;
+    if ((current.role !== "college_faculty" && current.role !== "college_main_faculty") ||
+        current.collegeId !== req.collegeId || current.college?.status !== "active" ||
+        !faculty || faculty.collegeId !== req.collegeId || faculty.status !== "active") {
+      throw new EnterpriseAuthorizationError("Your institutional access is unavailable or revoked.");
+    }
+    const permissions = normalizeFacultyPermissions(faculty.permissions);
     req.user.permissions = permissions;
     req.user.isMainFaculty = faculty.isMainFaculty;
-    if (faculty.isMainFaculty) return { allowed: true, inactiveFaculty: false };
-  }
+    return { root: faculty.isMainFaculty, permissions, fingerprint: JSON.stringify({
+      ...faculty, permissions: [...permissions].sort(),
+    }) };
+  })();
+  requestAuthorization.set(req, resolution);
+  return resolution;
+}
 
-  return {
-    allowed: permissions.includes("all") || permissions.includes(permission),
-    inactiveFaculty: false,
+export async function requireEnterpriseAccess(req: Request, res: Response, next: NextFunction) {
+  try {
+    const initial = await resolveEnterpriseAuthorization(req);
+    if (req.method === "GET") {
+      // Recheck before releasing a read response. A request that was already
+      // running when access was revoked must not release its old-scope data.
+      const send = res.send.bind(res);
+      res.send = ((body: unknown) => {
+        if (res.statusCode >= 400) return send(body);
+        void resolveEnterpriseAuthorization(req, true).then((current) => {
+          res.send = send;
+          if (current.fingerprint === initial.fingerprint) {
+            send(body);
+          } else {
+            res.removeHeader("Content-Disposition");
+            res.status(403).type("json");
+            send(JSON.stringify({ success: false, message: "Institutional access changed. Please retry." }));
+          }
+        }).catch((error: unknown) => {
+          res.send = send;
+          res.removeHeader("Content-Disposition");
+          res.type("json");
+          if (error instanceof EnterpriseAuthorizationError) {
+            res.status(403).type("json");
+            send(JSON.stringify({ success: false, message: error.message }));
+          } else {
+            next(error);
+          }
+        });
+        return res;
+      }) as typeof res.send;
+    }
+    next();
+  } catch (error) {
+    if (error instanceof EnterpriseAuthorizationError) {
+      res.status(403).json({ success: false, message: error.message });
+      return;
+    }
+    next(error);
+  }
+}
+
+export async function resolveEnterprisePermission(req: Request, permission: string): Promise<EnterprisePermissionDecision> {
+  try {
+    const authorization = await resolveEnterpriseAuthorization(req);
+    return {
+      allowed: authorization.root || authorization.permissions.includes("all") || authorization.permissions.includes(permission),
+      inactiveFaculty: false,
+    };
+  } catch (error) {
+    if (error instanceof EnterpriseAuthorizationError) return { allowed: false, inactiveFaculty: true };
+    throw error;
+  }
+}
+
+/** A composite endpoint exposes only the metrics allowed by individual permissions. */
+export function requireAnyEnterprisePermission(permissions: string[]) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const authorization = await resolveEnterpriseAuthorization(req);
+      if (authorization.root || authorization.permissions.includes("all") ||
+          permissions.some((permission) => authorization.permissions.includes(permission))) {
+        next();
+        return;
+      }
+      res.status(403).json({ success: false, message: "You do not have permission to access this institutional information." });
+    } catch (error) {
+      if (error instanceof EnterpriseAuthorizationError) {
+        res.status(403).json({ success: false, message: error.message });
+        return;
+      }
+      next(error);
+    }
   };
 }
 
@@ -192,21 +292,25 @@ export function requirePermission(permission: string) {
       return res.status(401).json({ success: false, message: "Authentication required." });
     }
 
-    const decision = await resolveEnterprisePermission(req, permission);
-    if (decision.inactiveFaculty) {
+    try {
+      const decision = await resolveEnterprisePermission(req, permission);
+      if (decision.inactiveFaculty) {
+        return res.status(403).json({
+          success: false,
+          message: "Your faculty staff profile is currently inactive or suspended.",
+        });
+      }
+
+      if (decision.allowed) {
+        return next();
+      }
+
       return res.status(403).json({
         success: false,
-        message: "Your faculty staff profile is currently inactive or suspended.",
+        message: `Access denied: Missing required permission "${permission}".`,
       });
+    } catch (error) {
+      next(error);
     }
-
-    if (decision.allowed) {
-      return next();
-    }
-
-    return res.status(403).json({
-      success: false,
-      message: `Access denied: Missing required permission "${permission}".`,
-    });
   };
 }

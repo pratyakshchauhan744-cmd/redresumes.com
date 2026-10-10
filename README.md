@@ -16,8 +16,10 @@ View your app in AI Studio: https://ai.studio/apps/bb66a99b-c93b-41e8-af15-0ce23
 1. Install dependencies:
    `npm install`
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+3. Run the app and local backend together:
    `npm run dev`
+
+   Keep this terminal running. The frontend uses port 3000 and the API uses the backend configured port (4000 by default). An existing healthy local API is reused. For separate terminals, use `npm run dev:frontend` and `npm run dev:backend`. A configured remote API is used without starting a local backend.
 
 ## Quick Start: Enterprise SaaS Platform
 
@@ -33,7 +35,7 @@ npm run dev       # Starts Backend API on http://localhost:4000
 ```bash
 cd redresumes.com
 npm install
-npm run dev       # Starts Client App on http://localhost:5173
+npm run dev       # Starts Client App on http://localhost:3000 and local Backend API
 ```
 
 ### 3. Start the Super Admin Portal

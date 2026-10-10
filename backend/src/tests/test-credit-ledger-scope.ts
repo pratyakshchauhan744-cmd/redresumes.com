@@ -56,6 +56,15 @@ async function createFaculty(
           programAccess: scope.programs ?? [],
           courseAccess: scope.courses ?? [],
           sectionAccess: scope.sections ?? [],
+          scopeUnrestricted: main || Object.keys(scope).length === 0,
+          cohortAccess: main || Object.keys(scope).length === 0
+            ? []
+            : [{
+                program: "B.Tech",
+                course: scope.courses?.[0] ?? "CSE",
+                section: scope.sections?.[0] ?? "A",
+                batch: "2026",
+              }],
           status: "active",
         },
       },
@@ -209,6 +218,12 @@ try {
   assert(body.transactions.every((transaction: any) =>
     transaction.recipientStudent?.course === "CSE" && transaction.recipientStudent?.section === "A"
   ));
+  assert(body.transactions.every((transaction: any) =>
+    transaction.performedBy?.name === administrator.user.name &&
+    transaction.performedBy?.email === administrator.user.email &&
+    !("createdBy" in transaction)
+  ));
+  console.log("PASS authorized ledger rows expose their recorded actor only as performedBy");
   console.log("PASS restricted ledger query returns only in-scope student transactions and authorized counts");
 
   response = await request(restricted.token, "?page=3&limit=20");
@@ -256,7 +271,15 @@ try {
   body = await response.json() as any;
   assert.equal(body.total, 1);
   assert.equal(body.transactions[0]?.reason, "institution-private-allocation");
+  assert.equal(body.transactions[0]?.performedBy?.name, administrator.user.name);
   console.log("PASS Main Faculty retains institution-wide ledger access including institution-level allocations");
+
+  await prisma.user.update({ where: { id: outsideActor.user.id }, data: { isActive: false } });
+  response = await request(administrator.token, "?search=forbidden-mechanical-0");
+  body = await response.json() as any;
+  assert.equal(body.total, 1);
+  assert.equal(body.transactions[0]?.performedBy?.name, outsideActor.user.name);
+  console.log("PASS deactivating an actor preserves historical ledger attribution");
 
   console.log("E-16 credit ledger scope regression suite passed.");
 } finally {

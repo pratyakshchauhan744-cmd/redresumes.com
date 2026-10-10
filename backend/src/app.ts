@@ -79,7 +79,8 @@ app.use(
       console.warn(`[CORS] Request blocked for unallowed origin: ${origin}`);
       callback(null, false);
     },
-    credentials: true
+    credentials: true,
+    exposedHeaders: ["Content-Disposition"]
   })
 );
 app.use(helmet());

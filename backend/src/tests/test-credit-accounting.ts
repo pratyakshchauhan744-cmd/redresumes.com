@@ -114,8 +114,14 @@ try {
     });
     assert.equal(result.totalCreated, 2);
     assert.equal((await account(college.id)).balance, 0);
+    const ledgerActors = await prisma.collegeCreditTransaction.findMany({
+      where: { collegeId: college.id },
+      select: { createdById: true },
+    });
+    assert(ledgerActors.length > 0);
+    assert(ledgerActors.every((transaction) => transaction.createdById === actor.id));
     await assertInvariant(college.id, 2);
-    console.log("PASS sufficient balance funds both rows exactly");
+    console.log("PASS bulk-import credit ledger entries use the authenticated actor");
   }
 
   {
@@ -170,7 +176,7 @@ try {
           reason: "E-06 forced downstream rollback test",
         });
         throw new Error("simulated downstream student-row failure");
-      }),
+      }, { timeout: 30000, maxWait: 15000 }),
       /simulated downstream student-row failure/
     );
     assert.equal((await account(college.id)).balance, 5);
@@ -215,6 +221,28 @@ try {
     assert.equal(await prisma.collegeCreditTransaction.count({ where: { collegeId: college.id } }), 0);
     await assertInvariant(college.id, 3);
     console.log("PASS zero-credit row creates student without balance or ledger mutation");
+  }
+
+  {
+    const { college, actor } = await fixture(0);
+    EmailService.sendStudentWelcomeEmail = async ({ to }) => ({
+      success: !to.includes("delivery-fail"),
+      simulated: true,
+      error: to.includes("delivery-fail") ? "simulated delivery failure" : undefined,
+    });
+    const result = await executeBulkImport({
+      collegeId: college.id,
+      actorId: actor.id,
+      rawRows: [row("delivery-success", 0), row("delivery-fail", 0)],
+      atomic: false,
+    });
+    assert.equal(result.totalCreated, 2);
+    assert.equal(result.emailsSent, 1);
+    assert.equal(result.emailsFailed, 1);
+    assert.equal(result.createdStudents.filter((student) => student.invitationStatus === "sent").length, 1);
+    assert.equal(result.createdStudents.filter((student) => student.invitationStatus === "failed").length, 1);
+    EmailService.sendStudentWelcomeEmail = async () => ({ success: true, simulated: true });
+    console.log("PASS bulk import reports actual successful and failed email delivery counts");
   }
 
   {

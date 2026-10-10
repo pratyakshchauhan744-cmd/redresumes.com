@@ -1,3 +1,19 @@
+import { studentCreationSchema, studentUpdateSchema, validateReportQuery } from "./input-validation.js";
+import { publicStudentEmailError } from "../../utils/student-email-error.js";
+import { assertStudentCreditAuthorization } from "./student-credit-authorization.js";
+import {
+  CreditIdempotencyError,
+  requireCreditIdempotencyKey,
+  parseOptionalIdempotencyKey,
+  creditPayloadHash,
+  executeIdempotentCreditOperation,
+} from "./credit-idempotency.js";
+import {
+  buildScopedStudentWhere,
+  buildReportFilters,
+  buildStudentFilters,
+} from "./report-filters.js";
+export { buildScopedStudentWhere, buildReportFilters, buildStudentFilters };
 import { Router } from "express";
 import type { NextFunction, Request, Response } from "express";
 import bcrypt from "bcryptjs";
@@ -13,6 +29,9 @@ import {
   normalizeFacultyPermissions,
   requireTenant,
   requireCollegeAdmin,
+  requireEnterpriseAccess,
+  requireAnyEnterprisePermission,
+  resolveEnterpriseAuthorization,
   requirePermission,
   resolveEnterprisePermission,
 } from "../../middleware/tenant.js";
@@ -20,7 +39,7 @@ import { EmailService } from "../../services/email.service.js";
 import { logEnterpriseAudit } from "../../services/audit.service.js";
 import { env } from "../../config/env.js";
 import { isUniqueConstraintError, normalizeEmailIdentity } from "../../utils/identity.js";
-import { getReadinessCategory, resolveCanonicalReportScore } from "../../utils/score.js";
+import { getReadinessCategory, resolveCanonicalReportScore, normalizeReportScore } from "../../utils/score.js";
 import { sanitizeAuditValue } from "../../utils/audit-sanitization.js";
 import {
   EnterpriseReportRow,
@@ -47,6 +66,7 @@ import {
 } from "./faculty-authorization.js";
 import {
   allocateInstitutionCreditsToStudent,
+  allocateInstitutionCreditsToStudentsBulk,
   assertValidCreditAmount,
 } from "./credit-transfer.js";
 import {
@@ -80,7 +100,7 @@ const resendInvitationLimiter = rateLimit({
 });
 
 // Enforce authentication and active college tenant context for all enterprise routes
-router.use(requireAuth, requireTenant);
+router.use(requireAuth, requireTenant, requireEnterpriseAccess);
 
 // Zero-Trust Security Guard: Block student and candidate roles from accessing any enterprise routes
 router.use((req, res, next) => {
@@ -179,13 +199,14 @@ function sendFacultyAuthorizationError(res: Response, error: unknown): boolean {
  * If the user is a regular faculty with program/course/section restrictions,
  * the query is constrained to those allowed values.
  */
-const _facultyScopeCache = new Map<string, { scope: FacultyStudentScope; expiresAt: number }>();
+// Authorization scope is always read from the primary database. Removing the
+// process-local TTL cache makes revocation consistent across backend instances.
 
 async function getFacultyStudentScope(
   userId: string,
   collegeId: string,
   isSuperAdmin?: boolean,
-  fresh = false
+  _fresh = false
 ): Promise<FacultyStudentScope> {
   if (isSuperAdmin) {
     return {
@@ -199,12 +220,6 @@ async function getFacultyStudentScope(
       scopeUnrestricted: true,
       cohortAccess: [],
     };
-  }
-
-  const cacheKey = `${userId}:${collegeId}`;
-  const cached = _facultyScopeCache.get(cacheKey);
-  if (!fresh && cached && cached.expiresAt > Date.now()) {
-    return cached.scope;
   }
 
   const faculty = await prisma.collegeFaculty.findFirst({
@@ -245,7 +260,6 @@ async function getFacultyStudentScope(
     cohortAccess: parseFacultyCohortAccess(faculty.cohortAccess),
   };
 
-  _facultyScopeCache.set(cacheKey, { scope, expiresAt: Date.now() + 30_000 });
   return scope;
 }
 
@@ -257,11 +271,6 @@ async function getFacultyScopeConditions(
 ) {
   const scope = await getFacultyStudentScope(userId, collegeId, isSuperAdmin, fresh);
   return buildFacultyStudentScopeConditions(scope);
-}
-
-function buildScopedStudentWhere(collegeId: string, scopeConditions: any, filters: any = {}) {
-  const clauses = [scopeConditions, filters].filter((clause) => Object.keys(clause).length > 0);
-  return clauses.length > 0 ? { collegeId, AND: clauses } : { collegeId };
 }
 
 async function facultyCanAccessStudent(
@@ -283,7 +292,11 @@ async function facultyCanAccessStudent(
 // ===========================================================================
 
 // GET /api/enterprise/filter-options - Distinct programs, courses, sections, batches, and departments
-router.get("/filter-options", async (req, res, next) => {
+router.get("/filter-options", requireAnyEnterprisePermission([
+  "STUDENT_VIEW", "STUDENT_CREATE", "STUDENT_EDIT", "FACULTY_VIEW",
+  "FACULTY_CREATE", "FACULTY_EDIT", "INTERVIEW_CREDIT_VIEW",
+  "INTERVIEW_CREDIT_ASSIGN", "REPORT_VIEW",
+]), async (req, res, next) => {
   try {
     const collegeId = req.collegeId!;
     const scopeConditions = await getFacultyScopeConditions(
@@ -292,56 +305,33 @@ router.get("/filter-options", async (req, res, next) => {
       req.user!.role === "super_admin"
     );
 
-    const [programs, courses, sections, batches, departments, cohorts] = await Promise.all([
-      prisma.collegeStudent.findMany({
-        where: { collegeId, ...scopeConditions },
-        select: { program: true },
-        distinct: ["program"],
-        orderBy: { program: "asc" },
-      }),
-      prisma.collegeStudent.findMany({
-        where: { collegeId, ...scopeConditions },
-        select: { course: true },
-        distinct: ["course"],
-        orderBy: { course: "asc" },
-      }),
-      prisma.collegeStudent.findMany({
-        where: { collegeId, ...scopeConditions },
-        select: { section: true },
-        distinct: ["section"],
-        orderBy: { section: "asc" },
-      }),
-      prisma.collegeStudent.findMany({
-        where: { collegeId, ...scopeConditions },
-        select: { batch: true },
-        distinct: ["batch"],
-        orderBy: { batch: "desc" },
-      }),
-      prisma.collegeStudent.findMany({
-        where: { collegeId, ...scopeConditions, department: { not: null } },
-        select: { department: true },
-        distinct: ["department"],
-        orderBy: { department: "asc" },
-      }),
-      prisma.collegeStudent.findMany({
-        where: { collegeId, ...scopeConditions },
-        select: { program: true, course: true, section: true, batch: true },
-        distinct: ["program", "course", "section", "batch"],
+    // GROUP BY deduplicates in PostgreSQL, before rows reach Prisma. Derive
+    // single-field options from the much smaller set of cohort tuples.
+    const where = buildScopedStudentWhere(collegeId, scopeConditions);
+    const [cohorts, departments] = await Promise.all([
+      prisma.collegeStudent.groupBy({
+        by: ["program", "course", "section", "batch"],
+        where,
         orderBy: [
-          { program: "asc" },
-          { course: "asc" },
-          { section: "asc" },
-          { batch: "desc" },
+          { program: "asc" }, { course: "asc" },
+          { section: "asc" }, { batch: "desc" },
         ],
       }),
+      prisma.collegeStudent.groupBy({
+        by: ["department"],
+        where: { ...where, department: { not: null } },
+        orderBy: { department: "asc" },
+      }),
     ]);
+    const optionValues = (field: "program" | "course" | "section" | "batch") =>
+      [...new Set(cohorts.map((cohort) => cohort[field]).filter(Boolean))].sort();
 
     res.json({
       success: true,
-      programs: programs.map((p) => p.program).filter(Boolean),
-      courses: courses.map((c) => c.course).filter(Boolean),
-      sections: sections.map((s) => s.section).filter(Boolean),
-      batches: batches.map((b) => b.batch).filter(Boolean),
+      programs: optionValues("program"),
+      courses: optionValues("course"),
+      sections: optionValues("section"),
+      batches: optionValues("batch").reverse(),
       departments: departments.map((d) => d.department).filter(Boolean) as string[],
       cohorts,
     });
@@ -362,63 +352,66 @@ router.get("/filter-options", async (req, res, next) => {
 async function handleEnterpriseStats(req: any, res: any, next: any) {
   try {
     const collegeId = req.collegeId!;
-    const faculty = req.user!.role === "super_admin"
-      ? null
-      : await prisma.collegeFaculty.findFirst({
-          where: { userId: req.user!.id, collegeId, status: "active" },
-          select: { isMainFaculty: true, permissions: true },
-        });
-    const hasRootAccess = req.user!.role === "super_admin" || Boolean(faculty?.isMainFaculty);
-    const permissions = normalizeFacultyPermissions(faculty?.permissions ?? req.user!.permissions);
-    const can = (permission: string) =>
-      hasRootAccess || permissions.includes("all") || permissions.includes(permission);
+    const authorization = await resolveEnterpriseAuthorization(req);
+    const can = (permission: string) => authorization.root ||
+      authorization.permissions.includes("all") || authorization.permissions.includes(permission);
     const scopeConditions = await getFacultyScopeConditions(
       req.user!.id,
       collegeId,
       req.user!.role === "super_admin"
     );
 
-    const scopedStudents = await prisma.collegeStudent.findMany({
-      where: buildScopedStudentWhere(collegeId, scopeConditions),
-      select: { userId: true, status: true },
-    });
-    const scopedStudentUserIds = scopedStudents.map((student) => student.userId);
-    const interviewWhere = { collegeId, userId: { in: scopedStudentUserIds } };
-
-    const [
-      college,
-      totalFaculty,
-      activeFaculty,
-      creditAccount,
-      interviewSessionsCount,
-      reportsGeneratedCount,
-    ] = await Promise.all([
-      prisma.college.findUnique({ where: { id: collegeId } }),
-      prisma.collegeFaculty.count({ where: { collegeId } }),
-      prisma.collegeFaculty.count({ where: { collegeId, status: "active" } }),
-      prisma.collegeCreditAccount.findUnique({ where: { collegeId } }),
-      prisma.interviewSession.count({ where: interviewWhere }),
-      prisma.interviewSession.count({
-        where: {
-          ...interviewWhere,
-          report: { isNot: null },
-        },
+    const studentWhere = buildScopedStudentWhere(collegeId, scopeConditions);
+    const interviewWhere = {
+      collegeId,
+      user: { studentProfile: { is: studentWhere } },
+    };
+    const [college, studentCounts, facultyCounts, creditAccount,
+      interviewSessionsCount, reportsGeneratedCount, scoreGroups, avgResult] = await Promise.all([
+      prisma.college.findUnique({
+        where: { id: collegeId },
+        select: { id: true, name: true, code: true, universityName: true },
       }),
-    ]);
-
-    const totalStudents = scopedStudents.length;
-    const activeStudents = scopedStudents.filter((student) => student.status === "active").length;
-
-    // Compute average score from completed sessions using a single DB aggregate (no full table scan)
-    let avgScore = 0;
-    try {
-      const avgResult = await prisma.interviewReport.aggregate({
-        _avg: { overallScore: true },
+      can("STUDENT_VIEW") ? prisma.collegeStudent.groupBy({
+        by: ["status"], where: studentWhere, _count: { _all: true },
+      }) : [],
+      can("FACULTY_VIEW") ? prisma.collegeFaculty.groupBy({
+        by: ["status"], where: { collegeId }, _count: { _all: true },
+      }) : [],
+      can("INTERVIEW_CREDIT_VIEW")
+        ? prisma.collegeCreditAccount.findUnique({ where: { collegeId } }) : null,
+      can("REPORT_VIEW") ? prisma.interviewSession.count({ where: interviewWhere }) : 0,
+      can("REPORT_VIEW") ? prisma.interviewSession.count({
+        where: { ...interviewWhere, report: { isNot: null } },
+      }) : 0,
+      can("REPORT_VIEW") ? prisma.interviewReport.groupBy({
+        by: ["overallScore", "scoreScale"],
         where: { session: interviewWhere },
-      });
-      avgScore = Math.round(avgResult._avg.overallScore ?? 0);
-    } catch (_) {
-      // overallScore may not exist on all report schemas — safe to skip
+        _count: { _all: true },
+      }) : [],
+      can("REPORT_VIEW") ? prisma.interviewReport.aggregate({
+        _avg: { overallScore: true }, where: { session: interviewWhere },
+      }) : null,
+    ]);
+    const totalStudents = studentCounts.reduce((sum, row) => sum + row._count._all, 0);
+    const activeStudents = studentCounts.find((row) => row.status === "active")?._count._all ?? 0;
+    const totalFaculty = facultyCounts.reduce((sum, row) => sum + row._count._all, 0);
+    const activeFaculty = facultyCounts.find((row) => row.status === "active")?._count._all ?? 0;
+    let avgScore = 0;
+    if (scoreGroups && Array.isArray(scoreGroups) && scoreGroups.length > 0) {
+      let totalValidReports = 0;
+      let scoreSum = 0;
+      for (const group of scoreGroups) {
+        const canonical = normalizeReportScore(group);
+        if (canonical !== null) {
+          const count = group._count?._all ?? 0;
+          totalValidReports += count;
+          scoreSum += canonical * count;
+        }
+      }
+      avgScore = totalValidReports > 0 ? Math.round(scoreSum / totalValidReports) : 0;
+    } else if (avgResult?._avg?.overallScore !== null && avgResult?._avg?.overallScore !== undefined) {
+      avgScore = Math.round(avgResult._avg.overallScore);
     }
 
     // Response format that matches EnterpriseDashboardPage frontend expectations
@@ -467,10 +460,11 @@ async function handleEnterpriseStats(req: any, res: any, next: any) {
 }
 
 // GET /api/enterprise/stats - Primary route (matches frontend API call)
-router.get("/stats", handleEnterpriseStats);
+const statsPermissions = ["STUDENT_VIEW", "FACULTY_VIEW", "INTERVIEW_CREDIT_VIEW", "REPORT_VIEW"];
+router.get("/stats", requireAnyEnterprisePermission(statsPermissions), handleEnterpriseStats);
 
 // GET /api/enterprise/dashboard/stats - Legacy route alias
-router.get("/dashboard/stats", handleEnterpriseStats);
+router.get("/dashboard/stats", requireAnyEnterprisePermission(statsPermissions), handleEnterpriseStats);
 
 // ===========================================================================
 // 2. FACULTY / EMPLOYEE MANAGEMENT
@@ -1009,7 +1003,7 @@ const handleFacultyUpdate = async (req: Request, res: Response, next: NextFuncti
       newValue: updated,
     });
 
-    _facultyScopeCache.delete(`${faculty.userId}:${collegeId}`);
+    // No authorization cache survives this committed membership change.
 
     res.json({
       success: true,
@@ -1127,13 +1121,11 @@ function serializeAuthorizedStudentReportDetails(sessions: AuthorizedStudentRepo
     (session): session is AuthorizedStudentReportSession & { report: NonNullable<AuthorizedStudentReportSession["report"]> } =>
       session.report !== null
   );
-  const averageScore = completedSessions.length > 0
-    ? Math.round(
-        completedSessions.reduce(
-          (total, session) => total + resolveCanonicalReportScore(session.report as any),
-          0
-        ) / completedSessions.length
-      )
+  const validScores = completedSessions
+    .map((session) => normalizeReportScore(session.report as any))
+    .filter((score): score is number => score !== null);
+  const averageScore = validScores.length > 0
+    ? Math.round(validScores.reduce((total, score) => total + score, 0) / validScores.length)
     : null;
 
   return {
@@ -1144,7 +1136,7 @@ function serializeAuthorizedStudentReportDetails(sessions: AuthorizedStudentRepo
       targetRole: session.targetRole,
       difficulty: session.difficulty,
       companyType: session.companyType,
-      overallScore: resolveCanonicalReportScore(session.report as any),
+      overallScore: normalizeReportScore(session.report as any) ?? 0,
       categoryScores: session.report.categoryScores,
       strengths: session.report.strengths,
       weaknesses: session.report.weaknesses,
@@ -1198,7 +1190,7 @@ router.get("/students", requirePermission("STUDENT_VIEW"), async (req, res, next
     }
     const where = buildScopedStudentWhere(collegeId, scopeConditions, filters);
 
-    const [total, students, invitations] = await Promise.all([
+    const [total, students] = await Promise.all([
       prisma.collegeStudent.count({ where }),
       prisma.collegeStudent.findMany({
         where,
@@ -1207,8 +1199,9 @@ router.get("/students", requirePermission("STUDENT_VIEW"), async (req, res, next
         orderBy: [{ batch: "desc" }, { enrollmentNumber: "asc" }],
         include: {
           user: {
-            include: {
-              credits: true,
+            select: {
+              id: true, name: true, email: true, phone: true,
+              credits: { select: { balance: true } },
               _count: {
                 select: {
                   ...(canViewReports ? { interviewSessions: true } : {}),
@@ -1219,13 +1212,20 @@ router.get("/students", requirePermission("STUDENT_VIEW"), async (req, res, next
           },
         },
       }),
-      // Fetch invitations in parallel with the student list — no sequential round-trip
-      prisma.invitation.findMany({
-        where: { collegeId, role: "student" },
-        orderBy: { createdAt: "desc" },
-        select: { email: true, status: true, createdAt: true, metadata: true },
-      }),
     ]);
+
+    // Return at most one invitation per student on this page. DISTINCT ON is
+    // explicit SQL here; Prisma's ordinary distinct would deduplicate in memory.
+    const emails = students.map((student) => student.user.email);
+    const invitations = emails.length === 0 ? [] : await prisma.$queryRaw<Array<{
+      email: string; status: string; createdAt: Date; metadata: Prisma.JsonValue;
+    }>>(Prisma.sql`
+      SELECT DISTINCT ON ("email") "email", "status", "createdAt", "metadata"
+      FROM "Invitation"
+      WHERE "collegeId" = ${collegeId} AND "role" = 'student'
+        AND "email" IN (${Prisma.join(emails)})
+      ORDER BY "email", "createdAt" DESC, "id" DESC
+    `);
 
     const latestInviteByEmail = new Map<string, any>();
     for (const inv of invitations) {
@@ -1264,8 +1264,8 @@ router.get("/students", requirePermission("STUDENT_VIEW"), async (req, res, next
           ? { interviewSessionsCount: (s.user._count as { interviewSessions: number }).interviewSessions }
           : {}),
         resumesCount: s.user._count.resumes,
-        invitationStatus: (inv?.metadata as any)?.deliveryStatus ?? inv?.status ?? "sent",
-        emailError: (inv?.metadata as any)?.emailError ?? null,
+        invitationStatus: (inv?.metadata as any)?.deliveryStatus ?? inv?.status ?? "unknown",
+        emailError: publicStudentEmailError((inv?.metadata as any)?.emailError),
         lastInviteSentAt: inv?.createdAt ?? null,
         createdAt: s.createdAt,
       };
@@ -1344,8 +1344,8 @@ router.get("/students/:id", requirePermission("STUDENT_VIEW"), async (req, res, 
         id: student.id,
         userId: student.userId,
         enrollmentNumber: student.enrollmentNumber,
-        invitationStatus: (latestInvite?.metadata as any)?.deliveryStatus ?? latestInvite?.status ?? "sent",
-        emailError: (latestInvite?.metadata as any)?.emailError ?? null,
+        invitationStatus: (latestInvite?.metadata as any)?.deliveryStatus ?? latestInvite?.status ?? "unknown",
+        emailError: publicStudentEmailError((latestInvite?.metadata as any)?.emailError),
         lastInviteSentAt: latestInvite?.createdAt ?? null,
         name: student.user.name,
         email: student.user.email,
@@ -1426,8 +1426,8 @@ router.get("/students/:id/details", requirePermission("STUDENT_VIEW"), async (re
         id: student.id,
         userId: student.userId,
         enrollmentNumber: student.enrollmentNumber,
-        invitationStatus: (latestInvite?.metadata as any)?.deliveryStatus ?? latestInvite?.status ?? "sent",
-        emailError: (latestInvite?.metadata as any)?.emailError ?? null,
+        invitationStatus: (latestInvite?.metadata as any)?.deliveryStatus ?? latestInvite?.status ?? "unknown",
+        emailError: publicStudentEmailError((latestInvite?.metadata as any)?.emailError),
         lastInviteSentAt: latestInvite?.createdAt ?? null,
         name: student.user.name,
         email: student.user.email,
@@ -1454,30 +1454,54 @@ router.get("/students/:id/details", requirePermission("STUDENT_VIEW"), async (re
 // POST /api/enterprise/students - Add student
 router.post("/students", requirePermission("STUDENT_CREATE"), async (req, res, next) => {
   try {
+    const parsedData = studentCreationSchema.parse(req.body);
     const collegeId = req.collegeId!;
     const college = await prisma.college.findUnique({ where: { id: collegeId } });
     if (!college) {
       return res.status(404).json({ success: false, message: "College tenant not found." });
     }
 
-    const schema = z.object({
-      name: z.string().min(2, "Full name is required"),
-      email: z.string().trim().email("Valid email is required"),
-      enrollmentNumber: z.string().min(1, "Enrollment number is required"),
-      program: z.string().min(1, "Program is required (e.g. B.Tech)"),
-      course: z.string().min(1, "Course is required (e.g. Computer Science)"),
-      department: z.string().optional(),
-      section: z.string().min(1, "Section is required (e.g. A)"),
-      batch: z.string().min(4, "Batch is required (e.g. 2026)"),
-      academicYear: z.string().optional(),
-      semester: z.number().int().min(1).max(12).optional(),
-      phone: z.string().optional(),
-      gender: z.string().optional(),
-      initialCredits: z.number().int().min(0).default(0),
-    });
-
-    const parsedData = schema.parse(req.body);
     const data = { ...parsedData, email: normalizeEmailIdentity(parsedData.email) };
+
+    const idempotencyKey = parseOptionalIdempotencyKey(
+      req.headers["idempotency-key"] || req.headers["x-idempotency-key"]
+    );
+    const idempotencyScope = idempotencyKey
+      ? {
+          collegeId,
+          actorId: req.user!.id,
+          operation: "STUDENT_CREATION",
+          key: idempotencyKey,
+        }
+      : null;
+    const payloadHash = idempotencyScope ? creditPayloadHash(parsedData) : null;
+
+    // Fast-path replay check: if an idempotency key was already completed, return receipt before running duplicate pre-checks
+    if (idempotencyScope && payloadHash) {
+      const existingRecord = await prisma.creditIdempotencyRecord.findUnique({
+        where: { collegeId_actorId_operation_key: idempotencyScope },
+      });
+      if (existingRecord) {
+        if (existingRecord.payloadHash !== payloadHash) {
+          return res.status(409).json({
+            success: false,
+            message: "Idempotency key was already used with a different student creation payload.",
+          });
+        }
+        if (existingRecord.status === "COMPLETED" && existingRecord.responseBody && existingRecord.responseStatus) {
+          return res.status(existingRecord.responseStatus).json(existingRecord.responseBody);
+        }
+        if (existingRecord.status === "PROCESSING") {
+          res.set("Retry-After", "2");
+          return res.status(503).json({
+            success: false,
+            message: "Student creation is currently processing. Retry with the same Idempotency-Key.",
+          });
+        }
+      }
+    }
+
+    await assertStudentCreditAuthorization(collegeId, req.user!.id, data.initialCredits > 0);
     const facultyScope = await getFacultyStudentScope(
       req.user!.id,
       collegeId,
@@ -1501,6 +1525,21 @@ router.post("/students", requirePermission("STUDENT_CREATE"), async (req, res, n
     });
 
     if (existingStudent) {
+      if (idempotencyScope) {
+        const record = await prisma.creditIdempotencyRecord.findUnique({
+          where: { collegeId_actorId_operation_key: idempotencyScope },
+        });
+        if (record?.status === "COMPLETED" && record.responseBody && record.responseStatus) {
+          return res.status(record.responseStatus).json(record.responseBody);
+        }
+        if (record?.status === "PROCESSING") {
+          res.set("Retry-After", "2");
+          return res.status(503).json({
+            success: false,
+            message: "Student creation is currently processing. Retry with the same Idempotency-Key.",
+          });
+        }
+      }
       return res.status(400).json({
         success: false,
         message: `Student with enrollment number ${data.enrollmentNumber} already exists in this college.`,
@@ -1513,6 +1552,21 @@ router.post("/students", requirePermission("STUDENT_CREATE"), async (req, res, n
     });
 
     if (existingUser) {
+      if (idempotencyScope) {
+        const record = await prisma.creditIdempotencyRecord.findUnique({
+          where: { collegeId_actorId_operation_key: idempotencyScope },
+        });
+        if (record?.status === "COMPLETED" && record.responseBody && record.responseStatus) {
+          return res.status(record.responseStatus).json(record.responseBody);
+        }
+        if (record?.status === "PROCESSING") {
+          res.set("Retry-After", "2");
+          return res.status(503).json({
+            success: false,
+            message: "Student creation is currently processing. Retry with the same Idempotency-Key.",
+          });
+        }
+      }
       return res.status(409).json({
         success: false,
         message: "An account with this email already exists.",
@@ -1527,92 +1581,172 @@ router.post("/students", requirePermission("STUDENT_CREATE"), async (req, res, n
     const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
     const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 14 days
 
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. Create a new identity. Creation endpoints never reuse or mutate an existing user.
-      const user = await tx.user.create({
-        data: {
-          name: data.name,
-          email: data.email,
-          phone: data.phone,
-          passwordHash,
-          role: "student",
-          collegeId,
-          isActive: true,
-        },
-      });
-      const userId = user.id;
+    const result = await prisma.$transaction(
+      async (tx) => {
+        // Atomic idempotency claim inside transaction
+        if (idempotencyScope && payloadHash) {
+          const claim = await tx.creditIdempotencyRecord.createMany({
+            data: {
+              ...idempotencyScope,
+              payloadHash,
+              status: "PROCESSING",
+            },
+            skipDuplicates: true,
+          });
 
-      // 2. Initialize the user balance at zero. Funding is performed by the
-      // atomic transfer below, never by directly minting a starting balance.
-      await tx.userCredit.create({
-        data: {
-          userId,
-          balance: 0,
-        },
-      });
+          const record = await tx.creditIdempotencyRecord.findUniqueOrThrow({
+            where: { collegeId_actorId_operation_key: idempotencyScope },
+          });
 
-      // 3. Create exactly one student profile for the new identity.
-      const studentProfile = await tx.collegeStudent.create({
-        data: {
-          userId,
-          collegeId,
-          enrollmentNumber: data.enrollmentNumber,
-          program: data.program,
-          course: data.course,
-          department: data.department,
-          section: data.section,
-          batch: data.batch,
-          academicYear: data.academicYear,
-          semester: data.semester,
-          gender: data.gender,
-          status: "active",
-        },
-      });
+          if (record.payloadHash !== payloadHash) {
+            throw new CreditIdempotencyError(409, "Idempotency key was already used with a different student creation payload.");
+          }
 
-      // 4. Debit + student credit + ledger are one transaction.
-      await allocateInstitutionCreditsToStudent({
-        tx,
-        collegeId,
-        studentId: studentProfile.id,
-        userId,
-        actorId: req.user!.id,
-        amount: data.initialCredits,
-        type: "FACULTY_DISTRIBUTION",
-        reason: `Initial student onboarding credit allocation for ${data.name} (${data.enrollmentNumber})`,
-      });
+          if (claim.count === 0) {
+            if (record.status !== "COMPLETED" || !record.responseBody || !record.responseStatus) {
+              throw new CreditIdempotencyError(503, "Student creation is currently processing. Retry with the same Idempotency-Key.");
+            }
+            return {
+              isReplay: true as const,
+              status: record.responseStatus,
+              body: record.responseBody,
+            };
+          }
+        }
 
-      // 5. Create Invitation record
-      await tx.invitation.create({
-        data: {
-          collegeId,
-          email: data.email,
-          role: "student",
-          tokenHash,
-          expiresAt,
-          status: "pending",
-          invitedById: req.user!.id,
-          metadata: {
+        // 1. Create a new identity. Creation endpoints never reuse or mutate an existing user.
+        const user = await tx.user.create({
+          data: {
             name: data.name,
+            email: data.email,
+            phone: data.phone,
+            passwordHash,
+            role: "student",
+            collegeId,
+            isActive: true,
+          },
+        });
+        const userId = user.id;
+
+        // 2. Initialize the user balance at zero. Funding is performed by the
+        // atomic transfer below, never by directly minting a starting balance.
+        await tx.userCredit.create({
+          data: {
+            userId,
+            balance: 0,
+          },
+        });
+
+        // 3. Create exactly one student profile for the new identity.
+        const studentProfile = await tx.collegeStudent.create({
+          data: {
+            userId,
+            collegeId,
             enrollmentNumber: data.enrollmentNumber,
             program: data.program,
             course: data.course,
+            department: data.department,
             section: data.section,
             batch: data.batch,
+            academicYear: data.academicYear,
+            semester: data.semester,
+            gender: data.gender,
+            status: "active",
           },
-        },
-      });
+        });
 
-      return { userId, studentProfile };
-    },
-    {
-      maxWait: 20000,
-      timeout: 60000,
-    });
+        // 4. Debit + student credit + ledger are one transaction.
+        await allocateInstitutionCreditsToStudent({
+          tx,
+          collegeId,
+          studentId: studentProfile.id,
+          userId,
+          actorId: req.user!.id,
+          amount: data.initialCredits,
+          type: "FACULTY_DISTRIBUTION",
+          reason: `Initial student onboarding credit allocation for ${data.name} (${data.enrollmentNumber})`,
+        });
 
-    // 2. Dispatch Welcome Email Asynchronously outside DB transaction
+        if (data.initialCredits > 0) {
+          await logEnterpriseAudit({
+            collegeId,
+            actorId: req.user!.id,
+            action: "STUDENT_CREDITS_ASSIGNED",
+            entity: "CollegeStudent",
+            entityId: studentProfile.id,
+            newValue: { amount: data.initialCredits, source: "STUDENT_CREATION" },
+            transactionClient: tx,
+            propagateErrors: true,
+          });
+        }
+
+        // 5. Create Invitation record
+        await tx.invitation.create({
+          data: {
+            collegeId,
+            email: data.email,
+            role: "student",
+            tokenHash,
+            expiresAt,
+            status: "pending",
+            invitedById: req.user!.id,
+            metadata: {
+              name: data.name,
+              enrollmentNumber: data.enrollmentNumber,
+              program: data.program,
+              course: data.course,
+              section: data.section,
+              batch: data.batch,
+            },
+          },
+        });
+
+        const initialReceipt = {
+          success: true,
+          message: `Student "${data.name}" added successfully. Invitation email pending.`,
+          student: studentProfile,
+          invitationStatus: "pending",
+          emailError: undefined,
+          invitationToken: env.NODE_ENV !== "production" ? rawToken : undefined,
+        };
+
+        if (idempotencyScope) {
+          await tx.creditIdempotencyRecord.update({
+            where: { collegeId_actorId_operation_key: idempotencyScope },
+            data: {
+              status: "COMPLETED",
+              responseStatus: 201,
+              responseBody: initialReceipt as any,
+              completedAt: new Date(),
+            },
+          });
+        }
+
+        return {
+          isReplay: false as const,
+          userId,
+          studentProfile,
+          rawToken,
+          rawTempPassword,
+        };
+      },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
+        maxWait: 20000,
+        timeout: 60000,
+      }
+    );
+
+    if (result.isReplay) {
+      return res.status(result.status).json(result.body);
+    }
+
+    // 2. Post-commit operations: Dispatch Welcome Email Asynchronously outside DB transaction
     const frontendUrl = env.FRONTEND_URL || "http://localhost:3000";
     let invitationStatus = "sent";
     let emailError: string | undefined;
+    let emailAccepted = false;
+    let statusPersisted = false;
 
     try {
       const mailResult = await EmailService.sendStudentWelcomeEmail({
@@ -1620,61 +1754,131 @@ router.post("/students", requirePermission("STUDENT_CREATE"), async (req, res, n
         recipientName: data.name,
         collegeName: college.name,
         enrollmentNumber: data.enrollmentNumber,
-        tempPassword: rawTempPassword,
+        tempPassword: result.rawTempPassword,
         loginUrl: `${frontendUrl}/login`,
       });
 
       if (mailResult && mailResult.success === false) {
         invitationStatus = "failed";
-        emailError = mailResult.error || "Email delivery failed";
+        emailError = publicStudentEmailError(mailResult.error) || "The invitation email could not be sent.";
+      } else {
+        emailAccepted = true;
       }
     } catch (err: any) {
       invitationStatus = "failed";
-      emailError = err?.message || "Failed to send welcome email";
+      emailError = publicStudentEmailError(err?.message) || "The invitation email could not be sent.";
     }
 
-    // Update invitation status in DB (student is NEVER rolled back or deleted if email fails)
-    await prisma.invitation.updateMany({
-      where: { collegeId, email: data.email, role: "student" },
-      data: {
-        status: invitationStatus,
-        metadata: {
+    // 3. Post-commit: Update invitation status in DB (isolated from student creation commit)
+    try {
+      await prisma.invitation.updateMany({
+        where: { collegeId, email: data.email, role: "student" },
+        data: {
+          status: invitationStatus,
+          metadata: {
+            name: data.name,
+            enrollmentNumber: data.enrollmentNumber,
+            program: data.program,
+            course: data.course,
+            section: data.section,
+            batch: data.batch,
+            emailError,
+          },
+        },
+      });
+      statusPersisted = true;
+    } catch (err: any) {
+      console.error("Failed to persist student invitation status after account creation", {
+        studentId: result.studentProfile.id,
+        collegeId,
+        email: data.email,
+        intendedStatus: invitationStatus,
+        error: err?.message || err,
+      });
+      statusPersisted = false;
+    }
+
+    // 4. Post-commit: Log enterprise audit (isolated from student creation commit)
+    try {
+      await logEnterpriseAudit({
+        collegeId,
+        actorId: req.user!.id,
+        action: "STUDENT_CREATED",
+        entity: "CollegeStudent",
+        entityId: result.studentProfile.id,
+        newValue: {
           name: data.name,
+          email: data.email,
           enrollmentNumber: data.enrollmentNumber,
           program: data.program,
-          course: data.course,
-          section: data.section,
           batch: data.batch,
-          emailError,
+          invitationStatus: statusPersisted ? invitationStatus : "persistence_failed",
+          invitationPersistenceFailed: !statusPersisted,
         },
-      },
-    });
+      });
+    } catch (auditErr: any) {
+      console.error("Failed to record enterprise audit log for student creation", {
+        studentId: result.studentProfile.id,
+        collegeId,
+        error: auditErr?.message || auditErr,
+      });
+    }
 
-    await logEnterpriseAudit({
-      collegeId,
-      actorId: req.user!.id,
-      action: "STUDENT_CREATED",
-      entity: "CollegeStudent",
-      entityId: result.studentProfile.id,
-      newValue: {
-        name: data.name,
-        email: data.email,
-        enrollmentNumber: data.enrollmentNumber,
-        program: data.program,
-        batch: data.batch,
-        invitationStatus,
-      },
-    });
+    const finalStatus = statusPersisted ? invitationStatus : "persistence_failed";
+    const invitationPersistenceFailed = !statusPersisted;
+    const invitationPersistenceWarning = !statusPersisted
+      ? "Student account created, but invitation status could not be saved to the database. Check the student list before resending."
+      : undefined;
 
-    res.status(201).json({
+    let responseMessage: string;
+    if (statusPersisted && invitationStatus === "sent") {
+      responseMessage = `Student "${data.name}" added successfully. Invitation email accepted by the email service.`;
+    } else if (statusPersisted && invitationStatus === "failed") {
+      responseMessage = `Student "${data.name}" added successfully. (Notice: Welcome email could not be delivered and may be resent).`;
+    } else if (!statusPersisted && emailAccepted) {
+      responseMessage = `Student "${data.name}" added successfully. Invitation email was accepted, but delivery status could not be saved. Check invitation status before resending.`;
+    } else {
+      responseMessage = `Student "${data.name}" added successfully. Notice: Welcome email could not be delivered and status could not be saved. Check the student list before resending.`;
+    }
+
+    const finalResponseBody = {
       success: true,
-      message: `Student "${data.name}" added successfully.${invitationStatus === "failed" ? " (Notice: Welcome email could not be delivered and may be resent)." : " Credentials sent via email."}`,
+      message: responseMessage,
       student: result.studentProfile,
-      invitationStatus,
+      invitationStatus: finalStatus,
+      emailSent: emailAccepted,
       emailError,
-      invitationToken: env.NODE_ENV !== "production" ? rawToken : undefined,
-    });
-  } catch (error) {
+      invitationPersistenceFailed,
+      invitationPersistenceWarning,
+      invitationToken: env.NODE_ENV !== "production" ? result.rawToken : undefined,
+    };
+
+    // Update idempotency record with final response body so replayed requests reflect actual outcome
+    if (idempotencyScope) {
+      try {
+        await prisma.creditIdempotencyRecord.update({
+          where: { collegeId_actorId_operation_key: idempotencyScope },
+          data: {
+            responseBody: finalResponseBody as any,
+          },
+        });
+      } catch (err: any) {
+        console.error("Failed to update idempotency response body post-commit", {
+          scope: idempotencyScope,
+          error: err?.message || err,
+        });
+      }
+    }
+
+    return res.status(201).json(finalResponseBody);
+  } catch (error: any) {
+    if (error instanceof CreditIdempotencyError) {
+      if (error.statusCode === 503) res.set("Retry-After", "2");
+      return res.status(error.statusCode).json({
+        success: false,
+        message: error.message,
+      });
+    }
     next(error);
   }
 });
@@ -1726,7 +1930,7 @@ export function normalizeExcelHeaders(rawRow: Record<string, any>): Record<strin
       const rawCredit = typeof value === "string" ? value.trim() : value;
       normalized.initialCredits = rawCredit === "" || rawCredit == null
         ? undefined
-        : Number(rawCredit);
+        : (typeof rawCredit === "number" || typeof rawCredit === "string") ? Number(rawCredit) : NaN;
     } else if (
       cleanKey.includes("phone") ||
       cleanKey.includes("mobile") ||
@@ -1738,46 +1942,48 @@ export function normalizeExcelHeaders(rawRow: Record<string, any>): Record<strin
       cleanKey.includes("degree") ||
       cleanKey.includes("stream")
     ) {
-      normalized.program = typeof value === "string" ? value.trim() : String(value ?? "").trim();
+      normalized.program = typeof value === "string" ? value.trim() : value;
     } else if (
       cleanKey.includes("course") ||
       cleanKey.includes("branch") ||
       cleanKey.includes("specializ")
     ) {
-      normalized.course = typeof value === "string" ? value.trim() : String(value ?? "").trim();
+      normalized.course = typeof value === "string" ? value.trim() : value;
     } else if (
       cleanKey.includes("department") ||
       cleanKey === "dept"
     ) {
-      normalized.department = typeof value === "string" ? value.trim() : String(value ?? "").trim();
+      normalized.department = typeof value === "string" ? value.trim() : value;
     } else if (
       cleanKey.includes("sec") ||
       cleanKey.includes("divis") ||
       cleanKey.includes("class")
     ) {
-      normalized.section = typeof value === "string" ? value.trim() : String(value ?? "").trim();
+      normalized.section = typeof value === "string" ? value.trim() : value;
     } else if (
       cleanKey.includes("batch") ||
       cleanKey.includes("year") ||
       cleanKey.includes("pass")
     ) {
-      normalized.batch = typeof value === "string" ? value.trim() : String(value ?? "").trim();
+      normalized.batch = typeof value === "string" ? value.trim() : value;
     } else if (
       cleanKey.includes("name") &&
       !cleanKey.includes("college") &&
       !cleanKey.includes("univ")
     ) {
-      normalized.name = typeof value === "string" ? value.trim() : String(value ?? "").trim();
+      normalized.name = typeof value === "string" ? value.trim() : value;
     } else if (
       cleanKey.includes("gender") ||
       cleanKey.includes("sex")
     ) {
-      normalized.gender = typeof value === "string" ? value.trim() : String(value ?? "").trim();
+      normalized.gender = typeof value === "string" ? value.trim() : value;
     } else if (cleanKey.includes("sem")) {
-      const num = parseInt(String(value), 10);
-      normalized.semester = isNaN(num) ? undefined : num;
+      const rawSemester = typeof value === "string" ? value.trim() : value;
+      normalized.semester = rawSemester === "" || rawSemester == null ? undefined
+        : typeof rawSemester === "number" ? rawSemester
+        : typeof rawSemester === "string" && /^\d+$/.test(rawSemester) ? Number(rawSemester) : NaN;
     } else if (cleanKey.includes("acad")) {
-      normalized.academicYear = typeof value === "string" ? value.trim() : String(value ?? "").trim();
+      normalized.academicYear = typeof value === "string" ? value.trim() : value;
     }
   }
 
@@ -1817,6 +2023,15 @@ export async function executeBulkImport({
   if (!college) {
     throw new Error("College tenant not found.");
   }
+  // Preflight every normalized row, before validation can drop a positive-credit
+  // row and before partial-import transactions can persist any other students.
+  const validatedDefault = z.number().int().max(2147483647).min(0).parse(defaultInitialCredits);
+  const normalizedRows = rawRows.map(normalizeExcelHeaders);
+  const requestsCredits = normalizedRows.some(row => {
+    const amount = row.initialCredits ?? validatedDefault;
+    return typeof amount === "number" && Number.isFinite(amount) && Number.isInteger(amount) && amount > 0 && amount <= 2147483647;
+  });
+  await assertStudentCreditAuthorization(collegeId, actorId, requestsCredits);
   const facultyScope = await getFacultyStudentScope(actorId, collegeId, actorIsSuperAdmin, true);
 
   const errors: BulkImportError[] = [];
@@ -1839,12 +2054,25 @@ export async function executeBulkImport({
 
   const seenEmailsInFile = new Map<string, number>();
   const seenEnrollmentsInFile = new Map<string, number>();
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
   // 1. First pass: Row normalization and file-level validations
   for (let i = 0; i < rawRows.length; i++) {
     const rowNum = i + 1;
-    const normalized = normalizeExcelHeaders(rawRows[i]);
+    const requestedCredits = normalizedRows[i].initialCredits ?? defaultInitialCredits;
+    try {
+      assertValidCreditAmount(requestedCredits);
+      if (requestedCredits > 2147483647) throw new Error("initialCredits must not exceed 2147483647.");
+    } catch (error: any) {
+      errors.push({ row: rowNum, reason: error.message });
+      continue;
+    }
+
+    const rowValidation = studentCreationSchema.safeParse({ ...normalizedRows[i], initialCredits: normalizedRows[i].initialCredits ?? defaultInitialCredits });
+    if (!rowValidation.success) {
+      errors.push({ row: rowNum, reason: rowValidation.error.issues.map(issue => `${issue.path.join(".")}: ${issue.message}`).join("; ") });
+      continue;
+    }
+    const normalized = rowValidation.data;
 
     const name = normalized.name;
     const email = normalized.email;
@@ -1860,46 +2088,6 @@ export async function executeBulkImport({
     const academicYear = normalized.academicYear;
     const initialCredits = normalized.initialCredits ?? defaultInitialCredits;
 
-    try {
-      assertValidCreditAmount(initialCredits);
-    } catch (error: any) {
-      errors.push({ row: rowNum, email, enrollmentNumber, reason: error.message });
-      continue;
-    }
-
-    // Check required fields
-    if (!name) {
-      errors.push({ row: rowNum, email, enrollmentNumber, reason: "Missing required field: Name" });
-      continue;
-    }
-    if (!email) {
-      errors.push({ row: rowNum, email, enrollmentNumber, reason: "Missing required field: Email" });
-      continue;
-    }
-    if (!emailRegex.test(email)) {
-      errors.push({ row: rowNum, email, enrollmentNumber, reason: `Invalid email format: "${email}"` });
-      continue;
-    }
-    if (!enrollmentNumber) {
-      errors.push({ row: rowNum, email, enrollmentNumber, reason: "Missing required field: Enrollment Number" });
-      continue;
-    }
-    if (!program) {
-      errors.push({ row: rowNum, email, enrollmentNumber, reason: "Missing required field: Program" });
-      continue;
-    }
-    if (!course) {
-      errors.push({ row: rowNum, email, enrollmentNumber, reason: "Missing required field: Course" });
-      continue;
-    }
-    if (!section) {
-      errors.push({ row: rowNum, email, enrollmentNumber, reason: "Missing required field: Section" });
-      continue;
-    }
-    if (!batch) {
-      errors.push({ row: rowNum, email, enrollmentNumber, reason: "Missing required field: Batch" });
-      continue;
-    }
     if (!isStudentWithinFacultyScope(facultyScope, { collegeId, program, course, section, batch })) {
       errors.push({
         row: rowNum,
@@ -2020,6 +2208,8 @@ export async function executeBulkImport({
       totalProcessed: rawRows.length,
       totalCreated: 0,
       totalFailed: errors.length,
+      emailsSent: 0,
+      emailsFailed: 0,
       errors,
       createdStudents: [],
     };
@@ -2038,6 +2228,8 @@ export async function executeBulkImport({
           totalProcessed: rawRows.length,
           totalCreated: 0,
           totalFailed: rawRows.length,
+          emailsSent: 0,
+          emailsFailed: 0,
           errors: [{ row: 0, reason: "Insufficient college credit balance for cohort" }],
           createdStudents: [],
         };
@@ -2127,6 +2319,15 @@ export async function executeBulkImport({
       },
     });
 
+    if (row.initialCredits > 0) {
+      await logEnterpriseAudit({
+        collegeId, actorId,
+        action: "STUDENT_CREDITS_ASSIGNED", entity: "CollegeStudent", entityId: profile.id,
+        newValue: { amount: row.initialCredits, source: "STUDENT_BULK_IMPORT", row: row.rowNumber },
+        transactionClient: tx, propagateErrors: true,
+      });
+    }
+
     await testHooks?.afterRowPersisted?.(row.rowNumber);
 
     return { user, profile };
@@ -2183,6 +2384,8 @@ export async function executeBulkImport({
         totalProcessed: rawRows.length,
         totalCreated: 0,
         totalFailed: rawRows.length,
+        emailsSent: 0,
+        emailsFailed: 0,
         errors,
         createdStudents: [],
       };
@@ -2225,11 +2428,11 @@ export async function executeBulkImport({
       });
       if (mailResult && mailResult.success === false) {
         emailDeliveryStatus = "failed";
-        emailErrorDetail = mailResult.error || "Email delivery failed";
+        emailErrorDetail = publicStudentEmailError(mailResult.error) || "The invitation email could not be sent.";
       }
     } catch (mailErr: any) {
       emailDeliveryStatus = "failed";
-      emailErrorDetail = mailErr?.message || "Failed to dispatch welcome email";
+      emailErrorDetail = publicStudentEmailError(mailErr?.message) || "The invitation email could not be sent.";
     }
 
     try {
@@ -2253,9 +2456,9 @@ export async function executeBulkImport({
       // committed strict import into an apparent transactional failure.
       emailErrorDetail = [
         emailErrorDetail,
-        `Invitation delivery status could not be recorded: ${statusError?.message || "unknown error"}`,
+        "Invitation delivery status could not be recorded. Refresh the student list before resending.",
       ].filter(Boolean).join(" ");
-      console.error("Failed to update post-commit invitation delivery status:", statusError);
+      console.error("Failed to update post-commit invitation delivery status.");
     }
 
     createdStudents.push({
@@ -2287,12 +2490,17 @@ export async function executeBulkImport({
     });
   }
 
+  const emailsSent = createdStudents.filter((student) => student.invitationStatus === "sent").length;
+  const emailsFailed = createdStudents.length - emailsSent;
+
   return {
     success: true,
     message: `Processed ${rawRows.length} rows: ${createdStudents.length} created, ${errors.length} failed.`,
     totalProcessed: rawRows.length,
     totalCreated: createdStudents.length,
     totalFailed: errors.length,
+    emailsSent,
+    emailsFailed,
     errors,
     createdStudents,
   };
@@ -2305,7 +2513,7 @@ router.post("/students/bulk-import", requirePermission("STUDENT_CREATE"), async 
     const schema = z.object({
       students: z.array(z.record(z.any())).min(1, "At least one student record is required"),
       atomic: z.boolean().optional().default(false),
-      initialCredits: z.number().int().min(0).optional().default(0),
+      initialCredits: z.number().int().max(2147483647).min(0).optional().default(0),
     });
 
     const { students, atomic, initialCredits } = schema.parse(req.body);
@@ -2346,7 +2554,7 @@ router.post(
       const rawInitialCredits = req.body.initialCredits;
       const initialCredits = rawInitialCredits == null || rawInitialCredits === ""
         ? 0
-        : Number(rawInitialCredits);
+        : z.coerce.number().int().max(2147483647).min(0).parse(rawInitialCredits);
 
       // Parse Excel or CSV buffer
       let workbook: xlsx.WorkBook;
@@ -2493,7 +2701,7 @@ router.post(
     }
 
     if (!deliveryResult.success) {
-      const emailError = deliveryResult.error || "Email delivery failed";
+      const emailError = publicStudentEmailError(deliveryResult.error) || "The invitation email could not be sent.";
       await prisma.invitation.updateMany({
         where: { id: invitation.id, status: "pending" },
         data: {
@@ -2507,7 +2715,7 @@ router.post(
           },
         },
       }).catch((statusError) => {
-        console.error("Failed to record password setup email failure:", statusError);
+        console.error("Failed to record password setup email failure.");
       });
 
       await logEnterpriseAudit({
@@ -2540,7 +2748,7 @@ router.post(
         },
       },
     }).catch((statusError) => {
-      console.error("Failed to record password setup email delivery status:", statusError);
+      console.error("Failed to record password setup email delivery status.");
     });
 
     await logEnterpriseAudit({
@@ -2573,18 +2781,7 @@ router.put("/students/:id", requirePermission("STUDENT_EDIT"), async (req, res, 
     const collegeId = req.collegeId!;
     const { id } = req.params;
 
-    const schema = z.object({
-      program: z.string().optional(),
-      course: z.string().optional(),
-      department: z.string().optional(),
-      section: z.string().optional(),
-      batch: z.string().optional(),
-      semester: z.number().int().optional(),
-      academicYear: z.string().optional(),
-      status: z.enum(["active", "graduated", "inactive"]).optional(),
-    });
-
-    const data = schema.parse(req.body);
+    const data = studentUpdateSchema.parse(req.body);
     const facultyScope = await getFacultyStudentScope(
       req.user!.id,
       collegeId,
@@ -2693,18 +2890,7 @@ router.patch("/students/:id", requirePermission("STUDENT_EDIT"), async (req, res
     const collegeId = req.collegeId!;
     const { id } = req.params;
 
-    const schema = z.object({
-      program: z.string().optional(),
-      course: z.string().optional(),
-      department: z.string().optional(),
-      section: z.string().optional(),
-      batch: z.string().optional(),
-      semester: z.number().int().optional(),
-      academicYear: z.string().optional(),
-      status: z.enum(["active", "graduated", "inactive"]).optional(),
-    });
-
-    const data = schema.parse(req.body);
+    const data = studentUpdateSchema.parse(req.body);
     const facultyScope = await getFacultyStudentScope(
       req.user!.id,
       collegeId,
@@ -2862,7 +3048,7 @@ const handleStudentAssign = async (req: any, res: any, next: any) => {
     const collegeId = req.collegeId!;
     const schema = z.object({
       studentId: z.string().min(1, "Student ID is required"),
-      amount: z.number().int().min(1, "Amount must be at least 1 credit"),
+      amount: z.number().int().max(2147483647).min(1, "Amount must be at least 1 credit"),
       reason: z.string().min(3, "Reason is required"),
     });
 
@@ -2886,7 +3072,10 @@ const handleStudentAssign = async (req: any, res: any, next: any) => {
       return res.status(404).json({ success: false, message: "Student record not found in your college." });
     }
 
-    const result = await prisma.$transaction(async (tx) => {
+    const key = requireCreditIdempotencyKey(req.get("Idempotency-Key"));
+    const receipt = await executeIdempotentCreditOperation(prisma,
+      { collegeId, actorId: req.user!.id, operation: "STUDENT_ASSIGNMENT", key },
+      { studentId, amount, reason }, async (tx) => {
       const transfer = await allocateInstitutionCreditsToStudent({
         tx,
         collegeId,
@@ -2898,40 +3087,40 @@ const handleStudentAssign = async (req: any, res: any, next: any) => {
         reason,
       });
       if (!transfer) throw new Error("Credit transfer amount must be greater than zero.");
-      return {
+      const result = {
         updatedAccount: transfer.account,
         updatedUserCredit: transfer.studentCredit,
         txn: transfer.transaction,
       };
-    },
-    {
-      maxWait: 20000,
-      timeout: 60000,
-    });
 
-    await logEnterpriseAudit({
-      collegeId,
-      actorId: req.user!.id,
-      action: "STUDENT_CREDITS_ASSIGNED",
-      entity: "CollegeStudent",
-      entityId: studentId,
-      newValue: {
-        amount,
-        reason,
-        studentName: student.user.name,
-        newStudentBalance: result.updatedUserCredit.balance,
-        remainingCollegeCredits: result.updatedAccount.balance,
-      },
-    });
+      await logEnterpriseAudit({
+        transactionClient: tx,
+        propagateErrors: true,
+        collegeId,
+        actorId: req.user!.id,
+        action: "STUDENT_CREDITS_ASSIGNED",
+        entity: "CollegeStudent",
+        entityId: studentId,
+        newValue: {
+          amount,
+          reason,
+          studentName: student.user.name,
+          newStudentBalance: result.updatedUserCredit.balance,
+          remainingCollegeCredits: result.updatedAccount.balance,
+        },
+      });
 
-    res.json({
-      success: true,
-      message: `Successfully assigned ${amount} credits to ${student.user.name}.`,
-      studentBalance: result.updatedUserCredit.balance,
-      collegeBalance: result.updatedAccount.balance,
+      return {
+        success: true,
+        message: `Successfully assigned ${amount} credits to ${student.user.name}.`,
+        studentBalance: result.updatedUserCredit.balance,
+        collegeBalance: result.updatedAccount.balance,
+      };
     });
+    res.status(receipt.status).json(receipt.body);
   } catch (error: any) {
-    res.status(400).json({
+    if (error instanceof CreditIdempotencyError && error.statusCode === 503) res.set("Retry-After", "2");
+    res.status(error instanceof CreditIdempotencyError ? error.statusCode : 400).json({
       success: false,
       message: error.message || "Failed to assign credits.",
     });
@@ -2954,7 +3143,7 @@ router.post("/credits/distribute", requirePermission("INTERVIEW_CREDIT_ASSIGN"),
 
     // Accept both flat body (frontend format) and nested filters object (legacy format)
     const schema = z.object({
-      creditsPerStudent: z.number().int().min(1, "Credits per student must be at least 1"),
+      creditsPerStudent: z.number().int().max(2147483647).min(1, "Credits per student must be at least 1"),
       reason: z.string().min(3, "Reason is required"),
       // Flat fields from frontend
       program: z.string().optional(),
@@ -2983,7 +3172,15 @@ router.post("/credits/distribute", requirePermission("INTERVIEW_CREDIT_ASSIGN"),
       studentIds: parsed.filters?.studentIds ?? parsed.studentIds,
     };
 
-    const result = await prisma.$transaction(async (tx) => {
+    // Explicit recipients are a set; empty filters have the same meaning as absent filters.
+    for (const name of ["program", "course", "section", "batch"] as const) {
+      if (!filters[name]) filters[name] = undefined;
+    }
+    filters.studentIds = filters.studentIds?.length ? [...new Set(filters.studentIds)].sort() : undefined;
+    const key = requireCreditIdempotencyKey(req.get("Idempotency-Key"));
+    const receipt = await executeIdempotentCreditOperation(prisma,
+      { collegeId, actorId: req.user!.id, operation: "BULK_DISTRIBUTION", key },
+      { creditsPerStudent, reason, filters }, async (tx) => {
       // 1. Build filter query
       const studentFilters: any = { status: "active" };
       if (filters.program) studentFilters.program = filters.program;
@@ -2999,69 +3196,64 @@ router.post("/credits/distribute", requirePermission("INTERVIEW_CREDIT_ASSIGN"),
       const students = await tx.collegeStudent.findMany({
         where,
         select: { id: true, userId: true, enrollmentNumber: true },
+        orderBy: { id: "asc" },
       });
 
       if (students.length === 0) {
         throw new Error("No eligible active students found matching the selected filter criteria.");
       }
 
-      const totalRequired = students.length * creditsPerStudent;
+      const distStartTime = Date.now();
 
-      // 3. Each transfer uses the conditional-debit primitive. Because all
-      // transfers share this outer transaction, one failure rolls back the
-      // entire distribution.
-      for (const student of students) {
-        await allocateInstitutionCreditsToStudent({
-          tx,
-          collegeId,
-          studentId: student.id,
-          userId: student.userId,
-          actorId: req.user!.id,
-          amount: creditsPerStudent,
-          type: "FACULTY_DISTRIBUTION",
+      // 3. Atomically allocate credits in bulk with set-based operations.
+      // A single conditional UPDATE decrements institution balance by totalRequired,
+      // student UserCredit records are bulk created and incremented in chunks of 1,000,
+      // and ledger transactions are bulk created in chunks of 1,000.
+      const transfer = await allocateInstitutionCreditsToStudentsBulk({
+        tx,
+        collegeId,
+        students,
+        actorId: req.user!.id,
+        amountPerStudent: creditsPerStudent,
+        type: "FACULTY_DISTRIBUTION",
+        reason,
+        batchFilter: filters,
+      });
+
+      const result = {
+        distributedCount: transfer.distributedCount,
+        totalCreditsDistributed: transfer.totalCreditsDistributed,
+        balanceRemaining: transfer.account.balance,
+      };
+
+      await logEnterpriseAudit({
+        transactionClient: tx,
+        propagateErrors: true,
+        collegeId,
+        actorId: req.user!.id,
+        action: "BULK_CREDITS_DISTRIBUTED",
+        entity: "CollegeCreditAccount",
+        newValue: {
+          studentsCount: result.distributedCount,
+          creditsPerStudent,
+          totalCredits: result.totalCreditsDistributed,
+          remainingBalance: result.balanceRemaining,
+          filters,
           reason,
-          batchFilter: filters,
-        });
-      }
-
-      const updatedAccount = await tx.collegeCreditAccount.findUniqueOrThrow({
-        where: { collegeId },
-        select: { balance: true },
+          durationMs: Date.now() - distStartTime,
+        },
       });
 
       return {
-        distributedCount: students.length,
-        totalCreditsDistributed: totalRequired,
-        balanceRemaining: updatedAccount.balance,
+        success: true,
+        message: `Successfully distributed ${result.totalCreditsDistributed} credits across ${result.distributedCount} students.`,
+        ...result,
       };
-    },
-    {
-      maxWait: 20000,
-      timeout: 60000,
     });
-
-    await logEnterpriseAudit({
-      collegeId,
-      actorId: req.user!.id,
-      action: "BULK_CREDITS_DISTRIBUTED",
-      entity: "CollegeCreditAccount",
-      newValue: {
-        studentsCount: result.distributedCount,
-        creditsPerStudent,
-        totalCredits: result.totalCreditsDistributed,
-        remainingBalance: result.balanceRemaining,
-        filters,
-        reason,
-      },
-    });
-
-    res.json({
-      success: true,
-      message: `Successfully distributed ${result.totalCreditsDistributed} credits across ${result.distributedCount} students.`,
-      ...result,
-    });
+    res.status(receipt.status).json(receipt.body);
   } catch (error: any) {
-    res.status(400).json({
+    if (error instanceof CreditIdempotencyError && error.statusCode === 503) res.set("Retry-After", "2");
+    res.status(error instanceof CreditIdempotencyError ? error.statusCode : 400).json({
       success: false,
       message: error.message || "Failed to distribute credits.",
     });
@@ -3214,7 +3406,7 @@ router.get("/credits/ledger", requirePermission("INTERVIEW_CREDIT_VIEW"), async 
 // ===========================================================================
 
 // GET /api/enterprise/reports - Filtered individual interview evaluation reports across cohort
-router.get("/reports", requirePermission("REPORT_VIEW"), async (req, res, next) => {
+router.get("/reports", requirePermission("REPORT_VIEW"), validateReportQuery, async (req, res, next) => {
   try {
     const collegeId = req.collegeId!;
     const scopeConditions = await getFacultyScopeConditions(
@@ -3237,26 +3429,22 @@ router.get("/reports", requirePermission("REPORT_VIEW"), async (req, res, next) 
     const sortBy = (req.query.sortBy as string) || "createdAt";
     const sortOrder = (req.query.sortOrder as "asc" | "desc") || "desc";
 
-    const studentFilters: any = {};
-    if (status) studentFilters.status = status;
-    if (program) studentFilters.program = program;
-    if (course) studentFilters.course = course;
-    if (section) studentFilters.section = section;
-    if (batch) studentFilters.batch = batch;
-
-    const scopedStudentWhere = buildScopedStudentWhere(collegeId, scopeConditions, studentFilters);
-
     if (view === "students" || view === "analytics") {
-      const studentWhereWithSearch: any = { ...scopedStudentWhere };
-      if (search) {
-        studentWhereWithSearch.OR = [
-          { enrollmentNumber: { contains: search, mode: "insensitive" } },
-          { user: { name: { contains: search, mode: "insensitive" } } },
-          { user: { email: { contains: search, mode: "insensitive" } } },
-        ];
-      }
+      const studentWhereWithSearch = buildStudentFilters({
+        collegeId,
+        scopeConditions,
+        search,
+        program,
+        course,
+        section,
+        batch,
+        status,
+      });
 
+      const total = await prisma.collegeStudent.count({ where: studentWhereWithSearch });
       const students = await prisma.collegeStudent.findMany({
+        skip: (page - 1) * limit,
+        take: limit,
         where: studentWhereWithSearch,
         orderBy: [{ batch: "desc" }, { enrollmentNumber: "asc" }],
         include: {
@@ -3285,19 +3473,17 @@ router.get("/reports", requirePermission("REPORT_VIEW"), async (req, res, next) 
       let aggregateData = students.map((s) => {
         const sessions = s.user.interviewSessions;
         const completedSessions = sessions.filter((sess) => sess.report !== null);
+        const validScores = completedSessions
+          .map((sess) => sess.report ? normalizeReportScore(sess.report as any) : null)
+          .filter((score): score is number => score !== null);
         const averageScore =
-          completedSessions.length > 0
-            ? Math.round(
-                completedSessions.reduce(
-                  (acc, curr) => acc + (curr.report ? resolveCanonicalReportScore(curr.report as any) : 0),
-                  0
-                ) / completedSessions.length
-              )
+          validScores.length > 0
+            ? Math.round(validScores.reduce((acc, score) => acc + score, 0) / validScores.length)
             : null;
 
         const latestSession = completedSessions[0];
         const latestOverallScore = latestSession?.report
-          ? resolveCanonicalReportScore(latestSession.report as any)
+          ? normalizeReportScore(latestSession.report as any)
           : null;
 
         const readinessRating = getReadinessCategory(averageScore);
@@ -3329,8 +3515,7 @@ router.get("/reports", requirePermission("REPORT_VIEW"), async (req, res, next) 
         };
       });
 
-      const total = aggregateData.length;
-      const paginatedData = aggregateData.slice((page - 1) * limit, page * limit);
+      const paginatedData = aggregateData;
 
       return res.json({
         success: true,
@@ -3347,56 +3532,22 @@ router.get("/reports", requirePermission("REPORT_VIEW"), async (req, res, next) 
     }
 
     // Default & Canonical: Return individual interview evaluation reports
-    const where: any = {
-      session: {
-        status: "completed",
-        user: {
-          studentProfile: scopedStudentWhere,
-        },
-      },
-    };
-
-    if (search) {
-      where.AND = [
-        ...(where.AND || []),
-        {
-          OR: [
-            { session: { user: { name: { contains: search, mode: "insensitive" } } } },
-            { session: { user: { email: { contains: search, mode: "insensitive" } } } },
-            { session: { user: { studentProfile: { enrollmentNumber: { contains: search, mode: "insensitive" } } } } },
-            { session: { targetRole: { contains: search, mode: "insensitive" } } },
-          ],
-        },
-      ];
-    }
-
-    if (scoreTier) {
-      if (scoreTier === "high") {
-        where.overallScore = { ...(where.overallScore || {}), gte: 80 };
-      } else if (scoreTier === "moderate") {
-        where.overallScore = { ...(where.overallScore || {}), gte: 60, lt: 80 };
-      } else if (scoreTier === "needs_improvement") {
-        where.overallScore = { ...(where.overallScore || {}), lt: 60 };
-      }
-    }
-
-    const minScore = req.query.minScore ? parseFloat(req.query.minScore as string) : undefined;
-    const maxScore = req.query.maxScore ? parseFloat(req.query.maxScore as string) : undefined;
-    if (minScore !== undefined && !isNaN(minScore)) {
-      where.overallScore = { ...(where.overallScore || {}), gte: minScore };
-    }
-    if (maxScore !== undefined && !isNaN(maxScore)) {
-      where.overallScore = { ...(where.overallScore || {}), lte: maxScore };
-    }
-
-    const startDate = req.query.startDate as string;
-    const endDate = req.query.endDate as string;
-    if (startDate) {
-      where.createdAt = { ...(where.createdAt || {}), gte: new Date(startDate) };
-    }
-    if (endDate) {
-      where.createdAt = { ...(where.createdAt || {}), lte: new Date(endDate) };
-    }
+    const where = buildReportFilters({
+      collegeId,
+      scopeConditions,
+      search,
+      program,
+      course,
+      section,
+      batch,
+      status,
+      scoreTier,
+      minScore: req.query.minScore ? parseFloat(req.query.minScore as string) : undefined,
+      maxScore: req.query.maxScore ? parseFloat(req.query.maxScore as string) : undefined,
+      startDate: (req.query.startDate || req.query.dateFrom) as string,
+      endDate: (req.query.endDate || req.query.dateTo) as string,
+      reportType: req.query.reportType as string,
+    });
 
     // Configure SQL-level order by
     let orderBy: any = { createdAt: sortOrder };
@@ -3412,73 +3563,76 @@ router.get("/reports", requirePermission("REPORT_VIEW"), async (req, res, next) 
       orderBy = { createdAt: sortOrder };
     }
 
-    const [total, reports, scoreAgg, highCount, moderateCount, needsPracticeCount] = await Promise.all([
-      prisma.interviewReport.count({ where }),
-      prisma.interviewReport.findMany({
-        where,
-        orderBy,
-        skip: (page - 1) * limit,
-        take: limit,
-        include: {
-          session: {
-            select: {
-              id: true,
-              targetRole: true,
-              difficulty: true,
-              interviewStyle: true,
-              durationMins: true,
-              createdAt: true,
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                  email: true,
-                  phone: true,
-                  studentProfile: {
-                    select: {
-                      id: true,
-                      enrollmentNumber: true,
-                      program: true,
-                      course: true,
-                      section: true,
-                      batch: true,
-                    },
+    const reports = await prisma.interviewReport.findMany({
+      where,
+      orderBy,
+      skip: (page - 1) * limit,
+      take: limit,
+      include: {
+        session: {
+          select: {
+            id: true,
+            targetRole: true,
+            difficulty: true,
+            interviewStyle: true,
+            durationMins: true,
+            createdAt: true,
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true,
+                studentProfile: {
+                  select: {
+                    id: true,
+                    enrollmentNumber: true,
+                    program: true,
+                    course: true,
+                    section: true,
+                    batch: true,
                   },
                 },
               },
             },
           },
         },
-      }),
-      prisma.interviewReport.aggregate({
-        where,
-        _avg: { overallScore: true },
-        _count: { id: true },
-      }),
-      prisma.interviewReport.count({
-        where: { ...where, overallScore: { gte: 80 } },
-      }),
-      prisma.interviewReport.count({
-        where: { ...where, overallScore: { gte: 60, lt: 80 } },
-      }),
-      prisma.interviewReport.count({
-        where: { ...where, overallScore: { lt: 60 } },
-      }),
-    ]);
+      },
+    });
 
+    const scoreGroups = await prisma.interviewReport.groupBy({
+      by: ["overallScore", "scoreScale"],
+      where,
+      _count: { _all: true },
+    });
+    let total = 0;
+    let scoreSum = 0;
+    let highCount = 0;
+    let moderateCount = 0;
+    let needsPracticeCount = 0;
+    for (const group of scoreGroups) {
+      const count = group._count._all;
+      const canonicalScore = normalizeReportScore(group);
+      if (canonicalScore === null) continue;
+      total += count;
+      scoreSum += canonicalScore * count;
+      if (canonicalScore >= 80) highCount += count;
+      else if (canonicalScore >= 60) moderateCount += count;
+      else needsPracticeCount += count;
+    }
     const summary = {
-      totalReports: scoreAgg._count.id,
-      totalStudentsInView: scoreAgg._count.id,
-      cohortAverage: scoreAgg._avg.overallScore ? Math.round(scoreAgg._avg.overallScore) : 0,
+      totalReports: total,
+      totalStudentsInView: total,
+      cohortAverage: total > 0 ? Math.round(scoreSum / total) : 0,
       jobReadyCount: highCount,
-      moderateCount: moderateCount,
-      needsPracticeCount: needsPracticeCount,
+      moderateCount,
+      needsPracticeCount,
       untestedCount: 0,
     };
 
     const mappedReports: EnterpriseReportRow[] = reports.map((r) => {
       const studentProfile = r.session.user?.studentProfile;
-      const canonicalScore = resolveCanonicalReportScore(r as any);
+      const canonicalScore = normalizeReportScore(r as any) ?? 0;
       const readinessRating = getReadinessCategory(canonicalScore) as "Job-Ready" | "Moderate" | "Needs Practice";
 
       return {
@@ -3568,7 +3722,7 @@ export function sanitizeSpreadsheetCell(value: unknown): string {
 }
 
 // GET /api/enterprise/reports/summary - Aggregate reporting metrics for cohort
-router.get("/reports/summary", requirePermission("REPORT_VIEW"), async (req, res, next) => {
+router.get("/reports/summary", requirePermission("REPORT_VIEW"), validateReportQuery, async (req, res, next) => {
   try {
     const collegeId = req.collegeId!;
     const scopeConditions = await getFacultyScopeConditions(
@@ -3589,41 +3743,27 @@ router.get("/reports/summary", requirePermission("REPORT_VIEW"), async (req, res
     if (batch) filters.batch = batch;
     const where = buildScopedStudentWhere(collegeId, scopeConditions, filters);
 
-    const students = await prisma.collegeStudent.findMany({
-      where,
-      select: {
-        user: {
-          select: {
-            interviewSessions: {
-              where: { status: "completed" },
-              select: {
-                report: {
-                  select: { overallScore: true, scoreScale: true, categoryScores: true },
-                },
-              },
-            },
-          },
-        },
-      },
+    const scoreGroups = await prisma.interviewReport.groupBy({
+      by: ["overallScore", "scoreScale"],
+      where: { session: {
+        status: "completed", user: { studentProfile: { is: where } },
+      } },
+      _count: { _all: true },
     });
-
     let totalReports = 0;
     let scoreSum = 0;
-    let high = 0; // 80+
-    let moderate = 0; // 60-79
-    let needsPractice = 0; // <60
-
-    for (const s of students) {
-      for (const sess of s.user.interviewSessions) {
-        if (sess.report && typeof sess.report.overallScore === "number") {
-          totalReports++;
-          const score = resolveCanonicalReportScore(sess.report as any);
-          scoreSum += score;
-          if (score >= 80) high++;
-          else if (score >= 60) moderate++;
-          else needsPractice++;
-        }
-      }
+    let high = 0;
+    let moderate = 0;
+    let needsPractice = 0;
+    for (const group of scoreGroups) {
+      const count = group._count._all;
+      const score = normalizeReportScore(group);
+      if (score === null) continue;
+      totalReports += count;
+      scoreSum += score * count;
+      if (score >= 80) high += count;
+      else if (score >= 60) moderate += count;
+      else needsPractice += count;
     }
 
     const averageOverallScore = totalReports > 0 ? Math.round(scoreSum / totalReports) : 0;
@@ -3648,6 +3788,7 @@ router.get(
   "/reports/export",
   requirePermission("REPORT_VIEW"),
   requirePermission("REPORT_EXPORT"),
+  validateReportQuery,
   async (req, res, next) => {
   try {
     const collegeId = req.collegeId!;
@@ -3664,189 +3805,314 @@ router.get(
     const section = req.query.section as string;
     const batch = req.query.batch as string;
     const status = req.query.status as string;
-
-    const filters: any = {};
-    if (status) filters.status = status;
-    if (program) filters.program = program;
-    if (course) filters.course = course;
-    if (section) filters.section = section;
-    if (batch) filters.batch = batch;
-
-    if (search) {
-      filters.OR = [
-        { enrollmentNumber: { contains: search, mode: "insensitive" } },
-        { user: { name: { contains: search, mode: "insensitive" } } },
-        { user: { email: { contains: search, mode: "insensitive" } } },
-      ];
-    }
+    const scoreTier = req.query.scoreTier as string;
+    const minScore = req.query.minScore ? parseFloat(req.query.minScore as string) : undefined;
+    const maxScore = req.query.maxScore ? parseFloat(req.query.maxScore as string) : undefined;
+    const startDate = (req.query.startDate || req.query.dateFrom) as string;
+    const endDate = (req.query.endDate || req.query.dateTo) as string;
+    const reportType = req.query.reportType as string;
     const view = (req.query.view as string) || "reports";
-    const where = buildScopedStudentWhere(collegeId, scopeConditions, filters);
 
-    let exportRows: any[] = [];
+    const sortBy = (req.query.sortBy as string) || "createdAt";
+    const sortOrder = (req.query.sortOrder as "asc" | "desc") || "desc";
 
-    if (view === "students") {
-      const students = await prisma.collegeStudent.findMany({
-        where,
-        orderBy: [{ batch: "desc" }, { enrollmentNumber: "asc" }],
-        include: {
+    const exportStartTime = Date.now();
+    const exportSnapshotTime = new Date();
+
+    const defaultReportHeaders = [
+      "Report ID",
+      "Enrollment Number",
+      "Student Name",
+      "Email",
+      "Phone",
+      "Program",
+      "Course",
+      "Section",
+      "Batch",
+      "Target Role",
+      "Difficulty",
+      "Overall Score (%)",
+      "Readiness Rating",
+      "Speaking Pace (WPM)",
+      "Filler Words",
+      "Date Completed",
+    ];
+
+    const defaultStudentHeaders = [
+      "Enrollment Number",
+      "Student Name",
+      "Email",
+      "Phone",
+      "Program",
+      "Course",
+      "Section",
+      "Batch",
+      "Status",
+      "Available Credits",
+      "Completed Interviews",
+      "Average Score",
+      "Readiness Rating",
+      "Latest Score",
+      "Latest Target Role",
+      "Has Resume",
+    ];
+
+    const fallbackHeaders = view === "students" ? defaultStudentHeaders : defaultReportHeaders;
+    const headers = fallbackHeaders;
+
+    const formatReportRow = (r: any) => {
+      const studentProfile = r.session?.user?.studentProfile;
+      const canonicalScore = normalizeReportScore(r as any);
+      const readiness = getReadinessCategory(canonicalScore);
+
+      return {
+        "Report ID": sanitizeSpreadsheetCell(r.id),
+        "Enrollment Number": sanitizeSpreadsheetCell(studentProfile?.enrollmentNumber || "—"),
+        "Student Name": sanitizeSpreadsheetCell(r.session?.user?.name || "—"),
+        "Email": sanitizeSpreadsheetCell(r.session?.user?.email || "—"),
+        "Phone": sanitizeSpreadsheetCell(r.session?.user?.phone || ""),
+        "Program": sanitizeSpreadsheetCell(studentProfile?.program || "—"),
+        "Course": sanitizeSpreadsheetCell(studentProfile?.course || "—"),
+        "Section": sanitizeSpreadsheetCell(studentProfile?.section || "—"),
+        "Batch": sanitizeSpreadsheetCell(studentProfile?.batch || "—"),
+        "Target Role": sanitizeSpreadsheetCell(r.session?.targetRole),
+        "Difficulty": sanitizeSpreadsheetCell(r.session?.difficulty),
+        "Overall Score (%)": canonicalScore !== null ? canonicalScore : "N/A",
+        "Readiness Rating": sanitizeSpreadsheetCell(readiness),
+        "Speaking Pace (WPM)": r.speakingPace !== null ? r.speakingPace : "N/A",
+        "Filler Words": r.fillerWords !== null ? r.fillerWords : "N/A",
+        "Date Completed": new Date(r.createdAt).toISOString().split("T")[0],
+      };
+    };
+
+    const formatStudentRow = (s: any) => {
+      const completedSessions = s.user?.interviewSessions?.filter((sess: any) => sess.report !== null) || [];
+      const validScores = completedSessions
+        .map((sess: any) => sess.report ? normalizeReportScore(sess.report as any) : null)
+        .filter((score: any): score is number => score !== null);
+      const averageScore =
+        validScores.length > 0
+          ? Math.round(validScores.reduce((acc: number, score: number) => acc + score, 0) / validScores.length)
+          : null;
+      const latestSession = completedSessions[0];
+      const latestOverallScore = latestSession?.report
+        ? normalizeReportScore(latestSession.report as any)
+        : null;
+
+      const readiness = getReadinessCategory(averageScore);
+
+      return {
+        "Enrollment Number": sanitizeSpreadsheetCell(s.enrollmentNumber),
+        "Student Name": sanitizeSpreadsheetCell(s.user?.name),
+        "Email": sanitizeSpreadsheetCell(s.user?.email),
+        "Phone": sanitizeSpreadsheetCell(s.user?.phone || ""),
+        "Program": sanitizeSpreadsheetCell(s.program),
+        "Course": sanitizeSpreadsheetCell(s.course),
+        "Section": sanitizeSpreadsheetCell(s.section),
+        "Batch": sanitizeSpreadsheetCell(s.batch),
+        "Status": sanitizeSpreadsheetCell(s.status),
+        "Available Credits": s.user?.credits?.balance ?? 0,
+        "Completed Interviews": completedSessions.length,
+        "Average Score": averageScore !== null ? averageScore : "N/A",
+        "Readiness Rating": sanitizeSpreadsheetCell(readiness),
+        "Latest Score": latestOverallScore !== null ? latestOverallScore : "N/A",
+        "Latest Target Role": sanitizeSpreadsheetCell(latestSession?.targetRole || "N/A"),
+        "Has Resume": (s.user?.resumes?.length ?? 0) > 0 ? "Yes" : "No",
+      };
+    };
+
+    const studentSelect = {
+      id: true,
+      enrollmentNumber: true,
+      program: true,
+      course: true,
+      section: true,
+      batch: true,
+      status: true,
+      user: {
+        select: {
+          name: true,
+          email: true,
+          phone: true,
+          credits: { select: { balance: true } },
+          interviewSessions: {
+            where: { status: "completed" },
+            orderBy: { createdAt: "desc" as const },
+            select: {
+              id: true,
+              targetRole: true,
+              report: {
+                select: {
+                  overallScore: true,
+                  scoreScale: true,
+                },
+              },
+            },
+          },
+          resumes: {
+            take: 1,
+            orderBy: { updatedAt: "desc" as const },
+            select: { fileName: true },
+          },
+        },
+      },
+    };
+
+    const reportSelect = {
+      id: true,
+      overallScore: true,
+      scoreScale: true,
+      speakingPace: true,
+      fillerWords: true,
+      createdAt: true,
+      session: {
+        select: {
+          id: true,
+          targetRole: true,
+          difficulty: true,
+          createdAt: true,
           user: {
             select: {
               name: true,
               email: true,
               phone: true,
-              credits: true,
-              interviewSessions: {
-                where: { status: "completed" },
-                orderBy: { createdAt: "desc" },
-                include: { report: true },
-              },
-              resumes: {
-                take: 1,
-                orderBy: { updatedAt: "desc" },
-                select: { fileName: true },
-              },
-            },
-          },
-        },
-      });
-
-      exportRows = students.map((s) => {
-        const completedSessions = s.user.interviewSessions.filter((sess) => sess.report !== null);
-        const averageScore =
-          completedSessions.length > 0
-            ? Math.round(
-                completedSessions.reduce(
-                  (acc, curr) => acc + (curr.report ? resolveCanonicalReportScore(curr.report as any) : 0),
-                  0
-                ) / completedSessions.length
-              )
-            : null;
-        const latestSession = completedSessions[0];
-        const latestOverallScore = latestSession?.report
-          ? resolveCanonicalReportScore(latestSession.report as any)
-          : null;
-
-        const readiness = getReadinessCategory(averageScore);
-
-        return {
-          "Enrollment Number": sanitizeSpreadsheetCell(s.enrollmentNumber),
-          "Student Name": sanitizeSpreadsheetCell(s.user.name),
-          "Email": sanitizeSpreadsheetCell(s.user.email),
-          "Phone": sanitizeSpreadsheetCell(s.user.phone || ""),
-          "Program": sanitizeSpreadsheetCell(s.program),
-          "Course": sanitizeSpreadsheetCell(s.course),
-          "Section": sanitizeSpreadsheetCell(s.section),
-          "Batch": sanitizeSpreadsheetCell(s.batch),
-          "Status": sanitizeSpreadsheetCell(s.status),
-          "Available Credits": s.user.credits?.balance ?? 0,
-          "Completed Interviews": completedSessions.length,
-          "Average Score": averageScore !== null ? averageScore : "N/A",
-          "Readiness Rating": sanitizeSpreadsheetCell(readiness),
-          "Latest Score": latestOverallScore !== null ? latestOverallScore : "N/A",
-          "Latest Target Role": sanitizeSpreadsheetCell(latestSession?.targetRole || "N/A"),
-          "Has Resume": s.user.resumes.length > 0 ? "Yes" : "No",
-        };
-      });
-    } else {
-      const reportWhere: any = {
-        session: {
-          status: "completed",
-          user: {
-            studentProfile: where,
-          },
-        },
-      };
-
-      if (search) {
-        reportWhere.AND = [
-          {
-            OR: [
-              { session: { user: { name: { contains: search, mode: "insensitive" } } } },
-              { session: { user: { email: { contains: search, mode: "insensitive" } } } },
-              { session: { user: { studentProfile: { enrollmentNumber: { contains: search, mode: "insensitive" } } } } },
-              { session: { targetRole: { contains: search, mode: "insensitive" } } },
-            ],
-          },
-        ];
-      }
-
-      const reports = await prisma.interviewReport.findMany({
-        where: reportWhere,
-        orderBy: { createdAt: "desc" },
-        include: {
-          session: {
-            select: {
-              id: true,
-              targetRole: true,
-              difficulty: true,
-              createdAt: true,
-              user: {
+              studentProfile: {
                 select: {
-                  name: true,
-                  email: true,
-                  phone: true,
-                  studentProfile: {
-                    select: {
-                      enrollmentNumber: true,
-                      program: true,
-                      course: true,
-                      section: true,
-                      batch: true,
-                    },
-                  },
+                  enrollmentNumber: true,
+                  program: true,
+                  course: true,
+                  section: true,
+                  batch: true,
                 },
               },
             },
           },
         },
-      });
-
-      exportRows = reports.map((r) => {
-        const studentProfile = r.session.user?.studentProfile;
-        const canonicalScore = resolveCanonicalReportScore(r as any);
-        const readiness = getReadinessCategory(canonicalScore);
-
-        return {
-          "Report ID": sanitizeSpreadsheetCell(r.id),
-          "Enrollment Number": sanitizeSpreadsheetCell(studentProfile?.enrollmentNumber || "—"),
-          "Student Name": sanitizeSpreadsheetCell(r.session.user?.name || "—"),
-          "Email": sanitizeSpreadsheetCell(r.session.user?.email || "—"),
-          "Phone": sanitizeSpreadsheetCell(r.session.user?.phone || ""),
-          "Program": sanitizeSpreadsheetCell(studentProfile?.program || "—"),
-          "Course": sanitizeSpreadsheetCell(studentProfile?.course || "—"),
-          "Section": sanitizeSpreadsheetCell(studentProfile?.section || "—"),
-          "Batch": sanitizeSpreadsheetCell(studentProfile?.batch || "—"),
-          "Target Role": sanitizeSpreadsheetCell(r.session.targetRole),
-          "Difficulty": sanitizeSpreadsheetCell(r.session.difficulty),
-          "Overall Score (%)": canonicalScore,
-          "Readiness Rating": sanitizeSpreadsheetCell(readiness),
-          "Speaking Pace (WPM)": r.speakingPace !== null ? r.speakingPace : "N/A",
-          "Filler Words": r.fillerWords !== null ? r.fillerWords : "N/A",
-          "Date Completed": new Date(r.createdAt).toISOString().split("T")[0],
-        };
-      });
-    }
-
-    await logEnterpriseAudit({
-      collegeId,
-      actorId: req.user!.id,
-      action: "REPORTS_EXPORTED",
-      entity: "Report",
-      newValue: {
-        format,
-        exportedCount: exportRows.length,
-        filters: { program, course, section, batch, status },
       },
-    });
+    };
+
+    let studentWhere: any;
+    let studentOrderBy: any;
+    let reportWhere: any;
+    let finalReportOrderBy: any;
+
+    if (view === "students") {
+      studentWhere = buildStudentFilters({
+        collegeId,
+        scopeConditions,
+        search,
+        program,
+        course,
+        section,
+        batch,
+        status,
+      });
+      studentOrderBy = [{ batch: "desc" as const }, { enrollmentNumber: "asc" as const }, { id: "asc" as const }];
+    } else {
+      reportWhere = buildReportFilters({
+        collegeId,
+        scopeConditions,
+        search,
+        program,
+        course,
+        section,
+        batch,
+        status,
+        scoreTier,
+        minScore,
+        maxScore,
+        startDate,
+        endDate,
+        reportType,
+      });
+      // Snapshot cutoff: ensure concurrent inserts don't shift pagination windows
+      if (!reportWhere.createdAt?.lte) {
+        reportWhere.createdAt = { ...(reportWhere.createdAt || {}), lte: exportSnapshotTime };
+      }
+
+      let orderBy: any = { createdAt: sortOrder };
+      if (sortBy === "overallScore" || sortBy === "averageScore" || sortBy === "score") {
+        orderBy = { overallScore: sortOrder };
+      } else if (sortBy === "name" || sortBy === "studentName") {
+        orderBy = { session: { user: { name: sortOrder } } };
+      } else if (sortBy === "enrollmentNumber" || sortBy === "rollNumber") {
+        orderBy = { session: { user: { studentProfile: { enrollmentNumber: sortOrder } } } };
+      } else if (sortBy === "targetRole") {
+        orderBy = { session: { targetRole: sortOrder } };
+      } else if (sortBy === "createdAt" || sortBy === "date" || sortBy === "latestInterviewDate") {
+        orderBy = { createdAt: sortOrder };
+      }
+      finalReportOrderBy = Array.isArray(orderBy) ? [...orderBy, { id: "asc" as const }] : [orderBy, { id: "asc" as const }];
+    }
 
     const timestamp = new Date().toISOString().split("T")[0];
     const filename = `student-reports-${timestamp}`;
+    const BATCH_SIZE = 500;
+
+    let clientDisconnected = false;
+    req.on("close", () => {
+      if (!res.writableEnded) {
+        clientDisconnected = true;
+      }
+    });
 
     if (format === "xlsx") {
-      const worksheet = xlsx.utils.json_to_sheet(exportRows);
+      const exportRows: any[] = [];
+      let offset = 0;
+      let batchCount = 0;
+
+      while (true) {
+        if (clientDisconnected || res.destroyed || res.writableEnded) break;
+        const batch = view === "students"
+          ? await prisma.collegeStudent.findMany({
+              where: studentWhere,
+              orderBy: studentOrderBy,
+              skip: offset,
+              take: BATCH_SIZE,
+              select: studentSelect,
+            })
+          : await prisma.interviewReport.findMany({
+              where: reportWhere,
+              orderBy: finalReportOrderBy,
+              skip: offset,
+              take: BATCH_SIZE,
+              select: reportSelect,
+            });
+
+        batchCount++;
+        if (batch.length === 0) break;
+
+        for (const item of batch) {
+          exportRows.push(view === "students" ? formatStudentRow(item) : formatReportRow(item));
+        }
+
+        offset += batch.length;
+        if (batch.length < BATCH_SIZE) break;
+      }
+
+      if (clientDisconnected || res.destroyed || res.writableEnded) return;
+
+      const worksheet =
+        exportRows.length > 0
+          ? xlsx.utils.json_to_sheet(exportRows)
+          : xlsx.utils.aoa_to_sheet([fallbackHeaders]);
       const workbook = xlsx.utils.book_new();
-      xlsx.utils.book_append_sheet(workbook, worksheet, "Student Reports");
+      xlsx.utils.book_append_sheet(workbook, worksheet, view === "students" ? "Student Cohort" : "Student Reports");
       const buffer = xlsx.write(workbook, { type: "buffer", bookType: "xlsx" });
+
+      await logEnterpriseAudit({
+        collegeId,
+        actorId: req.user!.id,
+        action: "REPORTS_EXPORTED",
+        entity: "Report",
+        newValue: {
+          format,
+          exportedCount: exportRows.length,
+          batchCount,
+          durationMs: Date.now() - exportStartTime,
+          filters: { program, course, section, batch, status, search, scoreTier, startDate, endDate, reportType, view },
+        },
+      });
 
       res.setHeader("Content-Disposition", `attachment; filename="${filename}.xlsx"`);
       res.setHeader(
@@ -3856,46 +4122,104 @@ router.get(
       return res.send(buffer);
     }
 
-    // Default CSV output with formula injection sanitization
-    const headers =
-      exportRows.length > 0
-        ? Object.keys(exportRows[0])
-        : [
-            "Report ID",
-            "Enrollment Number",
-            "Student Name",
-            "Email",
-            "Phone",
-            "Program",
-            "Course",
-            "Section",
-            "Batch",
-            "Target Role",
-            "Difficulty",
-            "Overall Score (%)",
-            "Readiness Rating",
-            "Speaking Pace (WPM)",
-            "Filler Words",
-            "Date Completed",
-          ];
-
-    const csvLines = [headers.join(",")];
-    for (const row of exportRows) {
-      const line = headers
-        .map((h) => {
-          const val = String((row as any)[h] ?? "");
-          const escaped = val.replace(/"/g, '""');
-          return `"${escaped}"`;
-        })
-        .join(",");
-      csvLines.push(line);
-    }
-
+    // Default: Streaming CSV output with bounded memory and backpressure handling
     res.setHeader("Content-Disposition", `attachment; filename="${filename}.csv"`);
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    return res.send(csvLines.join("\r\n"));
+    res.setHeader("X-Content-Type-Options", "nosniff");
+
+    // Write header line immediately
+    res.write(headers.join(",") + "\r\n");
+
+    const writeToStream = async (chunk: string): Promise<boolean> => {
+      if (res.writableEnded || res.destroyed || clientDisconnected) return false;
+      const canContinue = res.write(chunk);
+      if (!canContinue) {
+        await new Promise<void>((resolve) => {
+          const onDrain = () => { cleanup(); resolve(); };
+          const onClose = () => { cleanup(); resolve(); };
+          const cleanup = () => {
+            res.removeListener("drain", onDrain);
+            res.removeListener("close", onClose);
+          };
+          res.once("drain", onDrain);
+          res.once("close", onClose);
+        });
+      }
+      return !clientDisconnected && !res.destroyed && !res.writableEnded;
+    };
+
+    let offset = 0;
+    let totalExported = 0;
+    let batchCount = 0;
+
+    while (true) {
+      if (clientDisconnected || res.destroyed || res.writableEnded) break;
+
+      const batch = view === "students"
+        ? await prisma.collegeStudent.findMany({
+            where: studentWhere,
+            orderBy: studentOrderBy,
+            skip: offset,
+            take: BATCH_SIZE,
+            select: studentSelect,
+          })
+        : await prisma.interviewReport.findMany({
+            where: reportWhere,
+            orderBy: finalReportOrderBy,
+            skip: offset,
+            take: BATCH_SIZE,
+            select: reportSelect,
+          });
+
+      batchCount++;
+      if (batch.length === 0) break;
+
+      let chunkCsv = "";
+      for (const item of batch) {
+        const row = view === "students" ? formatStudentRow(item) : formatReportRow(item);
+        const line = headers
+          .map((h) => {
+            const val = String((row as any)[h] ?? "");
+            const escaped = val.replace(/"/g, '""');
+            return `"${escaped}"`;
+          })
+          .join(",");
+        chunkCsv += line + "\r\n";
+      }
+
+      const ok = await writeToStream(chunkCsv);
+      if (!ok) break;
+
+      totalExported += batch.length;
+      offset += batch.length;
+      if (batch.length < BATCH_SIZE) break;
+    }
+
+    if (!clientDisconnected && !res.writableEnded && !res.destroyed) {
+      res.end();
+    }
+
+    await logEnterpriseAudit({
+      collegeId,
+      actorId: req.user!.id,
+      action: "REPORTS_EXPORTED",
+      entity: "Report",
+      newValue: {
+        format,
+        exportedCount: totalExported,
+        batchCount,
+        durationMs: Date.now() - exportStartTime,
+        aborted: clientDisconnected,
+        filters: { program, course, section, batch, status, search, scoreTier, startDate, endDate, reportType, view },
+      },
+    });
   } catch (error) {
-    next(error);
+    if (res.headersSent) {
+      console.error("Enterprise report export stream aborted with error:", error instanceof Error ? error.message : "Stream failure");
+      res.destroy(error instanceof Error ? error : new Error(String(error)));
+    } else {
+      next(error);
+    }
   }
   }
 );

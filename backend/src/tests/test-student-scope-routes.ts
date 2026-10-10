@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import express from "express";
 import bcrypt from "bcryptjs";
@@ -42,6 +43,7 @@ async function request(
     method,
     headers: {
       authorization: `Bearer ${token}`,
+      "Idempotency-Key": randomUUID(),
       ...(body ? { "content-type": "application/json" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -317,6 +319,7 @@ try {
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   for (const collegeId of collegeIds.reverse()) {
     const users = await prisma.user.findMany({ where: { collegeId }, select: { id: true } });
+    await prisma.creditIdempotencyRecord.deleteMany({ where: { collegeId } });
     await prisma.college.delete({ where: { id: collegeId } }).catch(() => undefined);
     if (users.length > 0) {
       await prisma.user.deleteMany({ where: { id: { in: users.map((user) => user.id) } } });

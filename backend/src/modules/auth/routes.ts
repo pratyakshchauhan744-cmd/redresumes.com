@@ -9,9 +9,11 @@ import type { SignInMethod, UserRole } from "@prisma/client";
 import { prisma } from "../../db/prisma.js";
 import { redisConnection } from "../../db/redis.js";
 import { env } from "../../config/env.js";
-import { normalizeFacultyPermissions } from "../../middleware/tenant.js";
+import { loadSessionContext } from "./session-context.js";
 import { signAccessToken, signRefreshToken, verifyToken } from "../../utils/jwt.js";
 import { normalizeEmailIdentity } from "../../utils/identity.js";
+
+import { REFRESH_COOKIE_NAME, setRefreshCookie, clearRefreshCookie, persistRefreshToken } from "./refresh-session.js";
 
 const router = Router();
 
@@ -127,8 +129,6 @@ const pendingOtpLogins = new Map<string, PendingOtpLogin>();
 const pendingOtpSignups = new Map<string, PendingOtpSignup>();
 const pendingOtpForgot = new Map<string, PendingOtpForgot>();
 const OTP_TTL_MS = 5 * 60 * 1000;
-const REFRESH_COOKIE_NAME = "rr_refresh_token";
-const REFRESH_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const googleOAuthClient = new OAuth2Client();
 
 async function saveOtpSession<T>(map: Map<string, T>, type: string, sessionId: string, data: T): Promise<void> {
@@ -423,35 +423,6 @@ function generateOtp(): string {
   return String(randomInt(100000, 1000000));
 }
 
-function setRefreshCookie(res: Response, refreshToken: string): void {
-  res.cookie(REFRESH_COOKIE_NAME, refreshToken, {
-    httpOnly: true,
-    secure: env.COOKIE_SECURE ?? env.NODE_ENV === "production",
-    sameSite: env.NODE_ENV === "production" ? "none" : "lax",
-    path: "/api/auth",
-    maxAge: REFRESH_MAX_AGE_MS
-  });
-}
-
-function clearRefreshCookie(res: Response): void {
-  res.clearCookie(REFRESH_COOKIE_NAME, {
-    httpOnly: true,
-    secure: env.COOKIE_SECURE ?? env.NODE_ENV === "production",
-    sameSite: env.NODE_ENV === "production" ? "none" : "lax",
-    path: "/api/auth"
-  });
-}
-
-async function persistRefreshToken(userId: string, refreshToken: string): Promise<void> {
-  await prisma.refreshToken.create({
-    data: {
-      userId,
-      tokenHash: tokenHash(refreshToken),
-      expiresAt: new Date(Date.now() + REFRESH_MAX_AGE_MS)
-    }
-  });
-}
-
 async function recordSignIn(userId: string, method: SignInMethod): Promise<void> {
   try {
     await prisma.signInEvent.create({
@@ -470,69 +441,15 @@ async function issueAuthResponse(
   user: { id: string; name: string; email: string; role: UserRole; collegeId?: string | null },
   method: SignInMethod
 ): Promise<void> {
-  let isMainFaculty = false;
-  let permissions: string[] = [];
-  let studentProfile: any = null;
-
-  let college: any = null;
-  if (user.collegeId) {
-    const col = await prisma.college.findUnique({
-      where: { id: user.collegeId },
-      select: { id: true, name: true, code: true, website: true, status: true },
-    });
-    if (col) {
-      college = {
-        id: col.id,
-        name: col.name,
-        code: col.code,
-        domain: col.website,
-        status: col.status,
-      };
-    }
-
-    if (user.role === "college_faculty" || user.role === "college_main_faculty") {
-      const faculty = await prisma.collegeFaculty.findUnique({
-        where: { userId: user.id },
-      });
-      if (faculty) {
-        isMainFaculty = faculty.isMainFaculty;
-        permissions = normalizeFacultyPermissions(faculty.permissions);
-      }
-    } else if (user.role === "student") {
-      const student = await prisma.collegeStudent.findUnique({
-        where: { userId: user.id },
-      });
-      if (student) {
-        studentProfile = student;
-      }
-    }
-  }
-
-  const payload = {
-    sub: user.id,
-    role: user.role,
-    email: user.email,
-    collegeId: user.collegeId,
-    isMainFaculty,
-    permissions,
-  };
+  const context = await loadSessionContext(user.id);
+  const payload = context.payload;
   const accessToken = signAccessToken(payload);
   const refreshToken = signRefreshToken(payload);
   await persistRefreshToken(user.id, refreshToken);
   await recordSignIn(user.id, method);
   setRefreshCookie(res, refreshToken);
   res.json({
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      collegeId: user.collegeId,
-      college,
-      isMainFaculty,
-      permissions,
-      studentProfile,
-    },
+    user: context.user,
     accessToken
   });
 }
@@ -944,7 +861,7 @@ router.post("/refresh", async (req, res, next) => {
       },
       include: {
         user: {
-          select: { id: true, isActive: true, role: true, email: true }
+          select: { id: true, isActive: true }
         }
       }
     });
@@ -959,7 +876,8 @@ router.post("/refresh", async (req, res, next) => {
       return;
     }
 
-    const accessToken = signAccessToken({ sub: stored.user.id, role: stored.user.role, email: stored.user.email });
+    const context = await loadSessionContext(stored.user.id, payload);
+    const accessToken = signAccessToken(context.payload);
     res.json({ accessToken });
   } catch (error) {
     next(error);

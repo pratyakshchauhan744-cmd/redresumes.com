@@ -1,9 +1,26 @@
+import { InsufficientInstitutionCreditsError } from "../modules/enterprise/credit-transfer.js";
+import { EnterpriseAuthorizationError } from "./tenant.js";
 import type { NextFunction, Request, Response } from "express";
 import { ZodError } from "zod";
+import { SessionContextError } from "../modules/auth/session-context.js";
 import { env } from "../config/env.js";
 import { isUniqueConstraintError } from "../utils/identity.js";
 
 export function errorHandler(error: unknown, _req: Request, res: Response, _next: NextFunction): void {
+  if (error instanceof SessionContextError) {
+    res.status(error.status).json({ message: error.message });
+    return;
+  }
+  if (error instanceof EnterpriseAuthorizationError) {
+    res.status(403).json({ success: false, message: error.message });
+    return;
+  }
+
+  if (error instanceof InsufficientInstitutionCreditsError) {
+    res.status(400).json({ success: false, message: error.message });
+    return;
+  }
+
   if (isUniqueConstraintError(error)) {
     res.status(409).json({
       success: false,
@@ -23,6 +40,7 @@ export function errorHandler(error: unknown, _req: Request, res: Response, _next
 
     res.status(400).json({
       success: false,
+      error: "VALIDATION_ERROR",
       message: humanMessage,
       // Also include structured issues for debugging
       issues: error.flatten().fieldErrors,

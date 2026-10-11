@@ -9,6 +9,7 @@ export class SessionContextError extends Error {
 /** All login/renewal paths derive authorization from current server state. */
 export async function loadSessionContext(userId: string, previous?: JwtPayload) {
   const user = await prisma.user.findUnique({
+    relationLoadStrategy: "join",
     where: { id: userId },
     select: {
       id: true, name: true, email: true, role: true, isActive: true, collegeId: true,

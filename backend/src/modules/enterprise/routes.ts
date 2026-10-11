@@ -1,6 +1,6 @@
 import { studentCreationSchema, studentUpdateSchema, validateReportQuery } from "./input-validation.js";
 import { publicStudentEmailError } from "../../utils/student-email-error.js";
-import { assertStudentCreditAuthorization } from "./student-credit-authorization.js";
+import { assertStudentCreditAuthorization, assertRequestStudentCreditAuthorization } from "./student-credit-authorization.js";
 import {
   CreditIdempotencyError,
   requireCreditIdempotencyKey,
@@ -26,7 +26,6 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../db/prisma.js";
 import { requireAuth } from "../../middleware/auth.js";
 import {
-  normalizeFacultyPermissions,
   requireTenant,
   requireCollegeAdmin,
   requireEnterpriseAccess,
@@ -133,57 +132,12 @@ function hasOwn(body: unknown, field: string): boolean {
   return Boolean(body && typeof body === "object" && Object.prototype.hasOwnProperty.call(body, field));
 }
 
-async function getTrustedFacultyMutationActor(userId: string, collegeId: string): Promise<FacultyMutationActor> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      id: true,
-      role: true,
-      collegeId: true,
-      isActive: true,
-      facultyProfile: {
-        select: {
-          collegeId: true,
-          isMainFaculty: true,
-          permissions: true,
-          status: true,
-        },
-      },
-    },
-  });
-
-  if (!user || !user.isActive) {
-    throw new FacultyAuthorizationError("Your account is inactive or no longer exists.");
-  }
-
-  if (user.role === "super_admin") {
-    return {
-      userId: user.id,
-      collegeId,
-      role: user.role,
-      isMainFaculty: false,
-      status: "active",
-      permissions: ["all"],
-    };
-  }
-
-  const faculty = user.facultyProfile;
-  if (
-    !faculty ||
-    user.collegeId !== collegeId ||
-    faculty.collegeId !== collegeId ||
-    faculty.status !== "active"
-  ) {
-    throw new FacultyAuthorizationError("Your faculty account is not active in this college.");
-  }
-
+async function getTrustedFacultyMutationActor(req: Request): Promise<FacultyMutationActor> {
+  const authorization = await resolveEnterpriseAuthorization(req);
   return {
-    userId: user.id,
-    collegeId,
-    role: user.role,
-    isMainFaculty: faculty.isMainFaculty,
-    status: faculty.status,
-    permissions: normalizeFacultyPermissions(faculty.permissions),
+    userId: req.user!.id, collegeId: req.collegeId!, role: req.user!.role,
+    isMainFaculty: req.user!.role !== "super_admin" && authorization.root,
+    status: "active", permissions: authorization.permissions,
   };
 }
 
@@ -263,6 +217,13 @@ async function getFacultyStudentScope(
   return scope;
 }
 
+// Scope and permissions come from the same live request snapshot. Read responses
+// still recheck that snapshot before sending, so concurrent revocations fail closed.
+async function getRequestFacultyScopeConditions(req: Request) {
+  const authorization = await resolveEnterpriseAuthorization(req);
+  return buildFacultyStudentScopeConditions(authorization.studentScope);
+}
+
 async function getFacultyScopeConditions(
   userId: string,
   collegeId: string,
@@ -299,11 +260,7 @@ router.get("/filter-options", requireAnyEnterprisePermission([
 ]), async (req, res, next) => {
   try {
     const collegeId = req.collegeId!;
-    const scopeConditions = await getFacultyScopeConditions(
-      req.user!.id,
-      collegeId,
-      req.user!.role === "super_admin"
-    );
+    const scopeConditions = await getRequestFacultyScopeConditions(req);
 
     // GROUP BY deduplicates in PostgreSQL, before rows reach Prisma. Derive
     // single-field options from the much smaller set of cohort tuples.
@@ -355,11 +312,7 @@ async function handleEnterpriseStats(req: any, res: any, next: any) {
     const authorization = await resolveEnterpriseAuthorization(req);
     const can = (permission: string) => authorization.root ||
       authorization.permissions.includes("all") || authorization.permissions.includes(permission);
-    const scopeConditions = await getFacultyScopeConditions(
-      req.user!.id,
-      collegeId,
-      req.user!.role === "super_admin"
-    );
+    const scopeConditions = await getRequestFacultyScopeConditions(req);
 
     const studentWhere = buildScopedStudentWhere(collegeId, scopeConditions);
     const interviewWhere = {
@@ -497,6 +450,7 @@ router.get("/faculty", requirePermission("FACULTY_VIEW"), async (req, res, next)
     const [total, faculties] = await Promise.all([
       prisma.collegeFaculty.count({ where }),
       prisma.collegeFaculty.findMany({
+        relationLoadStrategy: "join",
         where,
         skip: (page - 1) * limit,
         take: limit,
@@ -566,7 +520,7 @@ router.get("/faculty", requirePermission("FACULTY_VIEW"), async (req, res, next)
 router.post("/faculty", requirePermission("FACULTY_CREATE"), async (req, res, next) => {
   try {
     const collegeId = req.collegeId!;
-    const actor = await getTrustedFacultyMutationActor(req.user!.id, collegeId);
+    const actor = await getTrustedFacultyMutationActor(req);
     const forbiddenCreateField = FORBIDDEN_FACULTY_ASSIGNMENT_FIELDS.find(
       (field) => field !== "isMainFaculty" && field !== "email" && hasOwn(req.body, field)
     );
@@ -575,7 +529,7 @@ router.post("/faculty", requirePermission("FACULTY_CREATE"), async (req, res, ne
         `Field "${forbiddenCreateField ?? "isMainFaculty"}" cannot be assigned through the faculty creation endpoint.`
       );
     }
-    const college = await prisma.college.findUnique({ where: { id: collegeId } });
+    const college = req.college ?? await prisma.college.findUnique({ where: { id: collegeId } });
     if (!college) {
       return res.status(404).json({ success: false, message: "College tenant not found." });
     }
@@ -796,7 +750,7 @@ router.post(
   async (req, res, next) => {
     try {
       const collegeId = req.collegeId!;
-      const actor = await getTrustedFacultyMutationActor(req.user!.id, collegeId);
+      const actor = await getTrustedFacultyMutationActor(req);
       const faculty = await prisma.collegeFaculty.findUnique({
         where: { id: req.params.id },
         include: { user: true, college: true },
@@ -926,7 +880,7 @@ const handleFacultyUpdate = async (req: Request, res: Response, next: NextFuncti
   try {
     const collegeId = req.collegeId!;
     const { id } = req.params;
-    const actor = await getTrustedFacultyMutationActor(req.user!.id, collegeId);
+    const actor = await getTrustedFacultyMutationActor(req);
 
     const faculty = await prisma.collegeFaculty.findUnique({
       where: { id },
@@ -1024,7 +978,7 @@ router.delete("/faculty/:id", requirePermission("FACULTY_EDIT"), async (req, res
   try {
     const collegeId = req.collegeId!;
     const { id } = req.params;
-    const actor = await getTrustedFacultyMutationActor(req.user!.id, collegeId);
+    const actor = await getTrustedFacultyMutationActor(req);
 
     const faculty = await prisma.collegeFaculty.findUnique({
       where: { id },
@@ -1155,11 +1109,7 @@ router.get("/students", requirePermission("STUDENT_VIEW"), async (req, res, next
   try {
     const collegeId = req.collegeId!;
     const canViewReports = (await resolveEnterprisePermission(req, "REPORT_VIEW")).allowed;
-    const scopeConditions = await getFacultyScopeConditions(
-      req.user!.id,
-      collegeId,
-      req.user!.role === "super_admin"
-    );
+    const scopeConditions = await getRequestFacultyScopeConditions(req);
 
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 15));
@@ -1193,6 +1143,7 @@ router.get("/students", requirePermission("STUDENT_VIEW"), async (req, res, next
     const [total, students] = await Promise.all([
       prisma.collegeStudent.count({ where }),
       prisma.collegeStudent.findMany({
+        relationLoadStrategy: "join",
         where,
         skip: (page - 1) * limit,
         take: limit,
@@ -1456,7 +1407,7 @@ router.post("/students", requirePermission("STUDENT_CREATE"), async (req, res, n
   try {
     const parsedData = studentCreationSchema.parse(req.body);
     const collegeId = req.collegeId!;
-    const college = await prisma.college.findUnique({ where: { id: collegeId } });
+    const college = req.college ?? await prisma.college.findUnique({ where: { id: collegeId } });
     if (!college) {
       return res.status(404).json({ success: false, message: "College tenant not found." });
     }
@@ -1501,13 +1452,8 @@ router.post("/students", requirePermission("STUDENT_CREATE"), async (req, res, n
       }
     }
 
-    await assertStudentCreditAuthorization(collegeId, req.user!.id, data.initialCredits > 0);
-    const facultyScope = await getFacultyStudentScope(
-      req.user!.id,
-      collegeId,
-      req.user!.role === "super_admin",
-      true
-    );
+    await assertRequestStudentCreditAuthorization(req, data.initialCredits > 0);
+    const facultyScope = (await resolveEnterpriseAuthorization(req)).studentScope;
     if (!isStudentWithinFacultyScope(facultyScope, { collegeId, ...data })) {
       return res.status(403).json({
         success: false,
@@ -1515,14 +1461,16 @@ router.post("/students", requirePermission("STUDENT_CREATE"), async (req, res, n
       });
     }
 
-    const existingStudent = await prisma.collegeStudent.findUnique({
-      where: {
-        collegeId_enrollmentNumber: {
-          collegeId,
-          enrollmentNumber: data.enrollmentNumber,
-        },
-      },
-    });
+    const [existingStudent, existingUser] = await Promise.all([
+      prisma.collegeStudent.findUnique({
+        where: { collegeId_enrollmentNumber: { collegeId, enrollmentNumber: data.enrollmentNumber } },
+        select: { id: true },
+      }),
+      prisma.user.findFirst({
+        where: { email: { equals: data.email, mode: "insensitive" } },
+        select: { id: true },
+      }),
+    ]);
 
     if (existingStudent) {
       if (idempotencyScope) {
@@ -1545,11 +1493,6 @@ router.post("/students", requirePermission("STUDENT_CREATE"), async (req, res, n
         message: `Student with enrollment number ${data.enrollmentNumber} already exists in this college.`,
       });
     }
-
-    const existingUser = await prisma.user.findFirst({
-      where: { email: { equals: data.email, mode: "insensitive" } },
-      select: { id: true },
-    });
 
     if (existingUser) {
       if (idempotencyScope) {
@@ -1741,7 +1684,7 @@ router.post("/students", requirePermission("STUDENT_CREATE"), async (req, res, n
       return res.status(result.status).json(result.body);
     }
 
-    // 2. Post-commit operations: Dispatch Welcome Email Asynchronously outside DB transaction
+    // 2. Await bounded email delivery after committing the account transaction.
     const frontendUrl = env.FRONTEND_URL || "http://localhost:3000";
     let invitationStatus = "sent";
     let emailError: string | undefined;
@@ -2967,11 +2910,7 @@ router.get("/credits", requirePermission("INTERVIEW_CREDIT_VIEW"), async (req, r
 const handleCreditPreview = async (req: any, res: any, next: any) => {
   try {
     const collegeId = req.collegeId!;
-    const scopeConditions = await getFacultyScopeConditions(
-      req.user!.id,
-      collegeId,
-      req.user!.role === "super_admin"
-    );
+    const scopeConditions = await getRequestFacultyScopeConditions(req);
 
     const schema = z.object({
       creditsPerStudent: z.number().int().min(1, "Credits per student must be at least 1"),
@@ -3409,11 +3348,7 @@ router.get("/credits/ledger", requirePermission("INTERVIEW_CREDIT_VIEW"), async 
 router.get("/reports", requirePermission("REPORT_VIEW"), validateReportQuery, async (req, res, next) => {
   try {
     const collegeId = req.collegeId!;
-    const scopeConditions = await getFacultyScopeConditions(
-      req.user!.id,
-      collegeId,
-      req.user!.role === "super_admin"
-    );
+    const scopeConditions = await getRequestFacultyScopeConditions(req);
 
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
@@ -3725,11 +3660,7 @@ export function sanitizeSpreadsheetCell(value: unknown): string {
 router.get("/reports/summary", requirePermission("REPORT_VIEW"), validateReportQuery, async (req, res, next) => {
   try {
     const collegeId = req.collegeId!;
-    const scopeConditions = await getFacultyScopeConditions(
-      req.user!.id,
-      collegeId,
-      req.user!.role === "super_admin"
-    );
+    const scopeConditions = await getRequestFacultyScopeConditions(req);
 
     const program = req.query.program as string;
     const course = req.query.course as string;
@@ -3792,11 +3723,7 @@ router.get(
   async (req, res, next) => {
   try {
     const collegeId = req.collegeId!;
-    const scopeConditions = await getFacultyScopeConditions(
-      req.user!.id,
-      collegeId,
-      req.user!.role === "super_admin"
-    );
+    const scopeConditions = await getRequestFacultyScopeConditions(req);
 
     const format = ((req.query.format as string) || "csv").toLowerCase();
     const search = ((req.query.search as string) || "").trim();

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import {
   AUDIT_ACTION_FILTER_OPTIONS,
   ENTERPRISE_AUDIT_ACTIONS,

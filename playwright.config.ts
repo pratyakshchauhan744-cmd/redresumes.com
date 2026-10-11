@@ -13,7 +13,11 @@ export default defineConfig({
     trace: 'on-first-retry'
   },
   webServer: {
-    command: 'npm run dev',
+    // Frontend E2E tests mock API responses and do not require backend services.
+    command: 'npm run dev:frontend',
+    env: {
+      VITE_API_BASE_URL: 'http://localhost:4000',
+    },
     url: 'http://127.0.0.1:3000',
     reuseExistingServer: true,
     timeout: 120_000

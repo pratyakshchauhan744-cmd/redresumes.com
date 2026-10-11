@@ -1,116 +1,79 @@
 import nodemailer from "nodemailer";
-import { Resend } from "resend";
 import { env } from "../config/env.js";
 
-const resend = env.RESEND_API_KEY ? new Resend(env.RESEND_API_KEY) : null;
-
-// Determine if EMAIL_FROM is a Gmail address (can't be used as Resend sender)
+// Keep provider outages from holding account creation open for SMTP's defaults
+// (minutes). SMTP bounds cover each network stage; HTTPS has one total deadline.
+const EMAIL_TIMEOUT_MS = 3000;
+const smtpTimeouts = {
+  connectionTimeout: EMAIL_TIMEOUT_MS,
+  greetingTimeout: EMAIL_TIMEOUT_MS,
+  socketTimeout: EMAIL_TIMEOUT_MS,
+  dnsTimeout: EMAIL_TIMEOUT_MS,
+};
 const emailFrom = env.EMAIL_FROM || "pratyakshchauhan744@gmail.com";
 const isGmailSender = emailFrom.toLowerCase().includes("@gmail.com");
-
-// Build a friendly display name for the from address
-const fromAddress = isGmailSender
-  ? emailFrom // Gmail: use bare address; display name set in transporter
-  : (emailFrom.includes("<") ? emailFrom : `RedResumes Enterprise <${emailFrom}>`);
-
-// Resend "from" field — only use custom domain; Gmail addresses are rejected by Resend
-const resendFrom = (!isGmailSender && emailFrom)
-  ? fromAddress
-  : "RedResumes <onboarding@resend.dev>";
+const fromAddress = isGmailSender || emailFrom.includes("<")
+  ? emailFrom : `RedResumes Enterprise <${emailFrom}>`;
+const resendFrom = env.RESEND_FROM || (!isGmailSender ? fromAddress : "RedResumes <onboarding@resend.dev>");
+const hasSmtp = Boolean(env.SMTP_USER && env.SMTP_PASS);
+// Reuse transporter configuration and avoid attempting the same Gmail endpoint
+// again as the generic fallback after a failure.
+const smtpTransporters = hasSmtp ? [
+  ...(isGmailSender ? [nodemailer.createTransport({
+    host: "smtp.gmail.com", port: 465, secure: true,
+    auth: { user: env.SMTP_USER, pass: env.SMTP_PASS }, ...smtpTimeouts,
+  })] : []),
+  ...(env.SMTP_HOST && !(isGmailSender && env.SMTP_HOST.toLowerCase() === "smtp.gmail.com")
+    ? [nodemailer.createTransport({
+      host: env.SMTP_HOST, port: env.SMTP_PORT,
+      secure: env.SMTP_SECURE || env.SMTP_PORT === 465,
+      auth: { user: env.SMTP_USER, pass: env.SMTP_PASS }, ...smtpTimeouts,
+    })] : []),
+] : [];
 
 export class EmailService {
-  /**
-   * Helper: Send email using the best available provider.
-   * Priority: Gmail SMTP (if EMAIL_FROM is @gmail.com) → Resend → Generic SMTP → Simulate
-   */
-  private static async sendEmail({
-    to,
-    subject,
-    html,
-  }: {
-    to: string;
-    subject: string;
-    html: string;
+  /** Prefer transactional HTTPS when configured; fall back to bounded SMTP. */
+  private static async sendEmail({ to, subject, html }: {
+    to: string; subject: string; html: string;
   }): Promise<{ success: boolean; error?: string; simulated?: boolean; messageId?: string }> {
-
-    // ── 1. Gmail SMTP (highest priority when using a Gmail FROM address) ─────
-    if (isGmailSender && env.SMTP_USER && env.SMTP_PASS) {
+    let lastError = "The email service is temporarily unavailable.";
+    if (env.RESEND_API_KEY) {
       try {
-        const transporter = nodemailer.createTransport({
-          host: "smtp.gmail.com",
-          port: 465,
-          secure: true, // SSL
-          auth: {
-            user: env.SMTP_USER,
-            pass: env.SMTP_PASS, // Use Gmail App Password (not your account password)
-          },
+        // Native fetch supports cancellation, unlike an uncancelled Promise.race
+        // around the SDK. Abort the network request when the deadline expires.
+        const response = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ from: resendFrom, to, subject, html }),
+          signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
         });
-
-        const info = await transporter.sendMail({
-          from: `RedResumes Campus <${emailFrom}>`,
-          to,
-          subject,
-          html,
-        });
-        console.log(`[EMAIL] Sent via Gmail SMTP → ${to} | msgId: ${info.messageId}`);
-        return { success: true, messageId: info.messageId };
-      } catch (smtpErr: any) {
-        console.error("[EMAIL] Gmail SMTP send failed; trying the next configured provider.");
-        // Fall through to Resend as backup
-      }
-    }
-
-    // ── 2. Resend (for verified custom domains) ──────────────────────────────
-    if (resend) {
-      try {
-        const result = await resend.emails.send({
-          from: resendFrom,
-          to,
-          subject,
-          html,
-        });
-        if (result.error) {
-          console.warn("[EMAIL] Resend rejected the send; trying the next configured provider.");
-          // Don't return failure here — fall through to SMTP
-        } else {
-          console.log(`[EMAIL] Sent via Resend → ${to} | msgId: ${result.data?.id}`);
-          return { success: true, messageId: result.data?.id };
+        const result = await response.json() as { id?: string; message?: string };
+        if (response.ok && result.id) return { success: true, messageId: result.id };
+        lastError = result.message || lastError;
+      } catch (error) {
+        // A timeout has an ambiguous delivery outcome. Do not submit the same
+        // email to another provider while the first may already have accepted it.
+        if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+          return { success: false, error: "Email delivery timed out. Check invitation status before resending." };
         }
-      } catch (err: any) {
-        console.error("[EMAIL] Resend send failed; trying the next configured provider.");
+        lastError = "The email service is temporarily unavailable.";
       }
     }
 
-    // ── 3. Generic SMTP fallback ─────────────────────────────────────────────
-    if (env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS) {
+    for (const transporter of smtpTransporters) {
       try {
-        const transporter = nodemailer.createTransport({
-          host: env.SMTP_HOST,
-          port: parseInt(env.SMTP_PORT as any) || 587,
-          secure: Boolean(env.SMTP_SECURE),
-          auth: {
-            user: env.SMTP_USER,
-            pass: env.SMTP_PASS,
-          },
-        });
-
-        const info = await transporter.sendMail({
-          from: fromAddress,
-          to,
-          subject,
-          html,
-        });
-        console.log(`[EMAIL] Sent via SMTP → ${to} | msgId: ${info.messageId}`);
+        const info = await transporter.sendMail({ from: fromAddress, to, subject, html });
         return { success: true, messageId: info.messageId };
-      } catch (smtpErr: any) {
-        console.error("[EMAIL] SMTP send failed.");
-        return { success: false, error: smtpErr?.message || "SMTP delivery failed" };
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : "SMTP delivery failed";
+        if ((error as { code?: string })?.code === "ETIMEDOUT") {
+          return { success: false, error: "Email delivery timed out. Check invitation status before resending." };
+        }
       }
     }
-
-    // ── 4. Simulation fallback (dev/no-config) ───────────────────────────────
-    console.log(`[EMAIL SIMULATED] To: ${to} | Subject: "${subject}" — No mail provider configured.`);
-    console.log(`[EMAIL SIMULATED] To send real emails, add SMTP_USER and SMTP_PASS (Gmail App Password) to your .env`);
+    // Never report a configured provider's failure as successful simulation.
+    if (env.RESEND_API_KEY || smtpTransporters.length > 0) return { success: false, error: lastError };
+    console.log("[EMAIL SIMULATED] No mail provider configured.");
     return { success: true, simulated: true };
   }
 

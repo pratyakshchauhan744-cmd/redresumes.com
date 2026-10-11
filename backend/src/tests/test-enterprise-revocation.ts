@@ -68,6 +68,9 @@ mock(prisma.collegeCreditAccount, "findUnique", async () => {
 });
 mock(prisma.interviewSession, "count", async () => 2);
 mock(prisma.interviewReport, "aggregate", async () => ({ _avg: { overallScore: 80 } }));
+mock(prisma.interviewReport, "groupBy", async () => [
+  { overallScore: 80, scoreScale: 100, _count: { _all: 2 } },
+]);
 const servers = [1, 2].map(() => {
   const app = express(); app.use(express.json()); app.use("/api/enterprise", router); app.use(errorHandler);
   return app.listen(0, "127.0.0.1");

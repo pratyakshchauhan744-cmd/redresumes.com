@@ -83,6 +83,9 @@ try {
     return args.where.report ? 5 : 6;
   });
   mock(prisma.interviewReport, "aggregate", async () => ({ _avg: { overallScore: 72.5 } }));
+  mock(prisma.interviewReport, "groupBy", async () => [
+    { overallScore: 72.5, scoreScale: 100, _count: { _all: 5 } },
+  ]);
   const fullStats = await read("/stats");
   assert.deepEqual(fullStats.interviews, { totalSessions: 6, completedSessions: 5, avgScore: 73 });
   assert.equal(fullStats.credits.balance, 50);

@@ -9,6 +9,11 @@ export async function assertStudentCreditAuthorization(collegeId: string, actorI
   const actor = await prisma.user.findUnique({ where: { id: actorId }, select: { role: true } });
   if (!actor) throw new EnterpriseAuthorizationError("Active institutional access is required.");
   const request = { collegeId, user: { id: actorId, role: actor.role } } as Request;
+  await assertRequestStudentCreditAuthorization(request, requiresCredits);
+}
+
+/** Reuse the live authorization already loaded for this HTTP request. */
+export async function assertRequestStudentCreditAuthorization(request: Request, requiresCredits: boolean) {
   const required = requiresCredits ? ["STUDENT_CREATE", "INTERVIEW_CREDIT_ASSIGN"] : ["STUDENT_CREATE"];
   for (const permission of required) {
     const decision = await resolveEnterprisePermission(request, permission);

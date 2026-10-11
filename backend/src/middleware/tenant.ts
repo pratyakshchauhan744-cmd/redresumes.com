@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { prisma } from "../db/prisma.js";
+import { parseFacultyCohortAccess, type FacultyStudentScope } from "../modules/enterprise/student-scope-authorization.js";
 
 // Extend Express Request interface with enterprise multi-tenant context
 declare global {
@@ -164,6 +165,7 @@ export interface EnterpriseAuthorization {
   root: boolean;
   permissions: string[];
   fingerprint: string;
+  studentScope: FacultyStudentScope;
 }
 // Only memoize within this HTTP request. No process/distributed authorization
 // cache can outlive a membership change committed before the next request.
@@ -175,6 +177,7 @@ export function resolveEnterpriseAuthorization(req: Request, fresh = false): Pro
   const resolution = (async () => {
     if (!req.user || !req.collegeId) throw new EnterpriseAuthorizationError("Active institutional access is required.");
     const current = await prisma.user.findUnique({
+      relationLoadStrategy: "join",
       where: { id: req.user.id },
       select: {
         isActive: true, role: true, collegeId: true,
@@ -189,7 +192,14 @@ export function resolveEnterpriseAuthorization(req: Request, fresh = false): Pro
     if (!current?.isActive || current.role !== req.user.role) {
       throw new EnterpriseAuthorizationError("Your institutional access is unavailable or revoked.");
     }
-    if (current.role === "super_admin") return { root: true, permissions: ["all"], fingerprint: "super_admin" };
+    if (current.role === "super_admin") return {
+      root: true, permissions: ["all"], fingerprint: "super_admin",
+      studentScope: {
+        collegeId: req.collegeId, hasAccess: true, unrestricted: true,
+        programAccess: [], courseAccess: [], sectionAccess: [], batchAccess: [],
+        scopeUnrestricted: true, cohortAccess: [],
+      },
+    };
     const faculty = current.facultyProfile;
     if ((current.role !== "college_faculty" && current.role !== "college_main_faculty") ||
         current.collegeId !== req.collegeId || current.college?.status !== "active" ||
@@ -199,7 +209,14 @@ export function resolveEnterpriseAuthorization(req: Request, fresh = false): Pro
     const permissions = normalizeFacultyPermissions(faculty.permissions);
     req.user.permissions = permissions;
     req.user.isMainFaculty = faculty.isMainFaculty;
-    return { root: faculty.isMainFaculty, permissions, fingerprint: JSON.stringify({
+    return { root: faculty.isMainFaculty, permissions,
+      studentScope: {
+        collegeId: req.collegeId, hasAccess: true, unrestricted: faculty.isMainFaculty,
+        programAccess: faculty.programAccess, courseAccess: faculty.courseAccess,
+        sectionAccess: faculty.sectionAccess, batchAccess: faculty.batchAccess,
+        scopeUnrestricted: faculty.scopeUnrestricted,
+        cohortAccess: parseFacultyCohortAccess(faculty.cohortAccess),
+      }, fingerprint: JSON.stringify({
       ...faculty, permissions: [...permissions].sort(),
     }) };
   })();

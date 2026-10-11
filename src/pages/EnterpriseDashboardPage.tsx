@@ -679,6 +679,8 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
     };
   }, [effectiveToken]);
 
+  const showStudentList = activeTab === "students" || activeTab === "overview";
+
   // Load Students
   const loadStudents = async () => {
     if (!canViewStudents || isOfflineOrDemoToken(effectiveToken)) {
@@ -732,7 +734,7 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
       setStudentsLoading(false);
       return;
     }
-    if (activeTab === "students" || activeTab === "overview") {
+    if (showStudentList) {
       if (isOfflineOrDemoToken(effectiveToken)) {
         setStudentsLoading(false);
       } else {
@@ -743,7 +745,7 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
       studentAbortControllerRef.current?.abort();
       studentRequestIdRef.current += 1;
     };
-  }, [activeTab, effectiveToken, studentPage, debouncedStudentSearch, studentProgram, studentCourse, studentSection, studentBatch, canViewStudents]);
+  }, [showStudentList, effectiveToken, studentPage, debouncedStudentSearch, studentProgram, studentCourse, studentSection, studentBatch, canViewStudents]);
 
   useEffect(() => {
     const lastPage = getPaginationMeta(studentPage, studentTotal, STUDENT_PAGE_SIZE).page;
@@ -1322,7 +1324,8 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
       setFeedback(getFacultyCreationFeedback(result));
       setIsAddFacultyOpen(false);
       setFacultyForm(createEmptyFacultyForm());
-      await Promise.all([loadFaculty(), loadInitialData()]);
+      void loadFaculty();
+      void loadStats();
     } catch (err: any) {
       const message = err.message || "Failed to add faculty";
       setFacultyCreationError(message);

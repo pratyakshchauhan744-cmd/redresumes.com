@@ -1,6 +1,6 @@
 import { studentCreationSchema, studentUpdateSchema, validateReportQuery } from "./input-validation.js";
 import { publicStudentEmailError } from "../../utils/student-email-error.js";
----import { assertStudentCreditAuthorization, assertRequestStudentCreditAuthorization } from "./student-credit-authorization.js";
+import { assertStudentCreditAuthorization, assertRequestStudentCreditAuthorization } from "./student-credit-authorization.js";
 import {
   CreditIdempotencyError,
   requireCreditIdempotencyKey,

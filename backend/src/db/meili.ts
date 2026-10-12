@@ -7,3 +7,4 @@ export const meili = new Meilisearch({
 });
 
 export const JOBS_INDEX = "jobs";
+

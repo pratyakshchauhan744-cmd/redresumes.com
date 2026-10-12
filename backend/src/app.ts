@@ -1,3 +1,4 @@
+import { env } from "./config/env.js";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -20,38 +21,44 @@ import interviewRoutes from "./modules/interview/routes.js";
 import creditsRoutes from "./modules/credits/routes.js";
 import { notFoundHandler } from "./middleware/not-found.js";
 import { errorHandler } from "./middleware/error-handler.js";
-import { env } from "./config/env.js";
 
 export const app = express();
 app.set("trust proxy", 1);
 
-const explicitOrigins = (env.FRONTEND_ORIGIN ?? "")
-  .split(",")
-  .map((origin) => origin.trim())
+const explicitOrigins = [
+  env.FRONTEND_ORIGIN,
+  env.FRONTEND_URL,
+]
+  .filter(Boolean)
+  .flatMap((val) => (val as string).split(","))
+  .map((origin) => origin.trim().replace(/\/+$/, ""))
   .filter(Boolean);
 
 function isAllowedCorsOrigin(origin: string): boolean {
-  if (explicitOrigins.includes(origin)) {
+  const normalizedOrigin = origin.trim().replace(/\/+$/, "");
+
+  if (explicitOrigins.includes(normalizedOrigin)) {
     return true;
   }
 
+  // In non-production environments, allow local development (localhost, LAN IPs, tunnels, etc.)
   if (env.NODE_ENV !== "production") {
-    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
-      return true;
-    }
+    return true;
   }
 
-  if (env.NODE_ENV !== "production" && origin === "https://accounts.google.com") {
+  if (normalizedOrigin === "https://accounts.google.com") {
     return true;
   }
 
   try {
-    const hostname = new URL(origin).hostname.toLowerCase();
+    const hostname = new URL(normalizedOrigin).hostname.toLowerCase();
     return (
       hostname === "redresumes.com" ||
       hostname === "www.redresumes.com" ||
+      hostname.endsWith(".redresumes.com") ||
       hostname === "redresumescom.vercel.app" ||
-      /^redresumes-[a-z0-9-]+-krishchauhan2808-2544s-projects\.vercel\.app$/.test(hostname)
+      /^redresumes-[a-z0-9-]+-krishchauhan2808-2544s-projects\.vercel\.app$/.test(hostname) ||
+      /^redresumes.*\.vercel\.app$/.test(hostname)
     );
   } catch {
     return false;
@@ -69,9 +76,11 @@ app.use(
         callback(null, true);
         return;
       }
-      callback(new Error("CORS blocked for this origin"));
+      console.warn(`[CORS] Request blocked for unallowed origin: ${origin}`);
+      callback(null, false);
     },
-    credentials: true
+    credentials: true,
+    exposedHeaders: ["Content-Disposition"]
   })
 );
 app.use(helmet());
@@ -95,8 +104,14 @@ if (env.NODE_ENV !== "production") {
 import supportRoutes from "./modules/support/routes.js";
 import onboardingRoutes from "./modules/onboarding/routes.js";
 import { inngestMiddleware } from "./modules/onboarding/inngest-handler.js";
+import collegeRoutes from "./modules/admin/college-routes.js";
+import enterpriseRoutes from "./modules/enterprise/routes.js";
+import invitationRoutes from "./modules/auth/invitation-routes.js";
 
 app.use("/api/auth", authRoutes);
+app.use("/api/auth/invitations", invitationRoutes);
+app.use("/api/admin/colleges", collegeRoutes);
+app.use("/api/enterprise", enterpriseRoutes);
 app.use("/api/jobs", jobsRoutes);
 app.use("/api/companies", companiesRoutes);
 app.use("/api", applicationsRoutes);

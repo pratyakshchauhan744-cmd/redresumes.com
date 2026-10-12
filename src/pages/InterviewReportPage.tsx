@@ -5,9 +5,10 @@ import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Responsi
 import { backendApi } from '../lib/backendApi';
 import { getStoredAccessToken } from '../lib/auth';
 import { Seo } from '../components/Seo';
+import { normalizeToCanonicalScore, formatScore } from '../utils/score';
 
 export const InterviewReportPage = () => {
-  const { id: reportId } = useParams<{ id: string }>();
+  const { id: sessionId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [report, setReport] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -23,7 +24,7 @@ export const InterviewReportPage = () => {
         if (!token) {
           throw new Error('Your session has expired. Please log in again.');
         }
-        const data = await backendApi.getInterviewReport(reportId!, token);
+        const data = await backendApi.getInterviewReport(sessionId!, token);
         setReport(data);
       } catch (err: any) {
         setError(err.message || 'Error loading report');
@@ -32,10 +33,10 @@ export const InterviewReportPage = () => {
       }
     };
 
-    if (reportId) {
+    if (sessionId) {
       fetchReport();
     }
-  }, [reportId]);
+  }, [sessionId]);
 
   if (isLoading) {
     return (
@@ -108,13 +109,15 @@ export const InterviewReportPage = () => {
     );
   }
 
+  const normalizedOverall = normalizeToCanonicalScore(overallScore);
+
   const radarData = [
-    { subject: 'Communication', A: categoryScores.communicationQuality || 0, fullMark: 10 },
-    { subject: 'Technical Accuracy', A: categoryScores.technicalAccuracy || 0, fullMark: 10 },
-    { subject: 'Problem Solving', A: categoryScores.problemSolving || 0, fullMark: 10 },
-    { subject: 'Confidence', A: categoryScores.confidence || 0, fullMark: 10 },
-    { subject: 'Completeness', A: categoryScores.completeness || 0, fullMark: 10 },
-    { subject: 'Domain Knowledge', A: categoryScores.domainKnowledge || 0, fullMark: 10 }
+    { subject: 'Communication', A: normalizeToCanonicalScore(categoryScores?.communicationQuality ?? categoryScores?.communication), fullMark: 100 },
+    { subject: 'Technical Accuracy', A: normalizeToCanonicalScore(categoryScores?.technicalAccuracy ?? categoryScores?.technical), fullMark: 100 },
+    { subject: 'Problem Solving', A: normalizeToCanonicalScore(categoryScores?.problemSolving), fullMark: 100 },
+    { subject: 'Confidence', A: normalizeToCanonicalScore(categoryScores?.confidence), fullMark: 100 },
+    { subject: 'Completeness', A: normalizeToCanonicalScore(categoryScores?.completeness), fullMark: 100 },
+    { subject: 'Domain Knowledge', A: normalizeToCanonicalScore(categoryScores?.domainKnowledge), fullMark: 100 }
   ];
 
   // Helper to generate simulated timeline timestamps
@@ -171,12 +174,12 @@ export const InterviewReportPage = () => {
                 strokeWidth="12"
                 fill="transparent"
                 strokeDasharray={452.389}
-                strokeDashoffset={452.389 - (452.389 * (overallScore / 10))}
-                className={`${overallScore >= 8 ? 'text-emerald-500' : overallScore >= 6 ? 'text-amber-500' : 'text-red-500'} transition-all duration-1000`}
+                strokeDashoffset={452.389 - (452.389 * (normalizedOverall / 100))}
+                className={`${normalizedOverall >= 80 ? 'text-emerald-500' : normalizedOverall >= 60 ? 'text-amber-500' : 'text-red-500'} transition-all duration-1000`}
               />
             </svg>
             <div className="absolute inset-0 flex items-center justify-center flex-col">
-              <span className="text-5xl font-black text-zinc-900 dark:text-white tracking-tighter">{overallScore.toFixed(1)}</span>
+              <span className="text-5xl font-black text-zinc-900 dark:text-white tracking-tighter">{Math.round(normalizedOverall)}%</span>
               <span className="text-xs text-zinc-400 font-bold uppercase tracking-widest mt-1">Overall</span>
             </div>
           </div>
@@ -210,7 +213,7 @@ export const InterviewReportPage = () => {
               <RadarChart cx="50%" cy="50%" outerRadius="75%" data={radarData}>
                 <PolarGrid stroke="#e4e4e7" />
                 <PolarAngleAxis dataKey="subject" tick={{ fill: '#71717a', fontSize: 12, fontWeight: 700 }} />
-                <PolarRadiusAxis angle={30} domain={[0, 10]} tick={false} axisLine={false} />
+                <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
                 <Tooltip
                   contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                   itemStyle={{ color: '#b11217', fontWeight: 'bold' }}
@@ -236,16 +239,16 @@ export const InterviewReportPage = () => {
                 <div key={item.subject}>
                   <div className="flex justify-between text-sm font-semibold mb-1.5">
                     <span className="text-zinc-700 dark:text-zinc-300">{item.subject}</span>
-                    <span className="text-zinc-900 dark:text-white">{item.A}/10</span>
+                    <span className="text-zinc-900 dark:text-white">{item.A}%</span>
                   </div>
                   <div className="w-full bg-zinc-100 dark:bg-zinc-800 rounded-full h-2 overflow-hidden">
                     <div
                       className={`h-full rounded-full transition-all duration-1000 ${
-                        item.A >= 8 ? 'bg-gradient-to-r from-emerald-400 to-emerald-500' :
-                        item.A >= 6 ? 'bg-gradient-to-r from-amber-400 to-amber-500' :
+                        item.A >= 80 ? 'bg-gradient-to-r from-emerald-400 to-emerald-500' :
+                        item.A >= 60 ? 'bg-gradient-to-r from-amber-400 to-amber-500' :
                         'bg-gradient-to-r from-red-400 to-red-500'
                       }`}
-                      style={{ width: `${(item.A / 10) * 100}%` }}
+                      style={{ width: `${item.A}%` }}
                     />
                   </div>
                 </div>
@@ -411,7 +414,7 @@ export const InterviewReportPage = () => {
               <BookOpen className="w-5 h-5 text-primary" /> AI Coaching: Chapter Detail (Question {activeQuestionIdx + 1})
             </h2>
             <span className="bg-primary text-white px-3.5 py-1.5 rounded-full text-xs font-bold">
-              Score: {sortedQuestions[activeQuestionIdx].answer ? `${sortedQuestions[activeQuestionIdx].answer.score}/10` : 'Skipped'}
+              Score: {sortedQuestions[activeQuestionIdx].answer ? formatScore(normalizeToCanonicalScore(sortedQuestions[activeQuestionIdx].answer.score)) : 'Skipped'}
             </span>
           </div>
 

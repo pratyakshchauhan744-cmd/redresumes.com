@@ -6,6 +6,7 @@ const pdfParse = require("pdf-parse");
 import { prisma } from "../../db/prisma.js";
 import { parseResumeWithGemini } from "../ai/service.js";
 import { createInterviewSession, answerInterviewQuestion, completeSessionAndGenerateReport } from "./service.js";
+import { authorizeInterviewReportRead } from "./report-authorization.js";
 
 const startSessionSchema = z.object({
   resumeId: z.string(),
@@ -188,20 +189,38 @@ export async function getSessionStatus(req: Request, res: Response, next: NextFu
 export async function getReport(req: Request, res: Response, next: NextFunction) {
   try {
     const userId = req.user?.id;
-    const sessionId = req.params.id;
+    const idParam = req.params.id;
 
-    const session = await prisma.interviewSession.findUnique({
-      where: { id: sessionId },
-      include: { questions: { include: { answer: true } } }
+    let sessionIdentity = await prisma.interviewSession.findUnique({
+      where: { id: idParam },
+      select: { id: true, userId: true, collegeId: true }
     });
 
-    if (!session) {
+    if (!sessionIdentity) {
+      // Check if idParam was actually a reportId
+      const reportById = await prisma.interviewReport.findUnique({
+        where: { id: idParam },
+        select: { session: { select: { id: true, userId: true, collegeId: true } } }
+      });
+      if (reportById) {
+        sessionIdentity = reportById.session;
+      }
+    }
+
+    if (!sessionIdentity) {
       return res.status(404).json({ message: "Report not found" });
     }
 
-    if (session.userId && session.userId !== userId) {
+    const access = await authorizeInterviewReportRead(userId, sessionIdentity);
+    if (!access.allowed) {
       return res.status(403).json({ message: "Forbidden" });
     }
+
+    const sessionId = sessionIdentity.id;
+    const session = await prisma.interviewSession.findUniqueOrThrow({
+      where: { id: sessionId },
+      include: { questions: { include: { answer: true } } }
+    });
 
     const answeredQuestions = session.questions.filter(q => q.answer);
     const totalAnswerLength = answeredQuestions.reduce((sum, q) => sum + (q.answer?.answerText?.trim().length || 0), 0);
@@ -218,6 +237,12 @@ export async function getReport(req: Request, res: Response, next: NextFunction)
         }
       }
     });
+
+    if (!report && !access.isOwner) {
+      // Faculty and administrators have inspection-only access. They cannot cause
+      // report generation or any other mutation of a student's interview session.
+      return res.status(404).json({ message: "Report not found" });
+    }
 
     if (!report) {
       // Session has sufficient data, let's complete and generate report now

@@ -1,5 +1,11 @@
+import { downloadExportResponse } from "../utils/exportDownload";
+import type { StudentCreationResponse, StudentInvitationResponse } from "../types/studentOnboarding";
 import { setStoredAuthTokens, clearStoredAuthTokens, getStoredAccessToken, isLocalAccessToken, sanitizeRedirectUrl } from "./auth";
 export { sanitizeRedirectUrl } from "./auth";
+import type { EnterpriseReportRow, EnterpriseReportsResponse } from "../types/enterpriseReports";
+import type { EnterpriseAuditLog, EnterpriseAuditLogsResponse } from "../types/enterpriseAudit";
+import type { CreditLedgerResponse } from "../types/creditLedger";
+export type { EnterpriseAuditLog, EnterpriseAuditLogsResponse };
 
 const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
 const isBrowser = typeof window !== "undefined";
@@ -17,8 +23,14 @@ export function resolveApiBaseUrl(configuredUrl: string | undefined, hostname: s
   // Auto-prepend https:// if the value looks like a bare domain (no protocol)
   const normalized = /^https?:\/\//i.test(value) ? value : `https://${value}`;
 
-  const localHostnames = ["localhost", "127.0.0.1", "::1"];
-  const isLocalHostname = hostname ? localHostnames.includes(hostname) : false;
+  const localHostnames = ["localhost", "127.0.0.1", "0.0.0.0", "::1"];
+  const isLocalHostname = hostname
+    ? localHostnames.includes(hostname) ||
+      hostname.endsWith(".local") ||
+      /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+      /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+      /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(hostname)
+    : false;
   const isLocalUrl = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(normalized);
 
   // On production (non-local hostname), only use the API URL if it's NOT a localhost URL.
@@ -29,6 +41,10 @@ export function resolveApiBaseUrl(configuredUrl: string | undefined, hostname: s
   return "";
 }
 
+export class ApiRequestError extends Error {
+  constructor(message: string, public readonly status?: number) { super(message); this.name = "ApiRequestError"; }
+}
+
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 type RequestOptions = {
@@ -36,7 +52,17 @@ type RequestOptions = {
   token?: string;
   body?: unknown;
   baseUrl?: string;
+  signal?: AbortSignal;
+  authRetried?: boolean;
+  idempotencyKey?: string;
 };
+
+export function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof Error && error.name === "AbortError") ||
+    (typeof error === "object" && error !== null && "name" in error && error.name === "AbortError")
+  );
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -76,8 +102,82 @@ function optionalNumberOrNull(value: unknown): number | null | undefined {
   return undefined;
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+// One renewal per API origin. A cancelled caller must not cancel renewal for
+// other requests waiting on the same session.
+const refreshFlights = new Map<string, Promise<string>>();
+const tokenReplacements = new Map<string, string>();
+
+function replacementFor(token: string | null | undefined): string | null | undefined {
+  let replacement = token;
+  const visited = new Set<string>();
+  while (replacement && tokenReplacements.has(replacement) && !visited.has(replacement)) {
+    visited.add(replacement);
+    replacement = tokenReplacements.get(replacement);
+  }
+  // Never reuse a replacement after logout or signing in as another account.
+  return replacement !== token && replacement === getStoredAccessToken() ? replacement : token;
+}
+
+function endExpiredSession() {
+  clearStoredAuthTokens();
+  tokenReplacements.clear();
+  if (typeof window !== "undefined") {
+    window.localStorage.removeItem("redresumes_user");
+    const safeRedirect = sanitizeRedirectUrl(window.location.pathname + window.location.search, "/dashboard");
+    window.location.href = `/login?redirect=${encodeURIComponent(safeRedirect)}`;
+  }
+}
+
+async function refreshAccessToken(baseUrl: string, rejectedToken?: string | null): Promise<string> {
+  const replacement = replacementFor(rejectedToken);
+  if (replacement && replacement !== rejectedToken) return replacement;
+  const existing = refreshFlights.get(baseUrl);
+  if (existing) return existing;
+  const sessionToken = getStoredAccessToken();
+  const flight = (async () => {
+    const response = await fetch(`${baseUrl}/api/auth/refresh`, {
+      method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+    });
+    if (!response.ok) {
+      if ((response.status === 401 || response.status === 403) && getStoredAccessToken() === sessionToken) {
+        endExpiredSession();
+      }
+      throw new Error(response.status === 401 || response.status === 403
+        ? "Session expired. Please sign in again." : "Unable to renew session. Please try again.");
+    }
+    const data = await response.json() as { accessToken?: unknown };
+    if (typeof data.accessToken !== "string" || !data.accessToken || isLocalAccessToken(data.accessToken)) {
+      throw new Error("Invalid session renewal response.");
+    }
+    if (getStoredAccessToken() !== sessionToken) {
+      throw new Error("Session changed during renewal. Please retry.");
+    }
+    setStoredAuthTokens(data.accessToken);
+    if (sessionToken) tokenReplacements.set(sessionToken, data.accessToken);
+    if (rejectedToken) tokenReplacements.set(rejectedToken, data.accessToken);
+    return data.accessToken;
+  })();
+  refreshFlights.set(baseUrl, flight);
+  try {
+    return await flight;
+  } finally {
+    if (refreshFlights.get(baseUrl) === flight) refreshFlights.delete(baseUrl);
+  }
+}
+
+function awaitWithSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+
+async function authenticatedResponse(path: string, options: RequestOptions = {}): Promise<Response> {
   const headers: Record<string, string> = {};
+  if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
   const baseUrl = options.baseUrl ?? API_BASE_URL;
 
   if (options.body instanceof FormData) {
@@ -86,28 +186,18 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     headers["Content-Type"] = "application/json";
   }
 
-  let token = (options.token && options.token !== "") ? options.token : getStoredAccessToken();
+  let token = replacementFor((options.token && options.token !== "") ? options.token : getStoredAccessToken());
 
   if (!token && !path.startsWith("/api/auth/")) {
     if (typeof window !== "undefined" && window.localStorage.getItem("redresumes_user")) {
-      try {
-        const refreshResponse = await fetch(`${baseUrl}/api/auth/refresh`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" }
-        });
-        if (refreshResponse.ok) {
-          const refreshData = await refreshResponse.json() as { accessToken: string };
-          setStoredAuthTokens(refreshData.accessToken);
-          token = refreshData.accessToken;
-        }
-      } catch (e) {
-        console.error("Auto-token-refresh failed:", e);
-      }
+      token = await awaitWithSignal(refreshAccessToken(baseUrl), options.signal);
     }
   }
 
   if (token) {
+    if (isLocalAccessToken(token) && !path.startsWith("/api/auth/")) {
+      throw new Error("This action needs a live backend session. Please sign in with a server-backed account.");
+    }
     headers.Authorization = `Bearer ${token}`;
   }
   let response: Response;
@@ -116,40 +206,18 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       method: options.method ?? "GET",
       credentials: "include",
       headers,
-      body: options.body instanceof FormData ? options.body : (options.body ? JSON.stringify(options.body) : undefined)
+      body: options.body instanceof FormData ? options.body : (options.body ? JSON.stringify(options.body) : undefined),
+      signal: options.signal,
     });
-  } catch {
-    throw new Error(`Cannot reach backend at ${baseUrl || "same-origin"}. Start backend server and verify VITE_API_BASE_URL.`);
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new ApiRequestError(`Cannot reach backend at ${baseUrl || "same-origin"}. Start backend server and verify VITE_API_BASE_URL.`);
   }
 
-  // Silent automatic token refresh on 401 for protected non-auth endpoints
-  if (response.status === 401 && !path.startsWith("/api/auth/")) {
-    if (isLocalAccessToken(token)) {
-      throw new Error("This action needs a live backend session. Please sign in with a server-backed account.");
-    }
-
-    try {
-      const refreshResponse = await fetch(`${baseUrl}/api/auth/refresh`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" }
-      });
-      if (refreshResponse.ok) {
-        const refreshData = await refreshResponse.json() as { accessToken: string };
-        setStoredAuthTokens(refreshData.accessToken);
-        // Retry the original request with the new token
-        return request<T>(path, { ...options, token: refreshData.accessToken });
-      } else {
-        clearStoredAuthTokens();
-        if (typeof window !== "undefined") {
-          window.localStorage.removeItem("redresumes_user");
-          const safeRedirect = sanitizeRedirectUrl(window.location.pathname + window.location.search, "/dashboard");
-          window.location.href = `/login?redirect=${encodeURIComponent(safeRedirect)}`;
-        }
-      }
-    } catch (refreshErr) {
-      console.error("Token refresh failed:", refreshErr);
-    }
+  // Retry at most once. Do not let repeated 401s create an infinite renewal loop.
+  if (response.status === 401 && !path.startsWith("/api/auth/") && !options.authRetried) {
+    const refreshedToken = await awaitWithSignal(refreshAccessToken(baseUrl, token), options.signal);
+    return authenticatedResponse(path, { ...options, token: refreshedToken, authRetried: true });
   }
 
 function isRawHtmlOrEdgeResponse(value: string): boolean {
@@ -221,9 +289,14 @@ function isRawHtmlOrEdgeResponse(value: string): boolean {
       // keep fallback status message
     }
 
-    throw new Error(errorMessage);
+    throw new ApiRequestError(errorMessage, response.status);
   }
 
+  return response;
+}
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await authenticatedResponse(path, options);
   if (response.status === 204) {
     return undefined as T;
   }
@@ -232,7 +305,7 @@ function isRawHtmlOrEdgeResponse(value: string): boolean {
   try {
     return JSON.parse(raw) as T;
   } catch {
-    throw new Error("Cannot reach backend service. Invalid API response format.");
+    throw new ApiRequestError("Cannot reach backend service. Invalid API response format.");
   }
 }
 
@@ -320,6 +393,12 @@ export type AuthUser = {
   location?: string;
   bio?: string;
   credits?: number;
+  collegeId?: string | null;
+  permissions?: string[];
+  isMainFaculty?: boolean;
+  college?: any;
+  facultyProfile?: any;
+  studentProfile?: any;
 };
 
 export type TranslateResumeResponse = {
@@ -357,7 +436,13 @@ function parseAuthUser(value: unknown): AuthUser {
     phone: typeof obj.phone === "string" ? obj.phone : undefined,
     location: typeof obj.location === "string" ? obj.location : undefined,
     bio: typeof obj.bio === "string" ? obj.bio : undefined,
-    credits: typeof obj.credits === "number" ? obj.credits : 0
+    credits: typeof obj.credits === "number" ? obj.credits : 0,
+    collegeId: (obj.collegeId as string | null) ?? undefined,
+    permissions: Array.isArray(obj.permissions) ? (obj.permissions as string[]) : undefined,
+    isMainFaculty: typeof obj.isMainFaculty === "boolean" ? obj.isMainFaculty : undefined,
+    college: obj.college,
+    facultyProfile: obj.facultyProfile,
+    studentProfile: obj.studentProfile
   };
 }
 
@@ -488,7 +573,7 @@ export const backendApi = {
       { method: "POST", body }
     ),
 
-  refresh: () => request<{ accessToken: string }>("/api/auth/refresh", { method: "POST" }),
+  refresh: async () => ({ accessToken: await refreshAccessToken(API_BASE_URL) }),
 
   logout: () => request<void>("/api/auth/logout", { method: "POST" }),
 
@@ -616,8 +701,8 @@ export const backendApi = {
   getInterviewSession: (sessionId: string, token: string) =>
     request<any>(`/api/interview/session/${sessionId}`, { token }),
 
-  getInterviewReport: (reportId: string, token: string) =>
-    request<any>(`/api/interview/report/${reportId}`, { token }),
+  getInterviewReport: (sessionId: string, token: string) =>
+    request<any>(`/api/interview/report/${sessionId}`, { token }),
 
   getInterviewHistory: (token: string) =>
     request<any[]>("/api/interview/history", { token }),
@@ -650,7 +735,398 @@ export const backendApi = {
     request<{ success: boolean; message: string }>("/api/support/contact", {
       method: "POST",
       body
-    })
+    }),
+
+  enterprise: {
+    getFilterOptions: (token?: string, signal?: AbortSignal) =>
+      request<{
+        programs: string[];
+        courses: string[];
+        sections: string[];
+        batches: string[];
+        departments: string[];
+        cohorts: Array<{ program: string; course: string; section: string; batch: string }>;
+      }>("/api/enterprise/filter-options", { token, signal }),
+
+    getStats: (token?: string, signal?: AbortSignal) =>
+      request<{
+        students: { total: number; active: number };
+        faculty: { total: number; active: number };
+        credits: { balance: number; totalAllocated: number; totalDistributed: number };
+        interviews: { totalSessions: number; completedSessions: number; avgScore: number };
+      }>("/api/enterprise/stats", { token, signal }),
+
+    listFaculty: (params: { page?: number; limit?: number; search?: string } = {}, token?: string) => {
+      const q = new URLSearchParams();
+      if (params.page) q.set("page", String(params.page));
+      if (params.limit) q.set("limit", String(params.limit));
+      if (params.search) q.set("search", params.search);
+      return request<{ faculty: any[]; total: number; page: number; limit: number }>(
+        `/api/enterprise/faculty?${q.toString()}`,
+        { token }
+      );
+    },
+
+    createFaculty: (body: {
+      name: string;
+      email: string;
+      phone?: string;
+      employeeId?: string;
+      department?: string;
+      designation?: string;
+      isMainFaculty?: boolean;
+      permissions?: string[];
+      programAccess?: string[];
+      courseAccess?: string[];
+      sectionAccess?: string[];
+      batchAccess?: string[];
+      scopeUnrestricted?: boolean;
+      cohortAccess?: Array<{ program: string; course: string; section: string; batch: string }>;
+    }, token?: string) =>
+      request<{
+        success: true;
+        facultyCreated: true;
+        invitationSent: boolean;
+        invitationStatus: "sent" | "delivery_failed";
+        message: string;
+        warning?: string;
+        faculty: any;
+      }>("/api/enterprise/faculty", {
+        method: "POST",
+        token,
+        body
+      }),
+
+    resendFacultyInvite: (id: string, token?: string) =>
+      request<{
+        success: true;
+        invitationSent: true;
+        invitationStatus: "sent";
+        message: string;
+      }>(`/api/enterprise/faculty/${id}/resend-invite`, {
+        method: "POST",
+        token,
+      }),
+
+    updateFaculty: (id: string, body: any, token?: string) =>
+      request<any>(`/api/enterprise/faculty/${id}`, {
+        method: "PUT",
+        token,
+        body
+      }),
+
+    deleteFaculty: (id: string, token?: string) =>
+      request<any>(`/api/enterprise/faculty/${id}`, {
+        method: "DELETE",
+        token
+      }),
+
+    listStudents: (params: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      program?: string;
+      course?: string;
+      section?: string;
+      batch?: string;
+      status?: string;
+    } = {}, token?: string, signal?: AbortSignal) => {
+      const q = new URLSearchParams();
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
+      });
+      return request<{ students: any[]; total: number; page: number; limit: number; totalPages: number }>(
+        `/api/enterprise/students?${q.toString()}`,
+        { token, signal }
+      );
+    },
+
+    createStudent: (body: {
+      name: string;
+      email: string;
+      phone?: string;
+      enrollmentNumber: string;
+      program: string;
+      course: string;
+      department?: string;
+      section: string;
+      batch: string;
+      academicYear?: string;
+      semester?: number;
+      gender?: string;
+      initialCredits?: number;
+    }, token?: string, idempotencyKey?: string) =>
+      request<StudentCreationResponse>("/api/enterprise/students", {
+        method: "POST",
+        token,
+        body,
+        idempotencyKey,
+      }),
+
+    bulkImportStudents: (
+      students: any[],
+      options?: { atomic?: boolean; initialCredits?: number },
+      token?: string
+    ) =>
+      request<{
+        success: boolean;
+        message?: string;
+        totalProcessed: number;
+        totalCreated: number;
+        totalFailed: number;
+        emailsSent: number;
+        emailsFailed: number;
+        errors: Array<{ row: number; email?: string; enrollmentNumber?: string; reason: string }>;
+        createdStudents: any[];
+      }>("/api/enterprise/students/bulk-import", {
+        method: "POST",
+        token,
+        body: {
+          students,
+          atomic: options?.atomic,
+          initialCredits: options?.initialCredits,
+        },
+      }),
+
+    bulkImportFile: (
+      file: File,
+      options?: { atomic?: boolean; initialCredits?: number },
+      token?: string
+    ) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      if (options?.atomic !== undefined) {
+        formData.append("atomic", String(options.atomic));
+      }
+      if (options?.initialCredits !== undefined) {
+        formData.append("initialCredits", String(options.initialCredits));
+      }
+      return request<{
+        success: boolean;
+        message?: string;
+        totalProcessed: number;
+        totalCreated: number;
+        totalFailed: number;
+        emailsSent: number;
+        emailsFailed: number;
+        errors: Array<{ row: number; email?: string; enrollmentNumber?: string; reason: string }>;
+        createdStudents: any[];
+      }>("/api/enterprise/students/bulk-import-file", {
+        method: "POST",
+        token,
+        body: formData,
+      });
+    },
+
+    resendStudentInvite: (studentId: string, token?: string) =>
+      request<StudentInvitationResponse>(`/api/enterprise/students/${studentId}/resend-invite`, {
+        method: "POST",
+        token,
+      }),
+
+    getStudentDetails: (id: string, token?: string) =>
+      request<any>(`/api/enterprise/students/${id}`, { token }),
+
+    updateStudent: (id: string, body: any, token?: string) =>
+      request<any>(`/api/enterprise/students/${id}`, {
+        method: "PUT",
+        token,
+        body
+      }),
+
+    deleteStudent: (id: string, token?: string) =>
+      request<any>(`/api/enterprise/students/${id}`, {
+        method: "DELETE",
+        token
+      }),
+
+    previewCreditDistribution: (body: {
+      creditsPerStudent: number;
+      program?: string;
+      course?: string;
+      section?: string;
+      batch?: string;
+    }, token?: string) =>
+      request<{
+        matchingStudentsCount: number;
+        creditsPerStudent: number;
+        totalCreditsNeeded: number;
+        currentCollegeBalance: number;
+        hasSufficientBalance: boolean;
+        balanceAfterDistribution: number;
+      }>("/api/enterprise/credits/preview-distribution", {
+        method: "POST",
+        token,
+        body
+      }),
+
+    distributeCredits: (body: {
+      creditsPerStudent: number;
+      reason: string;
+      program?: string;
+      course?: string;
+      section?: string;
+      batch?: string;
+    }, token: string | undefined, idempotencyKey: string) =>
+      request<{
+        success: boolean;
+        message: string;
+        creditedCount: number;
+        totalCreditsDeducted: number;
+        newCollegeBalance: number;
+      }>("/api/enterprise/credits/distribute", {
+        method: "POST",
+        token,
+        idempotencyKey,
+        body
+      }),
+
+    assignStudentCredits: (body: {
+      studentId: string;
+      amount: number;
+      reason: string;
+    }, token: string | undefined, idempotencyKey: string) =>
+      request<any>("/api/enterprise/credits/assign-student", {
+        method: "POST",
+        token,
+        idempotencyKey,
+        body
+      }),
+
+    getCreditLedger: (params: {
+      page?: number;
+      limit?: number;
+      type?: string;
+      search?: string;
+      studentId?: string;
+      program?: string;
+      course?: string;
+      section?: string;
+      batch?: string;
+      startDate?: string;
+      endDate?: string;
+    } = {}, token?: string) => {
+      const q = new URLSearchParams();
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
+      });
+      return request<CreditLedgerResponse>(`/api/enterprise/credits/ledger?${q.toString()}`, { token });
+    },
+
+    getReports: (params: {
+      page?: number;
+      limit?: number;
+      program?: string;
+      course?: string;
+      section?: string;
+      batch?: string;
+      minScore?: number;
+      maxScore?: number;
+      search?: string;
+      startDate?: string;
+      endDate?: string;
+    } = {}, token?: string, signal?: AbortSignal) => {
+      const q = new URLSearchParams();
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
+      });
+      return request<EnterpriseReportsResponse>(`/api/enterprise/reports?${q.toString()}`, { token, signal });
+    },
+
+    getReportSummary: (params: {
+      program?: string;
+      course?: string;
+      section?: string;
+      batch?: string;
+    } = {}, token?: string, signal?: AbortSignal) => {
+      const q = new URLSearchParams();
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
+      });
+      return request<{
+        totalReports: number;
+        averageOverallScore: number;
+        scoreDistribution: { label: string; count: number }[];
+      }>(`/api/enterprise/reports/summary?${q.toString()}`, { token, signal });
+    },
+
+    exportReportsUrl: (params: {
+      format?: 'csv' | 'xlsx';
+      program?: string;
+      course?: string;
+      section?: string;
+      batch?: string;
+      status?: string;
+      search?: string;
+    } = {}) => {
+      const q = new URLSearchParams();
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
+      });
+      return `${API_BASE_URL}/api/enterprise/reports/export?${q.toString()}`;
+    },
+
+    downloadReports: async (params: {
+      format?: 'csv' | 'xlsx';
+      program?: string;
+      course?: string;
+      section?: string;
+      batch?: string;
+      status?: string;
+      search?: string;
+      scoreTier?: string;
+      minScore?: number;
+      maxScore?: number;
+      startDate?: string;
+      endDate?: string;
+      reportType?: string;
+      view?: string;
+    } = {}, token?: string) => {
+      const q = new URLSearchParams();
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
+      });
+      const response = await authenticatedResponse(`/api/enterprise/reports/export?${q.toString()}`, { token });
+      await downloadExportResponse(response, params.format === "xlsx" ? "xlsx" : "csv");
+    },
+
+    getAuditLogs: (params: {
+      page?: number;
+      limit?: number;
+      action?: string;
+      search?: string;
+      startDate?: string;
+      endDate?: string;
+    } = {}, token?: string, signal?: AbortSignal) => {
+      const q = new URLSearchParams();
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
+      });
+      return request<EnterpriseAuditLogsResponse>(`/api/enterprise/audit-logs?${q.toString()}`, { token, signal });
+    },
+
+    verifyInvitation: (tokenHash: string) =>
+      request<{
+        valid: boolean;
+        invitation: {
+          email: string;
+          role: string;
+          collegeName: string;
+          metadata?: any;
+        };
+      }>(`/api/auth/invitations/verify/${tokenHash}`),
+
+    acceptInvitation: (body: { tokenHash: string; password: string; name?: string }) =>
+      request<{
+        success: boolean;
+        message: string;
+        accessToken: string;
+        user: AuthUser;
+      }>("/api/auth/invitations/accept", {
+        method: "POST",
+        body
+      })
+  }
 };
 
 export function mapBackendJobToUiJob(job: BackendJob): {

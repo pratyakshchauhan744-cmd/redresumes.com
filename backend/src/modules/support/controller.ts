@@ -37,8 +37,8 @@ export const handleContactSupport: RequestHandler = async (req: Request, res: Re
     });
 
     const mailOptions = {
-      from: env.EMAIL_FROM || `"RedResumes Support" <no-reply@redresumes.com>`,
-      to: env.EMAIL_FROM || "support@redresumes.com", // send to admin
+      from: env.EMAIL_FROM || `"RedResumes Support" <pratyakshchauhan744@gmail.com>`,
+      to: env.EMAIL_FROM || "pratyakshchauhan744@gmail.com", // send to admin
       replyTo: email,
       subject: `RedResumes Support Request from ${name}`,
       text: `Name: ${name}\nEmail: ${email}\n\nMessage:\n${message}`,

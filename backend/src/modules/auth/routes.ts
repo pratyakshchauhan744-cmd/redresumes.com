@@ -9,7 +9,11 @@ import type { SignInMethod, UserRole } from "@prisma/client";
 import { prisma } from "../../db/prisma.js";
 import { redisConnection } from "../../db/redis.js";
 import { env } from "../../config/env.js";
+import { loadSessionContext } from "./session-context.js";
 import { signAccessToken, signRefreshToken, verifyToken } from "../../utils/jwt.js";
+import { normalizeEmailIdentity } from "../../utils/identity.js";
+
+import { REFRESH_COOKIE_NAME, setRefreshCookie, clearRefreshCookie, persistRefreshToken } from "./refresh-session.js";
 
 const router = Router();
 
@@ -125,8 +129,6 @@ const pendingOtpLogins = new Map<string, PendingOtpLogin>();
 const pendingOtpSignups = new Map<string, PendingOtpSignup>();
 const pendingOtpForgot = new Map<string, PendingOtpForgot>();
 const OTP_TTL_MS = 5 * 60 * 1000;
-const REFRESH_COOKIE_NAME = "rr_refresh_token";
-const REFRESH_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const googleOAuthClient = new OAuth2Client();
 
 async function saveOtpSession<T>(map: Map<string, T>, type: string, sessionId: string, data: T): Promise<void> {
@@ -421,39 +423,6 @@ function generateOtp(): string {
   return String(randomInt(100000, 1000000));
 }
 
-function normalizedEmail(email: string): string {
-  return email.trim().toLowerCase();
-}
-
-function setRefreshCookie(res: Response, refreshToken: string): void {
-  res.cookie(REFRESH_COOKIE_NAME, refreshToken, {
-    httpOnly: true,
-    secure: env.COOKIE_SECURE ?? env.NODE_ENV === "production",
-    sameSite: env.NODE_ENV === "production" ? "none" : "lax",
-    path: "/api/auth",
-    maxAge: REFRESH_MAX_AGE_MS
-  });
-}
-
-function clearRefreshCookie(res: Response): void {
-  res.clearCookie(REFRESH_COOKIE_NAME, {
-    httpOnly: true,
-    secure: env.COOKIE_SECURE ?? env.NODE_ENV === "production",
-    sameSite: env.NODE_ENV === "production" ? "none" : "lax",
-    path: "/api/auth"
-  });
-}
-
-async function persistRefreshToken(userId: string, refreshToken: string): Promise<void> {
-  await prisma.refreshToken.create({
-    data: {
-      userId,
-      tokenHash: tokenHash(refreshToken),
-      expiresAt: new Date(Date.now() + REFRESH_MAX_AGE_MS)
-    }
-  });
-}
-
 async function recordSignIn(userId: string, method: SignInMethod): Promise<void> {
   try {
     await prisma.signInEvent.create({
@@ -469,29 +438,25 @@ async function recordSignIn(userId: string, method: SignInMethod): Promise<void>
 
 async function issueAuthResponse(
   res: Response,
-  user: { id: string; name: string; email: string; role: UserRole },
+  user: { id: string; name: string; email: string; role: UserRole; collegeId?: string | null },
   method: SignInMethod
 ): Promise<void> {
-  const payload = { sub: user.id, role: user.role, email: user.email };
+  const context = await loadSessionContext(user.id);
+  const payload = context.payload;
   const accessToken = signAccessToken(payload);
   const refreshToken = signRefreshToken(payload);
   await persistRefreshToken(user.id, refreshToken);
   await recordSignIn(user.id, method);
   setRefreshCookie(res, refreshToken);
   res.json({
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role
-    },
+    user: context.user,
     accessToken
   });
 }
 
 async function sendOtpEmail(email: string, otp: string): Promise<void> {
   const provider = (process.env.EMAIL_PROVIDER ?? "console").toLowerCase();
-  const from = process.env.EMAIL_FROM ?? "no-reply@redresumes.com";
+  const from = process.env.EMAIL_FROM ?? "pratyakshchauhan744@gmail.com";
   const subject = "Your RedResumes OTP Code";
   const text = `Your OTP is ${otp}. It is valid for 5 minutes.`;
 
@@ -583,7 +548,7 @@ function getEmailDeliveryMessage(error: unknown): string {
 router.post("/register/start", otpStartLimiter, async (req, res, next) => {
   try {
     const body = registerStartSchema.parse(req.body);
-    const email = normalizedEmail(body.email);
+    const email = normalizeEmailIdentity(body.email);
     const exists = await prisma.user.findUnique({ where: { email } });
     if (exists) {
       res.status(409).json({ message: "This email is already registered. Please sign in." });
@@ -672,7 +637,7 @@ router.post("/register/verify", otpVerifyLimiter, async (req, res, next) => {
 router.post("/register", registerLimiter, async (req, res, next) => {
   try {
     const body = registerSchema.parse(req.body);
-    const email = normalizedEmail(body.email);
+    const email = normalizeEmailIdentity(body.email);
 
     const exists = await prisma.user.findUnique({ where: { email } });
     if (exists) {
@@ -700,7 +665,7 @@ router.post("/register", registerLimiter, async (req, res, next) => {
 router.post("/login", loginLimiter, async (req, res, next) => {
   try {
     const body = loginSchema.parse(req.body);
-    const email = normalizedEmail(body.email);
+    const email = normalizeEmailIdentity(body.email);
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
@@ -751,7 +716,7 @@ router.post("/google", loginLimiter, async (req, res, next) => {
       return;
     }
 
-    const email = normalizedEmail(payload.email);
+    const email = normalizeEmailIdentity(payload.email);
     const displayName = payload.name?.trim() || email.split("@")[0] || "Google User";
     const existing = await prisma.user.findUnique({ where: { email } });
 
@@ -778,7 +743,7 @@ router.post("/google", loginLimiter, async (req, res, next) => {
 router.post("/login/start", otpStartLimiter, async (req, res, next) => {
   try {
     const body = loginStartSchema.parse(req.body);
-    const email = normalizedEmail(body.email);
+    const email = normalizeEmailIdentity(body.email);
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
       res.status(401).json({ message: "Invalid credentials" });
@@ -896,7 +861,7 @@ router.post("/refresh", async (req, res, next) => {
       },
       include: {
         user: {
-          select: { id: true, isActive: true, role: true, email: true }
+          select: { id: true, isActive: true }
         }
       }
     });
@@ -911,7 +876,8 @@ router.post("/refresh", async (req, res, next) => {
       return;
     }
 
-    const accessToken = signAccessToken({ sub: stored.user.id, role: stored.user.role, email: stored.user.email });
+    const context = await loadSessionContext(stored.user.id, payload);
+    const accessToken = signAccessToken(context.payload);
     res.json({ accessToken });
   } catch (error) {
     next(error);
@@ -954,7 +920,7 @@ router.post("/logout", async (req, res, next) => {
 router.post("/forgot-password/start", otpStartLimiter, async (req, res, next) => {
   try {
     const body = forgotPasswordStartSchema.parse(req.body);
-    const email = normalizedEmail(body.email);
+    const email = normalizeEmailIdentity(body.email);
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
       // To prevent email enumeration, simulate success with a valid-format sessionId

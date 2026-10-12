@@ -4,14 +4,16 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port=3000 --host=0.0.0.0",
+    "dev": "node scripts/dev.mjs",
     "build": "vite build && (npx puppeteer browsers install chrome && node scripts/prerender.mjs || echo '[build] Prerender skipped in cloud container')",
     "postinstall": "npx --yes prisma generate --schema backend/prisma/schema.prisma || true",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "dev:frontend": "vite --port=3000 --host=0.0.0.0",
+    "dev:backend": "npm --prefix backend run dev"
   },
   "prisma": {
     "schema": "backend/prisma/schema.prisma"

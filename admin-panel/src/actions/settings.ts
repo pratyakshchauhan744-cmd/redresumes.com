@@ -32,34 +32,40 @@ export async function updateSystemSetting(rawInput: unknown) {
   const { key, value } = validated.data;
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
-      // Find current setting state
-      const currentSetting = await tx.systemSetting.findUnique({
-        where: { key },
-      });
+    const result = await prisma.$transaction(
+      async (tx) => {
+        // Find current setting state
+        const currentSetting = await tx.systemSetting.findUnique({
+          where: { key },
+        });
 
-      const oldValue = currentSetting?.value ?? null;
+        const oldValue = currentSetting?.value ?? null;
 
-      // Upsert value
-      const updated = await tx.systemSetting.upsert({
-        where: { key },
-        update: { value },
-        create: { key, value, description: "Dynamic System Configuration" },
-      });
+        // Upsert value
+        const updated = await tx.systemSetting.upsert({
+          where: { key },
+          update: { value },
+          create: { key, value, description: "Dynamic System Configuration" },
+        });
 
-      // Write administrative audit trail
-      await logAdminAction({
-        tx,
-        actorId: session.userId,
-        action: "UPDATE_SETTING",
-        entityType: "SystemSetting",
-        entityId: key,
-        oldValue: { value: oldValue },
-        newValue: { value },
-      });
+        // Write administrative audit trail
+        await logAdminAction({
+          tx,
+          actorId: session.userId,
+          action: "UPDATE_SETTING",
+          entityType: "SystemSetting",
+          entityId: key,
+          oldValue: { value: oldValue },
+          newValue: { value },
+        });
 
-      return updated;
-    });
+        return updated;
+      },
+      {
+        maxWait: 20000,
+        timeout: 60000,
+      }
+    );
 
     revalidatePath("/admin/settings");
     return { success: true, key: result.key, value: result.value };

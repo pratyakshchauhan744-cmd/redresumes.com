@@ -9,6 +9,9 @@ declare global {
         id: string;
         role: UserRole;
         email: string;
+        collegeId?: string | null;
+        isMainFaculty?: boolean;
+        permissions?: string[];
       };
     }
   }
@@ -17,7 +20,7 @@ declare global {
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
-    console.log("requireAuth: missing or invalid authorization header:", authHeader);
+    console.log("requireAuth: missing or invalid authorization header");
     res.status(401).json({ message: "Missing or invalid authorization header" });
     return;
   }
@@ -29,11 +32,14 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     req.user = {
       id: payload.sub,
       role: payload.role,
-      email: payload.email
+      email: payload.email,
+      collegeId: payload.collegeId,
+      isMainFaculty: payload.isMainFaculty,
+      permissions: payload.permissions,
     };
     next();
   } catch (err: any) {
-    console.log("requireAuth: token verification failed:", err.message, "Token value:", token.slice(0, 15) + "...");
+    console.log("requireAuth: token verification failed");
     res.status(401).json({ message: "Invalid or expired token" });
   }
 }

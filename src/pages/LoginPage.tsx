@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Check } from 'lucide-react';
+import { Eye, EyeOff, Check, Building2, ShieldCheck, ArrowRight } from 'lucide-react';
 import { backendApi, type AuthUser } from '../lib/backendApi';
 import { LOCAL_ACCOUNTS_STORAGE_KEY, setStoredAuthTokens, USER_STORAGE_KEY, migrateGuestResumeToUser, parseGoogleJwt, sanitizeRedirectUrl } from '../lib/auth';
 import type { LocalAccount } from '../types';
 import { Seo } from '../components/Seo';
+import { SetupPasswordPage } from './SetupPasswordPage';
+import { getInvitationToken } from '../utils/invitationActivation';
 
 
 declare global {
@@ -38,7 +40,10 @@ declare global {
 export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser) => void }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const invitationToken = getInvitationToken(location.search);
   const redirectTarget = sanitizeRedirectUrl(new URLSearchParams(location.search).get('redirect'), '/dashboard');
+  const initialIsEnterprise = new URLSearchParams(location.search).get('portal') === 'enterprise';
+  const [isEnterprisePortal, setIsEnterprisePortal] = useState(initialIsEnterprise);
   const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot-password'>('login');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -58,10 +63,22 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
   const [forgotPasswordStep, setForgotPasswordStep] = useState<'email' | 'otp' | 'new-password'>('email');
   const googleButtonRef = useRef<HTMLDivElement | null>(null);
   const googleClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim();
+
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get('portal') === 'enterprise') {
+      setIsEnterprisePortal(true);
+      setAuthMode('login');
+    }
+  }, [location.search]);
   const DEMO_EMAILS = [
     'candidate@example.com',
     'employer@example.com',
     'admin@example.com',
+    'admin@redresumes.com',
+    'faculty@apex.edu',
+    'evaluator@apex.edu',
+    'student@apex.edu',
+    'dean@stanford.edu',
     'redresumedemo@gmail.com',
     'demo@redresumes.com',
     'demo@example.com',
@@ -87,6 +104,71 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       email: 'admin@example.com',
       role: 'admin',
       credits: 0,
+    },
+    'admin@redresumes.com': {
+      id: 'local-demo-superadmin',
+      name: 'Platform Super Admin',
+      email: 'admin@redresumes.com',
+      role: 'admin',
+      credits: 1000,
+    },
+    'faculty@apex.edu': {
+      id: 'local-demo-faculty-apex',
+      name: 'Dr. Jane Smith',
+      email: 'faculty@apex.edu',
+      role: 'college_main_faculty',
+      credits: 480,
+      isMainFaculty: true,
+      permissions: ['all'],
+      college: {
+        id: 'clg_apex_demo',
+        name: 'Apex Institute of Technology',
+        code: 'APEX',
+        domain: 'apex.edu',
+      },
+    },
+    'evaluator@apex.edu': {
+      id: 'local-demo-evaluator-apex',
+      name: 'Prof. Rajesh Kumar',
+      email: 'evaluator@apex.edu',
+      role: 'college_faculty',
+      credits: 480,
+      isMainFaculty: false,
+      permissions: ['STUDENT_VIEW', 'STUDENT_CREATE', 'STUDENT_EDIT', 'REPORT_VIEW', 'REPORT_EXPORT', 'INTERVIEW_CREDIT_VIEW', 'INTERVIEW_CREDIT_ASSIGN'],
+      college: {
+        id: 'clg_apex_demo',
+        name: 'Apex Institute of Technology',
+        code: 'APEX',
+        domain: 'apex.edu',
+      },
+    },
+    'student@apex.edu': {
+      id: 'local-demo-student-apex',
+      name: 'Aarav Sharma',
+      email: 'student@apex.edu',
+      role: 'student',
+      credits: 5,
+      college: {
+        id: 'clg_apex_demo',
+        name: 'Apex Institute of Technology',
+        code: 'APEX',
+        domain: 'apex.edu',
+      },
+    },
+    'dean@stanford.edu': {
+      id: 'local-demo-dean-stanford',
+      name: 'Dr. David Miller',
+      email: 'dean@stanford.edu',
+      role: 'college_main_faculty',
+      credits: 250,
+      isMainFaculty: true,
+      permissions: ['all'],
+      college: {
+        id: 'clg_stanford_demo',
+        name: 'Stanford Engineering Institute',
+        code: 'STANFORD',
+        domain: 'stanford.edu',
+      },
     },
     'redresumedemo@gmail.com': {
       id: 'local-demo-redresumedemo',
@@ -343,7 +425,17 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
     persistSignedInUser(user, accessToken);
     migrateGuestResumeToUser(user.id);
     onLoginSuccess(user);
-    navigate(redirectTarget, { replace: true });
+
+    const rawRedirect = new URLSearchParams(location.search).get('redirect');
+    let target = redirectTarget;
+    if (user.role === 'college_main_faculty' || user.role === 'college_faculty') {
+      target = rawRedirect ? sanitizeRedirectUrl(rawRedirect, '/enterprise') : '/enterprise';
+    } else if (user.role === 'student' || user.role === 'candidate') {
+      target = rawRedirect && !rawRedirect.includes('enterprise')
+        ? sanitizeRedirectUrl(rawRedirect, '/dashboard')
+        : '/dashboard';
+    }
+    navigate(target, { replace: true });
   };
 
   const handleGoogleCredential = async (credential?: string) => {
@@ -477,6 +569,8 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
         const accounts = readLocalAccounts();
         const existing = accounts.find((account) => account.email.toLowerCase() === normalizedEmail);
         const demoUser: LocalAccount = {
+          ...matchingDemo,
+          ...existing,
           id: existing?.id || matchingDemo?.id || `local-demo-${Date.now()}`,
           name: existing?.name || matchingDemo?.name || normalizedEmail.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
           email: normalizedEmail,
@@ -666,8 +760,9 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
     }
   };
 
-  const authTitle =
-    authMode === 'forgot-password'
+  const authTitle = isEnterprisePortal
+    ? 'Enterprise Faculty & Admin Login'
+    : authMode === 'forgot-password'
       ? forgotPasswordStep === 'email'
         ? 'Reset your password'
         : forgotPasswordStep === 'otp'
@@ -679,8 +774,9 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
           ? 'Welcome back'
           : 'Create your account';
 
-  const authDescription =
-    authMode === 'forgot-password'
+  const authDescription = isEnterprisePortal
+    ? 'Sign in with your institutional credentials to access your college dashboard, student cohort reports, and interview credits.'
+    : authMode === 'forgot-password'
       ? forgotPasswordStep === 'email'
         ? 'Enter your account email and we will send a one-time password to reset your login.'
         : forgotPasswordStep === 'otp'
@@ -769,6 +865,14 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
     }
   };
 
+  // Faculty invitation links use the same route as normal login, but render a
+  // verified activation flow whenever a bearer token is present. The optional
+  // email query parameter is deliberately ignored; the backend token response
+  // is the sole authority for account identity.
+  if (invitationToken) {
+    return <SetupPasswordPage invitationToken={invitationToken} onLoginSuccess={onLoginSuccess} />;
+  }
+
   return (
     <>
       <Seo
@@ -778,36 +882,93 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       <section className="py-10 md:py-16">
       <div className="mx-auto grid max-w-6xl gap-6 px-4 sm:px-6 md:grid-cols-[1.05fr_0.95fr] md:gap-10 md:items-stretch">
         <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_12px_34px_rgba(15,23,42,0.06)] dark:border-zinc-800 dark:bg-zinc-900 md:rounded-[32px] md:p-10 md:shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
-          <p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-primary md:text-xs md:tracking-[0.24em]">Account Access</p>
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap md:mt-4">
-            {[
-              { id: 'login', label: 'Sign in' },
-              { id: 'signup', label: 'Sign up' },
-            ].map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => {
-                  setAuthMode(item.id as 'login' | 'signup');
-                  setError(null);
-                  setSuccessMessage(null);
-                  setPassword('');
-                  setConfirmPassword('');
-                  setSignupStep('form');
-                  setBackendOtpSessionId(null);
-                  setEnteredOtp('');
-                  setOtpMessage(null);
-                }}
-                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                  authMode === item.id
-                    ? 'bg-primary text-white shadow-[0_10px_22px_rgba(177,18,23,0.22)]'
-                    : 'border border-zinc-200 bg-white text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:border-zinc-500'
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
+          {/* Campus Enterprise Portal Switcher */}
+          <div className="mb-5 flex items-center rounded-2xl border border-zinc-200 bg-zinc-100/90 p-1.5 dark:border-zinc-800 dark:bg-zinc-950">
+            <button
+              type="button"
+              id="student-login-tab-btn"
+              onClick={() => {
+                setIsEnterprisePortal(false);
+                setError(null);
+                setSuccessMessage(null);
+              }}
+              className={`flex-1 rounded-xl py-2 text-xs md:text-sm font-semibold transition ${
+                !isEnterprisePortal
+                  ? 'bg-white shadow text-zinc-900 dark:bg-zinc-800 dark:text-zinc-50'
+                  : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400'
+              }`}
+            >
+              Student / Candidate
+            </button>
+            <button
+              type="button"
+              id="enterprise-login-tab-btn"
+              onClick={() => {
+                setIsEnterprisePortal(true);
+                setAuthMode('login');
+                setError(null);
+                setSuccessMessage(null);
+              }}
+              className={`flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs md:text-sm font-bold transition ${
+                isEnterprisePortal
+                  ? 'bg-rose-600 text-white shadow'
+                  : 'text-rose-600 dark:text-rose-400 hover:text-rose-700'
+              }`}
+            >
+              <Building2 className="h-4 w-4" />
+              <span>Enterprise Faculty</span>
+            </button>
           </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-primary md:text-xs md:tracking-[0.24em]">
+              {isEnterprisePortal ? 'Institutional Campus Access' : 'Account Access'}
+            </p>
+            {isEnterprisePortal && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-rose-500/20 bg-rose-500/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
+                <ShieldCheck className="h-3 w-3" />
+                Verified Portal
+              </span>
+            )}
+          </div>
+
+          {!isEnterprisePortal ? (
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap md:mt-4">
+              {[
+                { id: 'login', label: 'Sign in' },
+                { id: 'signup', label: 'Sign up' },
+              ].map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    setAuthMode(item.id as 'login' | 'signup');
+                    setError(null);
+                    setSuccessMessage(null);
+                    setPassword('');
+                    setConfirmPassword('');
+                    setSignupStep('form');
+                    setBackendOtpSessionId(null);
+                    setEnteredOtp('');
+                    setOtpMessage(null);
+                  }}
+                  className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                    authMode === item.id
+                      ? 'bg-primary text-white shadow-[0_10px_22px_rgba(177,18,23,0.22)]'
+                      : 'border border-zinc-200 bg-white text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:border-zinc-500'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-3 inline-flex items-center gap-2 rounded-xl bg-rose-50 px-3.5 py-1.5 text-xs font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+              <Building2 className="h-3.5 w-3.5" />
+              <span>Multi-Tenant College Faculty & Administrator Login</span>
+            </div>
+          )}
+
           <h1 className="mt-4 text-3xl font-extrabold leading-tight tracking-tight text-zinc-900 md:mt-5 md:text-4xl">
             {authTitle}
           </h1>
@@ -815,10 +976,8 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
             {authDescription}
           </p>
 
-
-
           <div className="mt-6 space-y-4 md:mt-8">
-            {authMode !== 'forgot-password' && !(authMode === 'signup' && signupStep === 'otp') && (
+            {!isEnterprisePortal && authMode !== 'forgot-password' && !(authMode === 'signup' && signupStep === 'otp') && (
               <div className="rounded-2xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
                 {googleClientId ? (
                   <div ref={googleButtonRef} className="flex min-h-11 justify-center" />
@@ -1013,7 +1172,9 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
                 disabled={isSubmitting}
                 className="w-full rounded-2xl bg-primary px-6 py-3.5 text-base font-semibold text-white shadow-[0_16px_36px_rgba(177,18,23,0.24)] transition hover:opacity-90 disabled:opacity-60"
               >
-                {isSubmitting ? (authMode === 'login' ? 'Signing in...' : 'Creating account...') : authMode === 'login' ? 'Sign in' : 'Create account'}
+                {isSubmitting
+                  ? (isEnterprisePortal ? 'Verifying Faculty Credentials...' : authMode === 'login' ? 'Signing in...' : 'Creating account...')
+                  : (isEnterprisePortal ? 'Sign in to Enterprise Dashboard' : authMode === 'login' ? 'Sign in' : 'Create account')}
               </button>
             )}
 

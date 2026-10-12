@@ -1,5 +1,5 @@
 import { useState, useEffect, type ChangeEvent } from 'react';
-import { FileText, Clock, Settings, User, Trash2, Edit3, Save, ExternalLink, QrCode } from 'lucide-react';
+import { Building2, FileText, Clock, Settings, User, Trash2, Edit3, Save, ExternalLink, QrCode } from 'lucide-react';
 import { Section } from '../components/Section';
 import { Seo } from '../components/Seo';
 import { PrimaryButton, SecondaryButton } from '../components/Buttons';
@@ -8,6 +8,8 @@ import { backendApi, type AuthUser } from '../lib/backendApi';
 import type { LocalAccount } from '../types';
 import type { Page } from '../types';
 import { useNavigate } from 'react-router-dom';
+import { normalizeToCanonicalScore, formatScore } from '../utils/score';
+import { interviewReportPath } from '../lib/routes';
 
 const loadRazorpayScript = () => {
   return new Promise((resolve) => {
@@ -575,9 +577,35 @@ const CREDIT_PACKAGES: Record<string, { name: string; credits: number; price: nu
                   </div>
                 </div>
               </div>
-              <button onClick={onLogout} className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:border-zinc-400">
-                Log out
-              </button>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  id="dashboard-enterprise-btn"
+                  onClick={() => {
+                    if (user?.role === 'college_main_faculty' || user?.role === 'college_faculty') {
+                      navigate('/enterprise');
+                    } else {
+                      navigate('/login?portal=enterprise&redirect=/enterprise');
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-50 dark:bg-rose-950/40 px-4 py-2 text-xs md:text-sm font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-100/70 transition shadow-xs"
+                >
+                  <Building2 className="h-4 w-4" />
+                  <span>Enterprise</span>
+                </button>
+                <button
+                  type="button"
+                  id="dashboard-create-resume-btn"
+                  onClick={() => navigate('/builder')}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs md:text-sm font-bold text-white hover:bg-red-700 transition shadow-xs"
+                >
+                  <FileText className="h-4 w-4" />
+                  <span>Create Resume</span>
+                </button>
+                <button onClick={onLogout} className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-xs md:text-sm font-semibold text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+                  Log out
+                </button>
+              </div>
             </div>
             {profileError && <p className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700">{profileError}</p>}
             {profileMessage && <p className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{profileMessage}</p>}
@@ -758,19 +786,20 @@ const CREDIT_PACKAGES: Record<string, { name: string; credits: number; price: nu
                 </div>
               ) : (
                 interviewHistory.slice(0, 5).map((session: any) => {
-                  const overallScore = Number(session.report?.overallScore);
-                  const hasScore = Number.isFinite(overallScore);
+                  const rawScore = session.report?.overallScore;
+                  const hasScore = rawScore !== null && rawScore !== undefined && !isNaN(Number(rawScore));
+                  const overallScore = hasScore ? normalizeToCanonicalScore(rawScore) : null;
 
                   return (
-                    <div key={session.id} onClick={() => navigate(`/interview/report/${session.id}`)} className="flex items-center justify-between rounded-xl border border-zinc-100 hover:border-primary/30 hover:bg-primary/5 cursor-pointer px-4 py-3 transition-colors dark:border-zinc-800 dark:hover:border-primary/40 dark:hover:bg-primary/10">
+                    <div key={session.id} onClick={() => navigate(interviewReportPath(session.id))} className="flex items-center justify-between rounded-xl border border-zinc-100 hover:border-primary/30 hover:bg-primary/5 cursor-pointer px-4 py-3 transition-colors dark:border-zinc-800 dark:hover:border-primary/40 dark:hover:bg-primary/10">
                       <div>
                         <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{session.targetRole}</p>
                         <p className="text-xs text-zinc-500 dark:text-zinc-400">{new Date(session.createdAt).toLocaleDateString()} • {session.companyType}</p>
                       </div>
-                      {hasScore && (
+                      {overallScore !== null && (
                         <div className="text-right">
-                          <span className={`text-sm font-bold ${overallScore >= 8 ? 'text-green-600 dark:text-green-400' : overallScore >= 6 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
-                            {overallScore.toFixed(1)}/10
+                          <span className={`text-sm font-bold ${overallScore >= 80 ? 'text-green-600 dark:text-green-400' : overallScore >= 60 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
+                            {formatScore(overallScore)}
                           </span>
                         </div>
                       )}

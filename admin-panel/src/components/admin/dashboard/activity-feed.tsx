@@ -18,8 +18,11 @@ interface ActivityFeedProps {
   auditLogs: Array<{
     id: string;
     action: string;
-    entityType: string;
-    entityId: string | null;
+    targetType?: string;
+    targetId?: string | null;
+    entityType?: string;
+    entityId?: string | null;
+    details?: any;
     createdAt: Date;
     actor: { name: string; email: string };
   }>;
@@ -154,7 +157,10 @@ export function ActivityFeed({ logins, logouts, auditLogs }: ActivityFeedProps) 
                       </span>
                     </div>
                     <span className="text-[10px] text-zinc-400 block">
-                      Changed {log.entityType} ID: <span className="font-mono text-zinc-300">{log.entityId || "N/A"}</span>
+                      Target: <span className="text-zinc-300 font-medium">{log.targetType || log.entityType || "General"}</span>
+                      {(log.targetId || log.entityId) && (
+                        <> • ID: <span className="font-mono text-zinc-400">{log.targetId || log.entityId}</span></>
+                      )}
                     </span>
                   </div>
                 </div>

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { __internal, backendApi, mapBackendJobToUiJob, resolveApiBaseUrl } from './backendApi';
+import { __internal, backendApi, isAbortError, mapBackendJobToUiJob, resolveApiBaseUrl } from './backendApi';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -65,6 +65,8 @@ describe('resolveApiBaseUrl', () => {
 
   it('keeps localhost API during local development', () => {
     expect(resolveApiBaseUrl('http://localhost:4001', 'localhost')).toBe('http://localhost:4001');
+    expect(resolveApiBaseUrl('http://localhost:4000', '10.88.215.182')).toBe('http://localhost:4000');
+    expect(resolveApiBaseUrl('http://localhost:4000', '192.168.1.50')).toBe('http://localhost:4000');
   });
 });
 
@@ -78,7 +80,51 @@ describe('local access tokens', () => {
       }));
 
     await expect(backendApi.getMe('local-demo-token')).rejects.toThrow('live backend session');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('enterprise metrics request cancellation', () => {
+  it('forwards cancellation to stats, filters, and cohort summaries', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      new Response(JSON.stringify({ success: true })));
+    const controller = new AbortController();
+    await backendApi.enterprise.getStats('server-token', controller.signal);
+    await backendApi.enterprise.getFilterOptions('server-token', controller.signal);
+    await backendApi.enterprise.getReportSummary({ course: 'CS' }, 'server-token', controller.signal);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    for (const [, options] of fetchMock.mock.calls) {
+      expect(options?.signal).toBe(controller.signal);
+    }
+  });
+});
+
+describe('enterprise search request cancellation', () => {
+  it('forwards AbortSignals for student, report, and audit searches', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ students: [], total: 0, page: 1, limit: 10, totalPages: 0 })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ reports: [], total: 0, page: 1, limit: 10, totalPages: 0 })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ logs: [], pagination: { total: 0, page: 1, totalPages: 0 } })));
+    const controller = new AbortController();
+
+    await backendApi.enterprise.listStudents({ search: 'john' }, 'server-token', controller.signal);
+    await backendApi.enterprise.getReports({ search: 'john' }, 'server-token', controller.signal);
+    await backendApi.enterprise.getAuditLogs({ search: 'john' }, 'server-token', controller.signal);
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    for (const [, options] of fetchMock.mock.calls) {
+      expect(options?.signal).toBe(controller.signal);
+    }
+  });
+
+  it('preserves AbortError so intentional cancellation is distinguishable from a network failure', async () => {
+    const abortError = new DOMException('The operation was aborted.', 'AbortError');
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(abortError);
+
+    const request = backendApi.enterprise.listStudents({}, 'server-token', new AbortController().signal);
+
+    await expect(request).rejects.toBe(abortError);
+    expect(isAbortError(abortError)).toBe(true);
   });
 });
 

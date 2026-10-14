@@ -32,15 +32,48 @@ const smtpTransporters = hasSmtp ? [
 ] : [];
 
 export class EmailService {
-  /** Prefer transactional HTTPS when configured; fall back to bounded SMTP. */
+  /** Prefer transactional HTTPS when configured; fall back to bounded SMTP. If EMAIL_PROVIDER is smtp, prefer SMTP. */
   private static async sendEmail({ to, subject, html }: {
     to: string; subject: string; html: string;
   }): Promise<{ success: boolean; error?: string; simulated?: boolean; messageId?: string }> {
+    const isSmtpPreferred = env.EMAIL_PROVIDER?.toLowerCase() === "smtp";
     let lastError = "The email service is temporarily unavailable.";
-    if (env.RESEND_API_KEY) {
+
+    console.log(`[EmailService] Preparing to dispatch email:`, {
+      to,
+      subject,
+      providerPreference: isSmtpPreferred ? "smtp" : (env.RESEND_API_KEY ? "resend" : "smtp"),
+      resendConfigured: Boolean(env.RESEND_API_KEY),
+      smtpTransportersCount: smtpTransporters.length,
+      fromAddress: isSmtpPreferred ? fromAddress : resendFrom,
+    });
+
+    // Helper: attempt delivery through SMTP transporters
+    const trySmtp = async (): Promise<{ success: boolean; messageId?: string; error?: string } | null> => {
+      if (smtpTransporters.length === 0) return null;
+      for (const [index, transporter] of smtpTransporters.entries()) {
+        try {
+          console.log(`[EmailService] Attempting delivery to ${to} via SMTP transporter #${index + 1} (From: ${fromAddress})...`);
+          const info = await transporter.sendMail({ from: fromAddress, to, subject, html });
+          console.log(`[EmailService] ✓ Email delivered successfully via SMTP to ${to} (MessageId: ${info.messageId})`);
+          return { success: true, messageId: info.messageId };
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : "SMTP delivery failed";
+          console.error(`[EmailService] ✗ SMTP transporter #${index + 1} failed for ${to}:`, errMsg);
+          lastError = errMsg;
+          if ((error as { code?: string })?.code === "ETIMEDOUT") {
+            return { success: false, error: "Email delivery timed out. Check invitation status before resending." };
+          }
+        }
+      }
+      return null;
+    };
+
+    // Helper: attempt delivery through Resend HTTPS API
+    const tryResend = async (): Promise<{ success: boolean; messageId?: string; error?: string } | null> => {
+      if (!env.RESEND_API_KEY) return null;
       try {
-        // Native fetch supports cancellation, unlike an uncancelled Promise.race
-        // around the SDK. Abort the network request when the deadline expires.
+        console.log(`[EmailService] Attempting delivery to ${to} via Resend API (From: ${resendFrom})...`);
         const response = await fetch("https://api.resend.com/emails", {
           method: "POST",
           headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
@@ -48,32 +81,44 @@ export class EmailService {
           signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
         });
         const result = await response.json() as { id?: string; message?: string };
-        if (response.ok && result.id) return { success: true, messageId: result.id };
-        lastError = result.message || lastError;
+        if (response.ok && result.id) {
+          console.log(`[EmailService] ✓ Email delivered successfully via Resend to ${to} (MessageId: ${result.id})`);
+          return { success: true, messageId: result.id };
+        }
+        const failMsg = result.message || `Resend returned HTTP ${response.status}`;
+        console.error(`[EmailService] ✗ Resend rejected delivery to ${to}:`, failMsg);
+        lastError = failMsg;
+        return null;
       } catch (error) {
-        // A timeout has an ambiguous delivery outcome. Do not submit the same
-        // email to another provider while the first may already have accepted it.
         if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+          console.error(`[EmailService] ✗ Resend delivery to ${to} timed out after ${EMAIL_TIMEOUT_MS}ms.`);
           return { success: false, error: "Email delivery timed out. Check invitation status before resending." };
         }
+        const networkErr = error instanceof Error ? error.message : "The email service is temporarily unavailable.";
+        console.error(`[EmailService] ✗ Resend network error for ${to}:`, networkErr);
         lastError = "The email service is temporarily unavailable.";
+        return null;
       }
+    };
+
+    if (isSmtpPreferred) {
+      const smtpResult = await trySmtp();
+      if (smtpResult) return smtpResult;
+      const resendResult = await tryResend();
+      if (resendResult) return resendResult;
+    } else {
+      const resendResult = await tryResend();
+      if (resendResult) return resendResult;
+      const smtpResult = await trySmtp();
+      if (smtpResult) return smtpResult;
     }
 
-    for (const transporter of smtpTransporters) {
-      try {
-        const info = await transporter.sendMail({ from: fromAddress, to, subject, html });
-        return { success: true, messageId: info.messageId };
-      } catch (error) {
-        lastError = error instanceof Error ? error.message : "SMTP delivery failed";
-        if ((error as { code?: string })?.code === "ETIMEDOUT") {
-          return { success: false, error: "Email delivery timed out. Check invitation status before resending." };
-        }
-      }
-    }
     // Never report a configured provider's failure as successful simulation.
-    if (env.RESEND_API_KEY || smtpTransporters.length > 0) return { success: false, error: lastError };
-    console.log("[EMAIL SIMULATED] No mail provider configured.");
+    if (env.RESEND_API_KEY || smtpTransporters.length > 0) {
+      console.error(`[EmailService] ✗ All configured email delivery providers failed for ${to}. Last error:`, lastError);
+      return { success: false, error: lastError };
+    }
+    console.log(`[EMAIL SIMULATED] No mail provider configured. Simulated email to ${to} (Subject: "${subject}")`);
     return { success: true, simulated: true };
   }
 

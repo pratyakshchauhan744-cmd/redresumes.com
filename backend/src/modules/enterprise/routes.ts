@@ -808,6 +808,7 @@ router.post(
       const frontendUrl = env.FRONTEND_URL || "http://localhost:3000";
       const activationLink = `${frontendUrl}/login?invite=${rawToken}&email=${encodeURIComponent(faculty.user.email)}`;
       let deliveryResult: Awaited<ReturnType<typeof EmailService.sendFacultyInvitation>>;
+      console.log(`[Enterprise Resend Faculty] Dispatching faculty invitation to ${faculty.user.email} (College: ${faculty.college.name})...`);
       try {
         deliveryResult = await EmailService.sendFacultyInvitation({
           to: faculty.user.email,
@@ -816,7 +817,13 @@ router.post(
           isMainFaculty: faculty.isMainFaculty,
           activationLink,
         });
+        if (deliveryResult.success) {
+          console.log(`[Enterprise Resend Faculty] ✓ Faculty invitation sent successfully to ${faculty.user.email}`);
+        } else {
+          console.error(`[Enterprise Resend Faculty] ✗ Faculty invitation delivery failed for ${faculty.user.email}:`, deliveryResult.error);
+        }
       } catch (mailError: any) {
+        console.error(`[Enterprise Resend Faculty] ✗ Exception sending faculty invitation to ${faculty.user.email}:`, mailError);
         deliveryResult = { success: false, error: mailError?.message || "Email delivery failed" };
       }
 
@@ -1691,6 +1698,7 @@ router.post("/students", requirePermission("STUDENT_CREATE"), async (req, res, n
     let emailAccepted = false;
     let statusPersisted = false;
 
+    console.log(`[Enterprise Student Create] Dispatching welcome email to student ${data.email} (${data.name}, Enrollment: ${data.enrollmentNumber})...`);
     try {
       const mailResult = await EmailService.sendStudentWelcomeEmail({
         to: data.email,
@@ -1704,12 +1712,15 @@ router.post("/students", requirePermission("STUDENT_CREATE"), async (req, res, n
       if (mailResult && mailResult.success === false) {
         invitationStatus = "failed";
         emailError = publicStudentEmailError(mailResult.error) || "The invitation email could not be sent.";
+        console.error(`[Enterprise Student Create] ✗ Welcome email delivery failed for ${data.email}:`, mailResult.error);
       } else {
         emailAccepted = true;
+        console.log(`[Enterprise Student Create] ✓ Welcome email successfully dispatched to ${data.email}`);
       }
     } catch (err: any) {
       invitationStatus = "failed";
       emailError = publicStudentEmailError(err?.message) || "The invitation email could not be sent.";
+      console.error(`[Enterprise Student Create] ✗ Exception dispatching welcome email to ${data.email}:`, err);
     }
 
     // 3. Post-commit: Update invitation status in DB (isolated from student creation commit)
@@ -2360,6 +2371,7 @@ export async function executeBulkImport({
     let emailDeliveryStatus = "sent";
     let emailErrorDetail: string | undefined;
 
+    console.log(`[Enterprise Bulk Import] Dispatching welcome email to student ${row.email} (${row.name}, Enrollment: ${row.enrollmentNumber})...`);
     try {
       const mailResult = await EmailService.sendStudentWelcomeEmail({
         to: row.email,
@@ -2372,10 +2384,14 @@ export async function executeBulkImport({
       if (mailResult && mailResult.success === false) {
         emailDeliveryStatus = "failed";
         emailErrorDetail = publicStudentEmailError(mailResult.error) || "The invitation email could not be sent.";
+        console.error(`[Enterprise Bulk Import] ✗ Welcome email failed for ${row.email}:`, mailResult.error);
+      } else {
+        console.log(`[Enterprise Bulk Import] ✓ Welcome email dispatched successfully to ${row.email}`);
       }
     } catch (mailErr: any) {
       emailDeliveryStatus = "failed";
       emailErrorDetail = publicStudentEmailError(mailErr?.message) || "The invitation email could not be sent.";
+      console.error(`[Enterprise Bulk Import] ✗ Exception dispatching welcome email to ${row.email}:`, mailErr);
     }
 
     try {
@@ -2631,6 +2647,15 @@ router.post(
     const setupLink = `${frontendUrl}/setup-password?token=${encodeURIComponent(rawToken)}`;
     let deliveryResult: Awaited<ReturnType<typeof EmailService.sendStudentPasswordSetupEmail>>;
 
+    console.log(`[Enterprise Resend Invite] Dispatched invite for student:`, {
+      studentId: student.id,
+      email: student.user.email,
+      name: student.user.name,
+      collegeName: student.college.name,
+      enrollmentNumber: student.enrollmentNumber,
+      setupLink,
+    });
+
     try {
       deliveryResult = await EmailService.sendStudentPasswordSetupEmail({
         to: student.user.email,
@@ -2640,10 +2665,12 @@ router.post(
         setupLink,
       });
     } catch (mailErr: any) {
+      console.error(`[Enterprise Resend Invite] Exception during email dispatch for ${student.user.email}:`, mailErr);
       deliveryResult = { success: false, error: mailErr?.message || "Failed to dispatch password setup email" };
     }
 
     if (!deliveryResult.success) {
+      console.error(`[Enterprise Resend Invite] ✗ Email delivery failed for ${student.user.email}. Reason:`, deliveryResult.error);
       const emailError = publicStudentEmailError(deliveryResult.error) || "The invitation email could not be sent.";
       await prisma.invitation.updateMany({
         where: { id: invitation.id, status: "pending" },
@@ -2658,7 +2685,7 @@ router.post(
           },
         },
       }).catch((statusError) => {
-        console.error("Failed to record password setup email failure.");
+        console.error("Failed to record password setup email failure:", statusError);
       });
 
       await logEnterpriseAudit({
@@ -2676,6 +2703,8 @@ router.post(
         invitationStatus: "failed",
       });
     }
+
+    console.log(`[Enterprise Resend Invite] ✓ Password setup email successfully sent to ${student.user.email} (MessageId: ${deliveryResult.messageId || 'simulated'})`);
 
     // Delivery status is post-send bookkeeping. Keep the invitation itself
     // pending so its single-use token remains acceptable.

@@ -5,6 +5,7 @@ import { env } from "../config/env.js";
 // All providers are mocked; no email is sent and no configured secret is used.
 const originalEnv = { ...env };
 Object.assign(env, {
+  EMAIL_PROVIDER: undefined,
   EMAIL_FROM: "sender@gmail.com", RESEND_FROM: "Campus <campus@example.test>",
   RESEND_API_KEY: "test-only", SMTP_USER: "test-only", SMTP_PASS: "test-only",
   SMTP_HOST: "smtp.gmail.com", SMTP_PORT: 465, SMTP_SECURE: true,

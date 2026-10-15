@@ -79,6 +79,7 @@ export function buildReportFilters(options: BuildReportFiltersOptions): Record<s
 
   const where: Record<string, any> = {
     session: {
+      collegeId,
       status: "completed",
       user: {
         studentProfile: scopedStudentWhere,
@@ -194,6 +195,11 @@ export function buildStudentFilters(options: BuildStudentFiltersOptions): Record
       { enrollmentNumber: { contains: search, mode: "insensitive" } },
       { user: { name: { contains: search, mode: "insensitive" } } },
       { user: { email: { contains: search, mode: "insensitive" } } },
+      { user: { interviewSessions: { some: {
+        collegeId, status: "completed", report: { isNot: null },
+        OR: [ { targetRole: { contains: search, mode: "insensitive" } },
+          { interviewStyle: { contains: search, mode: "insensitive" } } ],
+      } } } },
     ],
   };
 }

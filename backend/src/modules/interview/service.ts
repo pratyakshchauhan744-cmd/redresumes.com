@@ -188,7 +188,7 @@ export async function completeSessionAndGenerateReport(
     // Insufficient data! Just complete session without generating report record
     await prisma.interviewSession.update({
       where: { id: sessionId },
-      data: { status: "completed" }
+      data: { status: "completed", completedAt: new Date() }
     });
     await prisma.interviewReport.deleteMany({
       where: { sessionId }
@@ -318,12 +318,17 @@ export async function completeSessionAndGenerateReport(
       overallScore: overallScore,
       scoreScale: 100,
       categoryScores,
-      strengths: report?.strengths || ["Completed the interview successfully."],
-      weaknesses: report?.weaknesses || ["Needs more practice with structural clarity."],
-      recommendations: report?.recommendations || ["Use STAR method", "Practice more mock interviews"],
-      speakingPace: wpm || 135,
-      fillerWords: fillerCount || 0,
-      voiceConfidence: confidence || 80
+      // Strengths, weaknesses, and recommendations from the AI report are definitive;
+      // fall back to generic text only when the AI returned nothing at all.
+      strengths: (report?.strengths?.length ? report.strengths : null) ?? ["Completed the interview."],
+      weaknesses: (report?.weaknesses?.length ? report.weaknesses : null) ?? ["Review structural clarity."],
+      recommendations: (report?.recommendations?.length ? report.recommendations : null) ?? ["Practice more mock interviews."],
+      // Voice metrics are only available when the client captures audio/speaking data.
+      // Store null ("Not recorded") instead of fabricated defaults so the report
+      // correctly reflects that no audio measurement was taken.
+      speakingPace: wpm ?? null,
+      fillerWords: fillerCount ?? null,
+      voiceConfidence: confidence ?? null
     }
   });
 
@@ -331,6 +336,7 @@ export async function completeSessionAndGenerateReport(
     where: { id: sessionId },
     data: { 
       status: "completed",
+      completedAt: new Date(),
       creditUsed: session.creditUsed || creditDeducted
     }
   });

@@ -1,3 +1,4 @@
+import { launchPdfBrowser } from "../../utils/pdf-browser.js";
 import { Router } from "express";
 import { z } from "zod";
 import rateLimit from "express-rate-limit";
@@ -57,43 +58,7 @@ router.post("/pdf", pdfLimiter, async (req, res, next) => {
 
   try {
     const body = pdfRequestSchema.parse(req.body);
-    const isVercelRuntime = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-
-    if (isVercelRuntime) {
-      const [{ default: chromium }, { default: puppeteer }] = await Promise.all([
-        // @ts-ignore
-        import("@sparticuz/chromium"),
-        import("puppeteer-core"),
-      ]);
-
-      const viewport = {
-        deviceScaleFactor: 1,
-        hasTouch: false,
-        height: 1080,
-        isLandscape: false,
-        isMobile: false,
-        width: 1440,
-      };
-
-      browser = await puppeteer.launch({
-        args: await puppeteer.defaultArgs({ args: chromium.args, headless: "shell" }),
-        defaultViewport: viewport,
-        executablePath: await chromium.executablePath(),
-        headless: "shell",
-      });
-    } else {
-      const { default: puppeteer } = await import("puppeteer");
-
-      browser = await puppeteer.launch({
-        headless: true,
-        args: [
-          "--no-sandbox",
-          "--disable-setuid-sandbox",
-          "--disable-dev-shm-usage",
-          "--font-render-hinting=none",
-        ],
-      });
-    }
+    browser = await launchPdfBrowser();
 
     if (!browser) {
       throw new Error("Could not start PDF browser");

@@ -260,6 +260,7 @@ model InterviewSession {
   creditUsed     Boolean              @default(false)
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
+  completedAt    DateTime?            // Set when status transitions to "completed" or "abandoned"
   questions      InterviewQuestion[]
   report         InterviewReport?
   analytics      AnalyticsEvent[]

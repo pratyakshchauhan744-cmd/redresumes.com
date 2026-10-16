@@ -50,7 +50,8 @@
     "test:e2e": "tsx src/tests/test-enterprise-e2e.ts",
     "test:scores": "tsx src/tests/test-score-normalization.ts",
     "test:score-consistency": "tsx src/tests/test-score-calculation-consistency.ts",
-    "test:tenant-database-failure": "node --import tsx src/tests/test-tenant-database-failure.ts"
+    "test:tenant-database-failure": "node --import tsx src/tests/test-tenant-database-failure.ts",
+    "test:student-interview-reports": "node --import tsx src/tests/test-student-interview-reports.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -71,6 +72,7 @@
     "inngest": "^4.13.0",
     "ioredis": "^5.6.1",
     "jsonwebtoken": "^9.0.2",
+    "jszip": "^3.10.1",
     "meilisearch": "^0.50.0",
     "morgan": "^1.10.0",
     "multer": "^2.1.1",

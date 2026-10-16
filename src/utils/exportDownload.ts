@@ -18,18 +18,22 @@ export function exportFilename(disposition: string | null, fallback: string): st
 }
 
 /** Auth/error handling happens before this function. Never parse a file as JSON. */
-export async function downloadExportResponse(response: Response, format: "csv" | "xlsx"): Promise<void> {
+export async function downloadExportResponse(response: Response, format: "csv" | "xlsx" | "pdf" | "zip"): Promise<void> {
   const mime = response.headers.get("Content-Type")?.split(";")[0].trim().toLowerCase();
-  const allowed = format === "xlsx"
+  const allowed = format === "pdf" ? ["application/pdf"]
+    : format === "zip" ? ["application/zip", "application/x-zip-compressed"]
+    : format === "xlsx"
     ? ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/octet-stream"]
     : ["text/csv", "application/csv", "application/vnd.ms-excel", "text/plain", "application/octet-stream"];
   if (!mime || !allowed.includes(mime)) throw new Error("Invalid export response. No file was downloaded.");
   const blob = await response.blob();
   if (blob.size === 0) throw new Error("The export response was empty. No file was downloaded.");
-  if (format === "xlsx") {
+  if (format === "pdf") {
+    if ((await blob.slice(0, 5).text()) !== "%PDF-") throw new Error("Invalid PDF response. No file was downloaded.");
+  } else if (format === "xlsx" || format === "zip") {
     const prefix = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
     if (prefix[0] !== 0x50 || prefix[1] !== 0x4b || prefix[2] !== 0x03 || prefix[3] !== 0x04) {
-      throw new Error("Invalid Excel export response. No file was downloaded.");
+      throw new Error(`Invalid ${format === "xlsx" ? "Excel" : "ZIP"} export response. No file was downloaded.`);
     }
   } else {
     const prefix = (await blob.slice(0, 512).text()).trimStart();

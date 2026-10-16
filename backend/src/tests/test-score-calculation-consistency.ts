@@ -360,7 +360,7 @@ async function runRegressionSuite() {
     const summaryResponse = await invokeRoute("/reports/summary");
     testAssert(summaryResponse.success === true, "10.13 /reports/summary returned success");
     testAssert(summaryResponse.averageOverallScore === 58, `10.14 /reports/summary averageOverallScore is 58% (got ${summaryResponse.averageOverallScore}%)`);
-    testAssert(summaryResponse.totalReports === 6, `10.15 /reports/summary totalReports excludes nulls (expected 6, got ${summaryResponse.totalReports})`);
+    testAssert(summaryResponse.totalReports === 8, `10.15 /reports/summary counts all evaluation sessions while excluding invalid scores from averages (expected 8, got ${summaryResponse.totalReports})`);
 
     const highBucket = summaryResponse.scoreDistribution.find((b: any) => b.label.startsWith("High"));
     const moderateBucket = summaryResponse.scoreDistribution.find((b: any) => b.label.startsWith("Moderate"));

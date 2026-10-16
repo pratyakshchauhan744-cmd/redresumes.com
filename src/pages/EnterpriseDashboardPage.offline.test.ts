@@ -1,5 +1,7 @@
 import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router-dom";
+const renderToStaticMarkup = (element: Parameters<typeof renderMarkup>[0]) => renderMarkup(createElement(MemoryRouter, null, element));
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import EnterpriseDashboardPage from "./EnterpriseDashboardPage";
 import {

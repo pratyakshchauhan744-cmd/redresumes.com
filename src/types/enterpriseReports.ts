@@ -75,3 +75,40 @@ export interface EnterpriseReportsResponse {
     needsPracticeCount: number;
   };
 }
+
+export interface EnterpriseStudentReportSummary {
+  id: string;
+  userId: string;
+  name: string;
+  email: string;
+  enrollmentNumber: string;
+  program: string;
+  course: string;
+  section: string;
+  batch: string;
+  completedInterviewsCount: number;
+  latestScore: number | null;
+  latestInterviewDate: string | null;
+}
+
+export interface StudentInterviewHistory {
+  student: Omit<EnterpriseStudentReportSummary, "completedInterviewsCount" | "latestScore" | "latestInterviewDate">;
+  total: number;
+  maxReportsPerZip: number;
+  pagination: { page: number; limit: number; total: number; totalPages: number };
+  interviews: Array<{
+    reportId: string;
+    sessionId: string;
+    interviewNumber: number;
+    targetRole: string;
+    difficulty: string;
+    durationMins: number;
+    overallScore: number | null;
+    /** When the student entered the interview room */
+    startedAt: string;
+    /** When the session was marked completed (falls back to evaluatedAt for legacy records) */
+    completedAt: string;
+    /** When the AI evaluation report was generated */
+    evaluatedAt: string;
+  }>;
+}

@@ -108,3 +108,32 @@ describe("binary and browser download compatibility", () => {
     await expect(api.enterprise.downloadReports()).rejects.toThrow("browser download failed"); expect(remove).toHaveBeenCalledOnce(); expect(revoke).toHaveBeenCalledWith("blob:download");
   });
 });
+
+describe("individual and bulk interview report downloads", () => {
+  it("retrieves a selected report without creating a file", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(json(200, { sessionId: "session-8", student: { id: "student-5" } }));
+    const report = await api.enterprise.getStudentInterviewReport("student-5", "session-8", "old-token");
+    expect(report.sessionId).toBe("session-8");
+    expect(String(fetch.mock.calls[0][0])).toContain("/students/student-5/interviews/session-8/report");
+    expect(clicks).not.toHaveBeenCalled();
+  });
+  it("preserves individual PDF bytes and filename", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("%PDF-1.4\nreport-8", { headers: { "Content-Type": "application/pdf", "Content-Disposition": 'attachment; filename="Aditya_Interview_8.pdf"' } }));
+    await api.enterprise.downloadInterviewPdf("student-5", "session-8", "old-token");
+    expect(String(fetch.mock.calls[0][0])).toContain("/students/student-5/interviews/session-8/report/pdf");
+    expect(anchors[0].download).toBe("Aditya_Interview_8.pdf");
+    expect(await (createUrl.mock.calls[0][0] as Blob).text()).toBe("%PDF-1.4\nreport-8");
+  });
+  it.each([{ mode: "all" as const }, { mode: "selected" as const, sessionIds: ["session-1", "session-8"] }])("posts an explicit ZIP selection %j", async selection => {
+    const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x00, 0xff]);
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(bytes, { headers: { "Content-Type": "application/zip", "Content-Disposition": 'attachment; filename="Aditya_Reports.zip"' } }));
+    await api.enterprise.downloadInterviewZip("student-5", selection, "old-token");
+    expect(fetch.mock.calls[0][1]?.method).toBe("POST"); expect(JSON.parse(fetch.mock.calls[0][1]?.body as string)).toEqual(selection);
+    expect(anchors[0].download).toBe("Aditya_Reports.zip"); expect(clicks).toHaveBeenCalledTimes(1);
+  });
+  it.each(["application/pdf", "application/zip"])("rejects a corrupt %s without a success download", async contentType => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("not a report", { headers: { "Content-Type": contentType } }));
+    await expect(contentType === "application/pdf" ? api.enterprise.downloadInterviewPdf("s", "i", "old-token") : api.enterprise.downloadInterviewZip("s", { mode: "all" }, "old-token")).rejects.toThrow(/Invalid/);
+    expect(clicks).not.toHaveBeenCalled();
+  });
+});

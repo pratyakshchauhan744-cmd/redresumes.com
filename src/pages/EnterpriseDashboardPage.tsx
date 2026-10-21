@@ -1,3 +1,5 @@
+import { useSearchParams } from "react-router-dom";
+import { StudentInterviewHistoryView } from "../components/StudentInterviewHistory";
 import { invitationFeedback, invitationRetryFailure, safeInvitationError, completeStudentOnboarding, studentCreationFailure } from "../utils/studentOnboarding";
 import { authorizedInitialCredits } from "../utils/enterprisePermissions";
 import { beginCreditSubmission } from "../utils/creditIdempotency";
@@ -37,7 +39,7 @@ import { backendApi, AuthUser, isAbortError } from "../lib/backendApi";
 import { isLocalAccessToken, setStoredAuthTokens } from "../lib/auth";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { AccessibleDialog } from "../components/AccessibleDialog";
-import { EnterpriseReportRow } from "../types/enterpriseReports";
+import { EnterpriseStudentReportSummary } from "../types/enterpriseReports";
 import { EnterpriseAuditLog, AUDIT_ACTION_FILTER_OPTIONS } from "../types/enterpriseAudit";
 import {
   formatEntityName,
@@ -371,7 +373,22 @@ interface EnterpriseDashboardPageProps {
 type TabType = "overview" | "students" | "faculty" | "credits" | "reports" | "audit";
 
 export default function EnterpriseDashboardPage({ user, token, initialTab = "overview", onLogout }: EnterpriseDashboardPageProps) {
-  const [activeTab, setActiveTab] = useState<TabType>(initialTab);
+  const [reportParams, setReportParams] = useSearchParams();
+  const activeTab = (["overview", "students", "faculty", "credits", "reports", "audit"].includes(reportParams.get("tab") || "")
+    ? reportParams.get("tab") : initialTab) as TabType;
+  const setActiveTab = (tab: TabType) => setReportParams(previous => {
+    const next = new URLSearchParams(previous); next.set("tab", tab); return next;
+  });
+  const setReportFilter = (key: string, value: string) => setReportParams(previous => {
+    const next = new URLSearchParams(previous);
+    if (value) next.set(key, value); else next.delete(key);
+    next.delete("reportPage"); return next;
+  }, { replace: true });
+  const reportStudentId = reportParams.get("reportStudent");
+  const openInterviewHistory = (studentId: string) => setReportParams(previous => {
+    const next = new URLSearchParams(previous); next.set("reportStudent", studentId);
+    next.delete("reportSession"); next.delete("historyPage"); return next;
+  });
   const [effectiveToken, setEffectiveToken] = useState<string>(token);
 
   const hasPermission = useCallback((permission: string) => hasEnterprisePermission(user, permission), [user]);
@@ -492,15 +509,23 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
   const previewRequestIdRef = useRef(0);
   const distributionRequestInFlightRef = useRef(false);
 
-  const [reports, setReports] = useState<EnterpriseReportRow[]>([]);
+  const [reports, setReports] = useState<EnterpriseStudentReportSummary[]>([]);
   const [reportTotal, setReportTotal] = useState(0);
-  const [reportPage, setReportPage] = useState(1);
+  const reportPage = Math.max(1, Number(reportParams.get("reportPage")) || 1);
+  const setReportPage = (page: number) => setReportParams(previous => {
+    const next = new URLSearchParams(previous); next.set("reportPage", String(page)); return next;
+  }, { replace: true });
   const [reportSummary, setReportSummary] = useState<any | null>(null);
-  const [reportProgram, setReportProgram] = useState("");
-  const [reportCourse, setReportCourse] = useState("");
-  const [reportSection, setReportSection] = useState("");
-  const [reportBatch, setReportBatch] = useState("");
-  const [reportSearch, setReportSearch] = useState("");
+  const reportProgram = reportParams.get("reportProgram") || "";
+  const setReportProgram = (value: string) => setReportFilter("reportProgram", value);
+  const reportCourse = reportParams.get("reportCourse") || "";
+  const setReportCourse = (value: string) => setReportFilter("reportCourse", value);
+  const reportSection = reportParams.get("reportSection") || "";
+  const setReportSection = (value: string) => setReportFilter("reportSection", value);
+  const reportBatch = reportParams.get("reportBatch") || "";
+  const setReportBatch = (value: string) => setReportFilter("reportBatch", value);
+  const reportSearch = reportParams.get("reportSearch") || "";
+  const setReportSearch = (value: string) => setReportFilter("reportSearch", value);
   const exportRequestInFlightRef = useRef(false);
   const [exportingCsv, setExportingCsv] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
@@ -861,7 +886,7 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
     setReportsLoading(true);
     setReportsError(null);
     try {
-      const reportsRes = await backendApi.enterprise.getReports(
+      const reportsRes = await backendApi.enterprise.getStudentReportSummaries(
         {
           page: reportPage,
           limit: REPORT_PAGE_SIZE,
@@ -910,6 +935,8 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
     try {
       const summaryRes = await backendApi.enterprise.getReportSummary(
         {
+          view: "students",
+          search: debouncedReportSearch,
           program: reportProgram,
           course: reportCourse,
           section: reportSection,
@@ -964,11 +991,11 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
       reportSummaryAbortControllerRef.current?.abort();
       reportSummaryRequestIdRef.current += 1;
     };
-  }, [activeTab, effectiveToken, reportProgram, reportCourse, reportSection, reportBatch, canViewReports]);
+  }, [activeTab, effectiveToken, reportProgram, reportCourse, reportSection, reportBatch, debouncedReportSearch, canViewReports]);
 
   useEffect(() => {
     const lastPage = getPaginationMeta(reportPage, reportTotal, REPORT_PAGE_SIZE).page;
-    if (lastPage !== reportPage) setReportPage(lastPage);
+    if (!reportsLoading && !reportsError && reportTotal > 0 && lastPage !== reportPage) setReportPage(lastPage);
   }, [reportPage, reportTotal]);
 
   // Load Audit Logs
@@ -1434,6 +1461,7 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
       setFeedback(null);
       await backendApi.enterprise.downloadReports({
         format: 'csv',
+        view: 'students',
         program: reportProgram,
         course: reportCourse,
         section: reportSection,
@@ -1456,6 +1484,7 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
       setFeedback(null);
       await backendApi.enterprise.downloadReports({
         format: 'xlsx',
+        view: 'students',
         program: reportProgram,
         course: reportCourse,
         section: reportSection,
@@ -2558,7 +2587,10 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
         {/* ========================================================================= */}
         {/* 5. REPORTS TAB */}
         {/* ========================================================================= */}
-        {activeTab === "reports" && canViewReports && (
+        {activeTab === "reports" && canViewReports && reportStudentId && (
+          <StudentInterviewHistoryView key={`${user.id}:${reportStudentId}`} studentId={reportStudentId} token={effectiveToken} canExport={canExportReports} />
+        )}
+        {activeTab === "reports" && canViewReports && !reportStudentId && (
           <div className="enterprise-tab-content space-y-6">
             {/* Summary Insights */}
             {reportSummaryLoading || reportSummaryError ? (
@@ -2623,7 +2655,6 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
                     value={reportSearch}
                     onChange={(e) => {
                       setReportSearch(e.target.value);
-                      setReportPage(1);
                     }}
                     className="w-full pl-9 pr-8 py-2 bg-zinc-950/70 border border-zinc-800 rounded-lg text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-rose-500"
                   />
@@ -2632,7 +2663,6 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
                       type="button"
                       onClick={() => {
                         setReportSearch("");
-                        setReportPage(1);
                       }}
                       className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200 transition-colors"
                       title="Clear search"
@@ -2677,7 +2707,6 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
                     value={reportProgram}
                     onChange={(e) => {
                       setReportProgram(e.target.value);
-                      setReportPage(1);
                     }}
                     className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-md text-xs text-zinc-300 focus:outline-none focus:border-rose-500"
                   >
@@ -2694,7 +2723,6 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
                     value={reportCourse}
                     onChange={(e) => {
                       setReportCourse(e.target.value);
-                      setReportPage(1);
                     }}
                     className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-md text-xs text-zinc-300 focus:outline-none focus:border-rose-500"
                   >
@@ -2711,7 +2739,6 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
                     value={reportSection}
                     onChange={(e) => {
                       setReportSection(e.target.value);
-                      setReportPage(1);
                     }}
                     className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-md text-xs text-zinc-300 focus:outline-none focus:border-rose-500"
                   >
@@ -2728,7 +2755,6 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
                     value={reportBatch}
                     onChange={(e) => {
                       setReportBatch(e.target.value);
-                      setReportPage(1);
                     }}
                     className="w-full px-2.5 py-1.5 bg-zinc-950 border border-zinc-800 rounded-md text-xs text-zinc-300 focus:outline-none focus:border-rose-500"
                   >
@@ -2750,12 +2776,12 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
                   <thead className="bg-zinc-950/80 text-[10px] font-mono text-zinc-400 uppercase tracking-wider border-b border-zinc-800/80">
                     <tr>
                       <th className="px-6 py-4">Student</th>
-                      <th className="px-6 py-4">Roll Number & Cohort</th>
-                      <th className="px-6 py-4">Target Role & Difficulty</th>
-                      <th className="px-6 py-4">Overall Score</th>
-                      <th className="px-6 py-4">Pace & Filler</th>
-                      <th className="px-6 py-4">Date</th>
-                      <th className="px-6 py-4 text-right">Inspect</th>
+                      <th className="px-6 py-4">Roll Number</th>
+                      <th className="px-6 py-4">Program / Cohort</th>
+                      <th className="px-6 py-4">Total Interviews</th>
+                      <th className="px-6 py-4">Latest Score</th>
+                      <th className="px-6 py-4">Last Interview</th>
+                      <th className="px-6 py-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/40 text-zinc-300">
@@ -2768,68 +2794,21 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
                         onRetry={loadReports}
                       />
                     ) : reports.length > 0 ? (
-                      reports.map((report) => {
-                        const scoreVal = Math.round(Number(report.overallScore));
-
-                        return (
-                          <tr key={report.reportId || report.id} className="hover:bg-zinc-900/20">
-                            <td className="px-6 py-4 font-semibold text-white">
-                              {report.student?.name || report.name || "Student"}
-                            </td>
-                            <td className="px-6 py-4 font-mono text-zinc-400">
-                              {report.student?.enrollmentNumber || report.enrollmentNumber || "—"} &bull;{" "}
-                              {report.student?.program || report.program || report.student?.course || "—"}
-                            </td>
-                            <td className="px-6 py-4">
-                              <span className="font-medium text-zinc-200 block">
-                                {report.targetRole}
-                              </span>
-                              <span className="text-[10px] font-mono text-zinc-500 capitalize">
-                                {report.difficulty || "Standard"} level
-                              </span>
-                            </td>
-                            <td className="px-6 py-4">
-                              <span
-                                className={`text-sm font-bold font-mono px-2 py-0.5 rounded ${
-                                  scoreVal >= 80
-                                    ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/25"
-                                    : scoreVal >= 60
-                                    ? "bg-amber-500/10 text-amber-400 border border-amber-500/25"
-                                    : "bg-rose-500/10 text-rose-400 border border-rose-500/25"
-                                }`}
-                              >
-                                {scoreVal}%
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 font-mono text-[11px] text-zinc-400">
-                              {report.speakingPace !== null && report.speakingPace !== undefined
-                                ? `${report.speakingPace} WPM`
-                                : "—"}{" "}
-                              &bull;{" "}
-                              {report.fillerWords !== null && report.fillerWords !== undefined
-                                ? `${report.fillerWords} Fillers`
-                                : "—"}
-                            </td>
-                            <td className="px-6 py-4 font-mono text-zinc-500">
-                              {new Date(report.createdAt).toLocaleDateString()}
-                            </td>
-                            <td className="px-6 py-4 text-right">
-                              <a
-                                href={interviewReportPath(report.sessionId)}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-[11px] inline-flex items-center gap-1 cursor-pointer"
-                              >
-                                <Eye className="w-3.5 h-3.5" /> Full Report
-                              </a>
-                            </td>
-                          </tr>
-                        );
-                      })
+                      reports.map((report) => (
+                        <tr key={report.id} className="hover:bg-zinc-900/20">
+                          <td className="px-6 py-4 font-semibold text-white">{report.name}</td>
+                          <td className="px-6 py-4 font-mono">{report.enrollmentNumber}</td>
+                          <td className="px-6 py-4">{report.program}<span className="block text-xs text-zinc-500">{[report.course, report.section, report.batch].filter(Boolean).join(" · ")}</span></td>
+                          <td className="px-6 py-4">{report.completedInterviewsCount} Interviews</td>
+                          <td className="px-6 py-4"><span className={`font-bold px-2 py-1 rounded ${report.latestScore === null ? "text-zinc-500" : report.latestScore >= 80 ? "bg-emerald-50 text-emerald-700" : report.latestScore >= 60 ? "bg-amber-50 text-amber-700" : "bg-red-50 text-red-700"}`}>{report.latestScore === null ? "—" : `${Math.round(report.latestScore)}%`}</span></td>
+                          <td className="px-6 py-4">{report.latestInterviewDate ? new Date(report.latestInterviewDate).toLocaleDateString() : "No completed reports"}</td>
+                          <td className="px-6 py-4 text-right"><button type="button" onClick={() => openInterviewHistory(report.id)} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-primary !text-white font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"><Eye className="w-4 h-4" /> View Interviews</button></td>
+                        </tr>
+                      ))
                     ) : (
                       <tr>
                         <td colSpan={7} className="px-6 py-12 text-center text-zinc-500 text-sm">
-                          {getTableEmptyMessage(isOfflineOrDemoToken(effectiveToken), "No interview evaluation records found.")}
+                          {getTableEmptyMessage(isOfflineOrDemoToken(effectiveToken), "No students match your report filters.")}
                         </td>
                       </tr>
                     )}
@@ -2842,7 +2821,7 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
                   page={reportPage}
                   total={reportTotal}
                   pageSize={REPORT_PAGE_SIZE}
-                  itemLabel="interview evaluations"
+                  itemLabel="students"
                   onPageChange={setReportPage}
                 />
               )}

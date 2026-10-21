@@ -1,3 +1,5 @@
+import studentInterviewRoutes from "./student-interview-routes.js";
+import { studentSummarySelect, serializeStudentSummary, studentScoreAverages, evaluatedSessions } from "./student-reports.js";
 import { studentCreationSchema, studentUpdateSchema, validateReportQuery } from "./input-validation.js";
 import { publicStudentEmailError } from "../../utils/student-email-error.js";
 import { assertStudentCreditAuthorization, assertRequestStudentCreditAuthorization } from "./student-credit-authorization.js";
@@ -111,6 +113,8 @@ router.use((req, res, next) => {
   }
   next();
 });
+
+router.use(studentInterviewRoutes);
 
 const facultyProfileUpdateSchema = z.object({
   name: z.string().min(2).optional(),
@@ -3376,94 +3380,19 @@ router.get("/reports", requirePermission("REPORT_VIEW"), validateReportQuery, as
         status,
       });
 
-      const total = await prisma.collegeStudent.count({ where: studentWhereWithSearch });
-      const students = await prisma.collegeStudent.findMany({
-        skip: (page - 1) * limit,
-        take: limit,
-        where: studentWhereWithSearch,
-        orderBy: [{ batch: "desc" }, { enrollmentNumber: "asc" }],
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true,
-              credits: true,
-              interviewSessions: {
-                where: { status: "completed" },
-                orderBy: { createdAt: "desc" },
-                include: { report: true },
-              },
-              resumes: {
-                take: 1,
-                orderBy: { updatedAt: "desc" },
-                select: { id: true, fileName: true, fileUrl: true, updatedAt: true },
-              },
-            },
-          },
-        },
-      });
-
-      let aggregateData = students.map((s) => {
-        const sessions = s.user.interviewSessions;
-        const completedSessions = sessions.filter((sess) => sess.report !== null);
-        const validScores = completedSessions
-          .map((sess) => sess.report ? normalizeReportScore(sess.report as any) : null)
-          .filter((score): score is number => score !== null);
-        const averageScore =
-          validScores.length > 0
-            ? Math.round(validScores.reduce((acc, score) => acc + score, 0) / validScores.length)
-            : null;
-
-        const latestSession = completedSessions[0];
-        const latestOverallScore = latestSession?.report
-          ? normalizeReportScore(latestSession.report as any)
-          : null;
-
-        const readinessRating = getReadinessCategory(averageScore);
-
-        return {
-          id: s.id,
-          userId: s.userId,
-          enrollmentNumber: s.enrollmentNumber,
-          name: s.user.name,
-          email: s.user.email,
-          phone: s.user.phone,
-          program: s.program,
-          course: s.course,
-          section: s.section,
-          batch: s.batch,
-          status: s.status,
-          availableCredits: s.user.credits?.balance ?? 0,
-          completedInterviewsCount: completedSessions.length,
-          averageScore,
-          readinessRating,
-          latestScore: latestOverallScore,
-          overallScore: latestOverallScore ?? averageScore,
-          latestTargetRole: latestSession?.targetRole ?? null,
-          latestInterviewDate: latestSession?.createdAt ?? null,
-          createdAt: latestSession?.createdAt ?? s.createdAt,
-          speakingPace: latestSession?.report?.speakingPace ?? null,
-          fillerWords: latestSession?.report?.fillerWords ?? null,
-          reportId: latestSession?.report?.id ?? null,
-        };
-      });
-
-      const paginatedData = aggregateData;
-
-      return res.json({
-        success: true,
-        reports: paginatedData,
-        data: paginatedData,
-        total,
-        pagination: {
-          page,
-          limit,
-          total,
-          totalPages: Math.ceil(total / limit),
-        },
-      });
+      const [total, students] = await prisma.$transaction([
+        prisma.collegeStudent.count({ where: studentWhereWithSearch }),
+        prisma.collegeStudent.findMany({
+          relationLoadStrategy: "join",
+          skip: (page - 1) * limit, take: limit, where: studentWhereWithSearch,
+          orderBy: [{ batch: "desc" }, { enrollmentNumber: "asc" }, { id: "asc" }],
+          select: studentSummarySelect(collegeId),
+        }),
+      ], { isolationLevel: "RepeatableRead" });
+      const averages = await studentScoreAverages(collegeId, students.map(student => student.userId));
+      const data = students.map(student => serializeStudentSummary(student, averages.get(student.userId) ?? null));
+      return res.json({ success: true, reports: data, data, total,
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } });
     }
 
     // Default & Canonical: Return individual interview evaluation reports
@@ -3667,37 +3596,35 @@ router.get("/reports/summary", requirePermission("REPORT_VIEW"), validateReportQ
     const section = req.query.section as string;
     const batch = req.query.batch as string;
 
-    const filters: any = {};
-    if (program) filters.program = program;
-    if (course) filters.course = course;
-    if (section) filters.section = section;
-    if (batch) filters.batch = batch;
-    const where = buildScopedStudentWhere(collegeId, scopeConditions, filters);
+    const where = req.query.view === "students"
+      ? { session: { collegeId, status: "completed", user: { studentProfile: buildStudentFilters({
+          collegeId, scopeConditions, program, course, section, batch,
+          search: req.query.search as string, status: req.query.status as string,
+        }) } } }
+      : buildReportFilters({ ...req.query, collegeId, scopeConditions } as any);
 
     const scoreGroups = await prisma.interviewReport.groupBy({
-      by: ["overallScore", "scoreScale"],
-      where: { session: {
-        status: "completed", user: { studentProfile: { is: where } },
-      } },
-      _count: { _all: true },
+      by: ["overallScore", "scoreScale"], where, _count: { _all: true },
     });
     let totalReports = 0;
     let scoreSum = 0;
+    let validReports = 0;
     let high = 0;
     let moderate = 0;
     let needsPractice = 0;
     for (const group of scoreGroups) {
       const count = group._count._all;
       const score = normalizeReportScore(group);
-      if (score === null) continue;
       totalReports += count;
+      if (score === null) continue;
+      validReports += count;
       scoreSum += score * count;
       if (score >= 80) high += count;
       else if (score >= 60) moderate += count;
       else needsPractice += count;
     }
 
-    const averageOverallScore = totalReports > 0 ? Math.round(scoreSum / totalReports) : 0;
+    const averageOverallScore = validReports > 0 ? Math.round(scoreSum / validReports) : 0;
 
     res.json({
       success: true,
@@ -3781,6 +3708,7 @@ router.get(
       "Readiness Rating",
       "Latest Score",
       "Latest Target Role",
+      "Last Interview",
       "Has Resume",
     ];
 
@@ -3844,6 +3772,7 @@ router.get(
         "Readiness Rating": sanitizeSpreadsheetCell(readiness),
         "Latest Score": latestOverallScore !== null ? latestOverallScore : "N/A",
         "Latest Target Role": sanitizeSpreadsheetCell(latestSession?.targetRole || "N/A"),
+        "Last Interview": latestSession?.report?.createdAt?.toISOString().slice(0, 10) ?? "N/A",
         "Has Resume": (s.user?.resumes?.length ?? 0) > 0 ? "Yes" : "No",
       };
     };
@@ -3863,8 +3792,8 @@ router.get(
           phone: true,
           credits: { select: { balance: true } },
           interviewSessions: {
-            where: { status: "completed" },
-            orderBy: { createdAt: "desc" as const },
+            where: evaluatedSessions(collegeId),
+            orderBy: [{ report: { createdAt: "desc" as const } }, { report: { id: "desc" as const } }],
             select: {
               id: true,
               targetRole: true,
@@ -3872,6 +3801,7 @@ router.get(
                 select: {
                   overallScore: true,
                   scoreScale: true,
+                  createdAt: true,
                 },
               },
             },

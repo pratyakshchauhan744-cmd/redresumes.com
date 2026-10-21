@@ -2,7 +2,7 @@ import { downloadExportResponse } from "../utils/exportDownload";
 import type { StudentCreationResponse, StudentInvitationResponse } from "../types/studentOnboarding";
 import { setStoredAuthTokens, clearStoredAuthTokens, getStoredAccessToken, isLocalAccessToken, sanitizeRedirectUrl } from "./auth";
 export { sanitizeRedirectUrl } from "./auth";
-import type { EnterpriseReportRow, EnterpriseReportsResponse } from "../types/enterpriseReports";
+import type { EnterpriseReportRow, EnterpriseReportsResponse, EnterpriseStudentReportSummary, StudentInterviewHistory } from "../types/enterpriseReports";
 import type { EnterpriseAuditLog, EnterpriseAuditLogsResponse } from "../types/enterpriseAudit";
 import type { CreditLedgerResponse } from "../types/creditLedger";
 export type { EnterpriseAuditLog, EnterpriseAuditLogsResponse };
@@ -1033,7 +1033,33 @@ export const backendApi = {
       return request<EnterpriseReportsResponse>(`/api/enterprise/reports?${q.toString()}`, { token, signal });
     },
 
+    getStudentReportSummaries: (params: { page?: number; limit?: number; search?: string; program?: string; course?: string; section?: string; batch?: string } = {}, token?: string, signal?: AbortSignal) => {
+      const query = new URLSearchParams({ view: "students" });
+      Object.entries(params).forEach(([key, value]) => { if (value !== undefined && value !== "") query.set(key, String(value)); });
+      return request<{ reports: EnterpriseStudentReportSummary[]; total: number }>(`/api/enterprise/reports?${query}`, { token, signal });
+    },
+
+    getStudentInterviews: (studentId: string, page: number, token: string, signal?: AbortSignal) =>
+      request<StudentInterviewHistory>(`/api/enterprise/students/${encodeURIComponent(studentId)}/interviews?page=${page}&limit=10`, { token, signal }),
+
+    getStudentInterviewReport: (studentId: string, sessionId: string, token: string, signal?: AbortSignal) =>
+      request<any>(`/api/enterprise/students/${encodeURIComponent(studentId)}/interviews/${encodeURIComponent(sessionId)}/report`, { token, signal }),
+
+    downloadInterviewPdf: async (studentId: string, sessionId: string, token: string) => {
+      const response = await authenticatedResponse(`/api/enterprise/students/${encodeURIComponent(studentId)}/interviews/${encodeURIComponent(sessionId)}/report/pdf`, { token });
+      await downloadExportResponse(response, "pdf");
+    },
+
+    downloadInterviewZip: async (studentId: string, selection: { mode: "all" } | { mode: "selected"; sessionIds: string[] }, token: string) => {
+      const response = await authenticatedResponse(`/api/enterprise/students/${encodeURIComponent(studentId)}/reports/export`, {
+        token, method: "POST", body: selection,
+      });
+      await downloadExportResponse(response, "zip");
+    },
+
     getReportSummary: (params: {
+      search?: string;
+      view?: "students" | "reports";
       program?: string;
       course?: string;
       section?: string;

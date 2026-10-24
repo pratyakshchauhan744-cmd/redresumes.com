@@ -50,6 +50,30 @@ try {
   assert.equal(failure.simulated, undefined);
   console.log("PASS explicit HTTPS rejection can fall back; failed providers never report simulated success");
 
+  // Resend rejection is logged (status + sanitized message) and survives an SMTP failure.
+  const logged: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+  try {
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      message: "The recipient@example.test domain is not verified. Bearer re_abcdef123456",
+    }), { status: 403 });
+    for (const smtpFailure of [new Error("SMTP unavailable"), Object.assign(new Error("connect ETIMEDOUT"), { code: "ETIMEDOUT" })]) {
+      smtpError = smtpFailure;
+      logged.length = 0;
+      const rejected = await send();
+      assert.equal(rejected.success, false);
+      assert.match(rejected.error!, /Resend rejected request \(HTTP 403\): The \[redacted-email\] domain is not verified/);
+      const output = logged.join("\n");
+      assert.match(output, /HTTP 403/);
+      assert.match(output, /SMTP fallback failed/);
+      for (const secret of ["recipient@example.test", "re_abcdef123456", "test-only"]) {
+        assert(!output.includes(secret) && !rejected.error!.includes(secret), `must not expose ${secret}`);
+      }
+    }
+  } finally { console.error = originalError; smtpError = undefined; }
+  console.log("PASS Resend rejection is logged sanitized and preserved when SMTP fallback fails");
+
   const callsBeforeTimeout = smtpCalls;
   let aborted = false;
   globalThis.fetch = ((_url, options) => new Promise((_resolve, reject) => {

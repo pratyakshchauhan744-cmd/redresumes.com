@@ -31,12 +31,28 @@ const smtpTransporters = hasSmtp ? [
     })] : []),
 ] : [];
 
+/** Strip emails, API-key/token-like strings and bearer values; bound the length. */
+export function sanitizeProviderMessage(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) return "no message returned";
+  return value
+    .replace(/[^\s@<>"']+@[^\s@<>"']+/g, "[redacted-email]")
+    .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+    .replace(/\b(re_|sk_|key_)[A-Za-z0-9_-]+/gi, "[redacted-key]")
+    .replace(/\b[A-Za-z0-9_-]{32,}\b/g, "[redacted-token]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+}
+
 export class EmailService {
   /** Prefer transactional HTTPS when configured; fall back to bounded SMTP. */
   private static async sendEmail({ to, subject, html }: {
     to: string; subject: string; html: string;
   }): Promise<{ success: boolean; error?: string; simulated?: boolean; messageId?: string }> {
     let lastError = "The email service is temporarily unavailable.";
+    // The HTTPS provider's rejection is the most actionable error. Keep it so a
+    // later SMTP fallback failure cannot overwrite it with a generic message.
+    let resendError: string | undefined;
     if (env.RESEND_API_KEY) {
       try {
         // Native fetch supports cancellation, unlike an uncancelled Promise.race
@@ -47,9 +63,13 @@ export class EmailService {
           body: JSON.stringify({ from: resendFrom, to, subject, html }),
           signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
         });
-        const result = await response.json() as { id?: string; message?: string };
+        const result = await response.json().catch(() => ({})) as { id?: string; message?: string };
         if (response.ok && result.id) return { success: true, messageId: result.id };
-        lastError = result.message || lastError;
+        const detail = sanitizeProviderMessage(result.message);
+        // Log status and sanitized message only: no key, recipient or payload.
+        console.error(`[EMAIL] Resend rejected request: HTTP ${response.status} - ${detail}`);
+        resendError = `Resend rejected request (HTTP ${response.status}): ${detail}`;
+        lastError = resendError;
       } catch (error) {
         // A timeout has an ambiguous delivery outcome. Do not submit the same
         // email to another provider while the first may already have accepted it.
@@ -66,9 +86,16 @@ export class EmailService {
         return { success: true, messageId: info.messageId };
       } catch (error) {
         lastError = error instanceof Error ? error.message : "SMTP delivery failed";
-        if ((error as { code?: string })?.code === "ETIMEDOUT") {
-          return { success: false, error: "Email delivery timed out. Check invitation status before resending." };
+        const code = (error as { code?: string })?.code;
+        console.error(`[EMAIL] SMTP fallback failed${code ? ` (${code})` : ""}${resendError ? "; Resend had already rejected the request" : ""}`);
+        if (code === "ETIMEDOUT") {
+          return {
+            success: false,
+            error: resendError ?? "Email delivery timed out. Check invitation status before resending.",
+          };
         }
+        // Keep the original Resend rejection rather than the SMTP error.
+        if (resendError) lastError = resendError;
       }
     }
     // Never report a configured provider's failure as successful simulation.

@@ -1,0 +1,7 @@
+# Railway must ship a browser and its shared libraries, not just the npm client.
+[phases.setup]
+nixPkgs = ["...", "chromium"]
+
+[variables]
+# Use the system Chromium supplied by Nix instead of a build-user Chrome cache.
+PUPPETEER_SKIP_DOWNLOAD = "true"

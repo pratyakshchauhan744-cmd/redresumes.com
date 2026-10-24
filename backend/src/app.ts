@@ -91,7 +91,11 @@ app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok", service: "redresumes-backend" });
+  res.json({
+    status: "ok",
+    service: "redresumes-backend",
+    revision: process.env.RAILWAY_GIT_COMMIT_SHA || null,
+  });
 });
 
 if (env.NODE_ENV !== "production") {

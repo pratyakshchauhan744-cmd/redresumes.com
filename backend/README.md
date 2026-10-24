@@ -160,6 +160,31 @@ npm run worker
 
 ## Notes
 
+### Production student interview history returns "Route not found"
+
+The frontend calls `GET /api/enterprise/students/:studentId/interviews`.
+This endpoint and the individual report/PDF/ZIP endpoints are implemented in
+`src/modules/enterprise/student-interview-routes.ts` and mounted by the enterprise
+router. A response containing `"Route not found"` is the API's unmatched-route
+handler; it is different from a student having no interviews or being outside
+the faculty's reporting scope.
+
+Deploy the backend from the same commit as the frontend. Deploying only the
+frontend does not update the Railway API. For the backend service, use `backend`
+as the project directory and the build/start commands in `railway.toml`.
+`npm run build` now clears old compiled output and verifies that the compiled
+enterprise router includes all four interview reporting endpoints before the
+build can succeed. The production entry point is `dist/src/main.js`.
+
+After deploying, check `/health`: its `revision` should match the deployed commit
+when Railway supplies `RAILWAY_GIT_COMMIT_SHA`. A response without the `revision`
+field is from an older backend. Then sign in as faculty and open a student's
+interview history. An unauthenticated request returning 401 alone does not prove
+the route exists, because authentication runs for every enterprise URL.
+
+No database reseed is needed for a missing route. The browser's `[WebVitals]`
+messages are performance measurements and are unrelated to this 404.
+
 - Dedupe hash strategy: `sha256(title + company + city + description)`
 - Ingestion adapters included for Adzuna + Jooble (keys required in `.env`)
 - Resume upload is represented by `resumeUrl` in apply API; S3 integration hooks are prepared via env vars.

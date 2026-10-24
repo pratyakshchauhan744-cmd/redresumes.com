@@ -1,8 +1,9 @@
 [build]
-builder = "NIXPACKS"
-buildCommand = "npm install && npm run build && PUPPETEER_EXECUTABLE_PATH=\"$(command -v chromium)\" npm run test:pdf-runtime && npx prisma migrate deploy"
+builder = "DOCKERFILE"
+dockerfilePath = "/backend/Dockerfile"
 
 [deploy]
-startCommand = "PUPPETEER_EXECUTABLE_PATH=\"$(command -v chromium)\" npm run start"
+preDeployCommand = ["npx prisma migrate deploy"]
+startCommand = "npm run start"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10

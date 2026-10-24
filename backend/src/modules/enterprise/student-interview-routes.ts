@@ -77,21 +77,25 @@ async function withExport(req: Request, res: Response, work: (renderer: Awaited<
   activeExports.add(key);
   const started = Date.now();
   let renderer: Awaited<ReturnType<typeof createInterviewPdfRenderer>> | undefined;
+  let phase = "authorization";
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; void renderer?.close().catch(() => {}); }, MAX_EXPORT_MS);
   const onClose = () => { if (!res.writableEnded) void renderer?.close().catch(() => {}); };
   res.once("close", onClose);
   try {
     const initial = await resolveEnterpriseAuthorization(req);
+    phase = "browser-launch";
     renderer = await interviewPdfService.createRenderer();
     const check = () => {
       if (timedOut || Date.now() - started > MAX_EXPORT_MS) throw new ReportRequestError(413, "Report export exceeded 90 seconds. Select fewer interviews and retry.");
       if (res.destroyed) throw new ReportRequestError(499, "Download cancelled.");
     };
     check();
+    phase = "render-report";
     const result = await work(renderer, check);
     check();
     // POST downloads need the same final live authorization check as GET reads.
+    phase = "final-authorization";
     const current = await resolveEnterpriseAuthorization(req, true);
     if (current.fingerprint !== initial.fingerprint) throw new ReportRequestError(403, "Institutional access changed. Please retry.");
     await authorizedStudent(req);
@@ -102,7 +106,8 @@ async function withExport(req: Request, res: Response, work: (renderer: Awaited<
   } catch (error) {
     if (error instanceof ReportRequestError || error instanceof EnterpriseAuthorizationError) throw error;
     if (timedOut) throw new ReportRequestError(413, "Report export exceeded 90 seconds. Select fewer interviews and retry.");
-    console.error("Interview PDF export failed", error instanceof Error ? error.message : "Unknown error");
+    console.error("Interview PDF export failed", { phase,
+      message: error instanceof Error ? error.message : "Unknown error" });
     throw new ReportRequestError(503, "Unable to prepare the report download. Please retry shortly or select fewer interviews.");
   } finally {
     clearTimeout(timer);

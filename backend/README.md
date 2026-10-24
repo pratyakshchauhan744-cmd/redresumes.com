@@ -185,6 +185,26 @@ the route exists, because authentication runs for every enterprise URL.
 No database reseed is needed for a missing route. The browser's `[WebVitals]`
 messages are performance measurements and are unrelated to this 404.
 
+### Interview PDF downloads return 503
+
+The report export handler returns 503 when browser startup, PDF rendering, or a
+final access check throws an unexpected error. Check Railway logs for
+`Interview PDF export failed`; the `phase` identifies the failing step and
+`message` contains the underlying error. Browser WebVitals logs are unrelated.
+
+Railway uses `backend/nixpacks.toml` to install system Chromium and its Linux
+dependencies. The build and start commands in `railway.toml` select this browser
+with `PUPPETEER_EXECUTABLE_PATH`, avoiding Puppeteer's build-user download cache.
+Keep the Railway service root set to `backend` and deploy these configuration
+files together. Remove dashboard build/start overrides if they bypass these
+commands. Redeploy the backend; a frontend-only deployment cannot fix this.
+
+The build runs `npm run test:pdf-runtime` to launch Chromium and render two real
+interview PDFs without database access. A missing browser or library now fails
+the build. The Docker image installs Chromium separately and runs the same check
+in its runtime stage. Locally, run `npm run build && npm run test:pdf-runtime`;
+Puppeteer's downloaded Chrome remains the default when no executable is set.
+
 - Dedupe hash strategy: `sha256(title + company + city + description)`
 - Ingestion adapters included for Adzuna + Jooble (keys required in `.env`)
 - Resume upload is represented by `resumeUrl` in apply API; S3 integration hooks are prepared via env vars.

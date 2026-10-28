@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Check, Building2, ShieldCheck, ArrowRight } from 'lucide-react';
-import { backendApi, type AuthUser } from '../lib/backendApi';
+import { backendApi, ApiRequestError, type AuthUser } from '../lib/backendApi';
 import { LOCAL_ACCOUNTS_STORAGE_KEY, setStoredAuthTokens, USER_STORAGE_KEY, migrateGuestResumeToUser, parseGoogleJwt, sanitizeRedirectUrl } from '../lib/auth';
 import type { LocalAccount } from '../types';
 import { Seo } from '../components/Seo';
@@ -225,12 +225,8 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       lower.includes('bom1::')
     );
   };
-  const getFriendlyLoginError = (attemptedEmail: string) => {
-    const normalized = attemptedEmail.trim().toLowerCase();
-    if (DEMO_EMAILS.includes(normalized as (typeof DEMO_EMAILS)[number])) {
-      return 'Demo account password is incorrect. Use Password@123.';
-    }
-    return 'Invalid email or password. If this is your first time, create account first.';
+  const getFriendlyLoginError = (_attemptedEmail?: string) => {
+    return 'Invalid username or password';
   };
 
   const getFriendlyRegisterError = (message: string) => {
@@ -553,15 +549,29 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
       completeAuthentication(response.user, response.accessToken);
     } catch (signInError) {
       const message = signInError instanceof Error ? signInError.message : "";
+      const status = signInError instanceof ApiRequestError ? signInError.status : undefined;
       const normalizedEmail = email.trim().toLowerCase();
 
-      // Demo accounts: allow instant login without blocking
-      if (isDemoEmail(normalizedEmail)) {
-        try {
-          const liveDemoResponse = await backendApi.login({ email: normalizedEmail, password: 'Password@123' });
-          completeAuthentication(liveDemoResponse.user, liveDemoResponse.accessToken);
+      // If backend responded with an error, the backend IS online and checked the request.
+      // Under NO circumstances should we bypass password verification when backend responds.
+      if (!isBackendUnavailableError(message)) {
+        if (status === 403 || message.toLowerCase().includes("deactivated")) {
+          setError("Account has been deactivated. Please contact support.");
           return;
-        } catch {}
+        }
+
+        // Credential failure (401 Unauthorized, 400 validation error on password, etc.)
+        setError("Invalid username or password");
+        return;
+      }
+
+      // Backend is truly unreachable / offline:
+      // For demo accounts, only permit offline fallback if the user entered the correct demo password (Password@123)
+      if (isDemoEmail(normalizedEmail)) {
+        if (password !== 'Password@123') {
+          setError('Invalid username or password');
+          return;
+        }
 
         const matchingDemo = (DEMO_EMAILS as readonly string[]).includes(normalizedEmail)
           ? demoUsersByEmail[normalizedEmail as (typeof DEMO_EMAILS)[number]]
@@ -584,15 +594,15 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
         return;
       }
 
-      // Check locally stored accounts
+      // Check locally stored accounts created offline
       try {
         const accounts = readLocalAccounts();
         const match = accounts.find(
           (acc) => acc.email.toLowerCase() === normalizedEmail
         );
         if (match) {
-          if (match.password && match.password !== password) {
-            setError('Invalid email or password. Please check and try again.');
+          if (!match.password || match.password !== password) {
+            setError('Invalid username or password');
             return;
           }
           const { password: _, ...cleanUser } = match;
@@ -601,31 +611,8 @@ export const LoginPage = ({ onLoginSuccess }: { onLoginSuccess: (user: AuthUser)
         }
       } catch {}
 
-      // If backend is unreachable or offline, permit seamless local session so users are not blocked
-      if (isBackendUnavailableError(message)) {
-        try {
-          const accounts = readLocalAccounts();
-          const existing = accounts.find((acc) => acc.email.toLowerCase() === normalizedEmail);
-          const localUser: LocalAccount = existing ?? {
-            id: `local-user-${Date.now()}`,
-            name: normalizedEmail.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-            email: normalizedEmail,
-            role: 'candidate',
-            createdAt: new Date().toISOString(),
-            credits: existing?.credits ?? 0,
-          };
-
-          const filtered = accounts.filter((acc) => acc.email.toLowerCase() !== normalizedEmail);
-          writeLocalAccounts([...filtered, { ...localUser, password }]);
-
-          completeAuthentication(localUser, `local-token-${localUser.id}`);
-          return;
-        } catch (e) {
-          console.error('Failed to create offline login session:', e);
-        }
-      }
-
-      setError(message.toLowerCase().includes("invalid credentials") ? getFriendlyLoginError(email) : getSafeAuthError(message));
+      // If backend is unreachable and no offline account with matching password exists
+      setError('Unable to reach login service right now. Please check your connection and try again.');
     } finally {
       setIsSubmitting(false);
     }

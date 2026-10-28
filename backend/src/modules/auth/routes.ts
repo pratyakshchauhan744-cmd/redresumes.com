@@ -63,7 +63,7 @@ const registerVerifySchema = z.object({
 
 const loginSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8)
+  password: z.string().min(1)
 });
 
 const googleLoginSchema = z.object({
@@ -72,7 +72,7 @@ const googleLoginSchema = z.object({
 
 const loginStartSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8)
+  password: z.string().min(1)
 });
 
 const loginVerifySchema = z.object({

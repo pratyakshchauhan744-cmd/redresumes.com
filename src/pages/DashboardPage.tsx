@@ -54,15 +54,24 @@ export const DashboardPage = ({
   const isLocalHost = typeof window !== 'undefined' && ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
 
   useEffect(() => {
-    if (currentUser) {
-      setUser(currentUser);
-      setProfileName(currentUser.name ?? '');
-      setProfilePhone(sanitizeProfilePhone(currentUser.phone ?? ''));
-      setProfileLocation(currentUser.location ?? '');
-      setProfileBio(currentUser.bio ?? '');
-      setCreditsBalance(currentUser.credits ?? 0);
-    }
-  }, [currentUser]);
+  setUser(currentUser);
+
+  if (currentUser) {
+    setProfileName(currentUser.name ?? '');
+    setProfilePhone(sanitizeProfilePhone(currentUser.phone ?? ''));
+    setProfileLocation(currentUser.location ?? '');
+    setProfileBio(currentUser.bio ?? '');
+    setCreditsBalance(currentUser.credits ?? 0);
+  } else {
+    setProfileName('');
+    setProfilePhone('');
+    setProfileLocation('');
+    setProfileBio('');
+    setCreditsBalance(0);
+    setInterviewHistory([]);
+    setTransactions([]);
+  }
+}, [currentUser]);
 
   const savedJobsStorageKey = buildUserScopedStorageKey(SAVED_JOBS_STORAGE_KEY, user?.id ?? currentUser?.id);
   const appliedJobsStorageKey = buildUserScopedStorageKey(APPLIED_JOBS_STORAGE_KEY, user?.id ?? currentUser?.id);
@@ -235,22 +244,29 @@ const CREDIT_PACKAGES: Record<string, { name: string; credits: number; price: nu
   };
 
   useEffect(() => {
+    // Guard flag: prevents stale async callbacks from updating state after logout/unmount
+    let active = true;
+
     const storedUser = readStoredUser();
     const accessToken = getStoredAccessToken();
 
-    if (storedUser) {
-      setUser(storedUser);
-      setProfileName(storedUser.name ?? '');
-      setProfilePhone(sanitizeProfilePhone(storedUser.phone ?? ''));
-      setProfileLocation(storedUser.location ?? '');
-      setProfileBio(storedUser.bio ?? '');
+    // If there is no stored user at effect-run time, the user has logged out — do nothing
+    if (!storedUser) {
+      return () => { active = false; };
     }
+
+    setUser(storedUser);
+    setProfileName(storedUser.name ?? '');
+    setProfilePhone(sanitizeProfilePhone(storedUser.phone ?? ''));
+    setProfileLocation(storedUser.location ?? '');
+    setProfileBio(storedUser.bio ?? '');
 
     if (!accessToken || isLocalAccessToken(accessToken)) {
       if (storedUser?.email) {
         backendApi
           .login({ email: storedUser.email.toLowerCase().trim(), password: 'Password@123' })
           .then((res) => {
+            if (!active) return;
             setStoredAuthTokens(res.accessToken);
             const upgraded = { ...storedUser, ...res.user };
             window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(upgraded));
@@ -273,13 +289,16 @@ const CREDIT_PACKAGES: Record<string, { name: string; credits: number; price: nu
           }
         }
       } catch {}
-      return;
+      return () => { active = false; };
     }
 
     void backendApi
       .getMe(accessToken)
       .then((me) => {
+        if (!active) return;
         const stored = readStoredUser();
+        // If the user has logged out while the request was in-flight, bail out
+        if (!stored) return;
         const mergedUser = {
           ...stored,
           ...me,
@@ -301,6 +320,7 @@ const CREDIT_PACKAGES: Record<string, { name: string; credits: number; price: nu
         onUserUpdated(mergedUser);
       })
       .catch((err: Error) => {
+        if (!active) return;
         // If the server explicitly rejects this session (user not found in DB,
         // expired token, or JWT signed for a different DB), force a clean logout.
         // This is the critical case where a user's localStorage session points to
@@ -324,6 +344,7 @@ const CREDIT_PACKAGES: Record<string, { name: string; credits: number; price: nu
     // Fetch interview history
     backendApi.getInterviewHistory(accessToken)
       .then(data => {
+        if (!active) return;
         if (Array.isArray(data)) {
           setInterviewHistory(data);
         }
@@ -333,10 +354,13 @@ const CREDIT_PACKAGES: Record<string, { name: string; credits: number; price: nu
     // Fetch credit balance & transactions
     backendApi.getCreditTransactions(accessToken)
       .then(data => {
+        if (!active) return;
         setCreditsBalance(data.balance);
         setTransactions(data.transactions || []);
       })
       .catch(console.error);
+
+    return () => { active = false; };
   }, [onUserUpdated]);
 
   const saveUserLocally = (updatedUser: AuthUser) => {

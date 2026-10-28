@@ -1,4 +1,4 @@
-import { useEffect, useState, lazy, Suspense, type ReactNode, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useState, useCallback, lazy, Suspense, type ReactNode, type Dispatch, type SetStateAction } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';
@@ -330,17 +330,27 @@ export const App = () => {
     }
   }, [darkMode]);
 
-  const handleLogout = () => {
-    void backendApi.logout().catch(() => {});
-    clearStoredAuthTokens();
-    window.localStorage.removeItem(USER_STORAGE_KEY);
-    setCurrentUser(null);
-  };
+  const handleLogout = useCallback(() => {
+  // Clear locally stored authentication first
+  clearStoredAuthTokens();
+  window.localStorage.removeItem(USER_STORAGE_KEY);
 
-  const handleUserUpdated = (updatedUser: AuthUser) => {
+  // Prevent stale frontend authentication
+  setCurrentUser(null);
+
+  // Attempt server-side session termination (fire-and-forget)
+  void backendApi.logout().catch((error) => {
+    console.error('Logout request failed:', error);
+  });
+
+  // Navigate to login, replacing history so the user can't go back to dashboard
+  window.location.replace('/login');
+}, []);
+
+  const handleUserUpdated = useCallback((updatedUser: AuthUser) => {
     window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(updatedUser));
     setCurrentUser(updatedUser);
-  };
+  }, []);
 
   const isAuthenticated = Boolean(currentUser);
   const isAdmin = currentUser?.role === 'admin';

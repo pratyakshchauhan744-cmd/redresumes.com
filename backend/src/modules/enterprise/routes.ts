@@ -2643,11 +2643,25 @@ router.post(
         enrollmentNumber: student.enrollmentNumber,
         setupLink,
       });
-    } catch (mailErr: any) {
-      deliveryResult = { success: false, error: mailErr?.message || "Failed to dispatch password setup email" };
-    }
+    }  catch (mailErr: any) {
+  console.error("[STUDENT INVITE] Email exception:", {
+    message: mailErr?.message,
+    code: mailErr?.code,
+    responseCode: mailErr?.responseCode,
+    command: mailErr?.command,
+  });
+
+  deliveryResult = {
+    success: false,
+    error: mailErr?.message || "Failed to dispatch password setup email",
+  };
+}
 
     if (!deliveryResult.success) {
+      console.error("[STUDENT INVITE] Delivery failed:", {
+  error: deliveryResult.error,
+  studentId: student.id,
+});
       const emailError = publicStudentEmailError(deliveryResult.error) || "The invitation email could not be sent.";
       await prisma.invitation.updateMany({
         where: { id: invitation.id, status: "pending" },

@@ -4,7 +4,7 @@ import { createRequire } from "module";
 const require = createRequire(import.meta.url); // Forcing restart
 const pdfParse = require("pdf-parse");
 import { prisma } from "../../db/prisma.js";
-import { parseResumeWithGemini } from "../ai/service.js";
+import { InterviewAIUnavailableError, parseResumeWithGemini } from "../ai/service.js";
 import { createInterviewSession, answerInterviewQuestion, completeSessionAndGenerateReport } from "./service.js";
 import { authorizeInterviewReportRead } from "./report-authorization.js";
 
@@ -121,6 +121,9 @@ export async function startInterview(req: Request, res: Response, next: NextFunc
       }
     });
   } catch (err: any) {
+    if (err instanceof InterviewAIUnavailableError) {
+      return res.status(503).json({ message: err.message });
+    }
     if (err.message === "You have no interview credits remaining.") {
       return res.status(402).json({ message: err.message });
     }
@@ -158,6 +161,9 @@ export async function answerQuestion(req: Request, res: Response, next: NextFunc
 
     res.json(result);
   } catch (err) {
+    if (err instanceof InterviewAIUnavailableError) {
+      return res.status(503).json({ message: err.message });
+    }
     next(err);
   }
 }

@@ -17,6 +17,18 @@ export async function createInterviewSession(
   const resume = await prisma.resume.findUnique({ where: { id: resumeId } });
   if (!resume) throw new Error("Resume not found");
 
+  // Only create a session after the AI has successfully produced its opening question.
+  const firstQuestionText = await generateInterviewQuestion(
+    resume.parsedData,
+    targetRole,
+    companyType,
+    difficulty,
+    interviewStyle,
+    jobDescription,
+    interviewerPersona,
+    stressMode
+  );
+
   // Execute credit check and session creation inside a single transaction
   const session = await prisma.$transaction(
     async (tx) => {
@@ -50,17 +62,6 @@ export async function createInterviewSession(
       maxWait: 20000,
       timeout: 60000,
     }
-  );
-
-  const firstQuestionText = await generateInterviewQuestion(
-    resume.parsedData,
-    targetRole,
-    companyType,
-    difficulty,
-    interviewStyle,
-    jobDescription,
-    interviewerPersona,
-    stressMode
   );
 
   const firstQuestion = await prisma.interviewQuestion.create({
@@ -111,27 +112,15 @@ export async function answerInterviewQuestion(
 
   const answerScore = normalizeInterviewScore(rawAnswerScore, 10);
 
-  await prisma.interviewAnswer.create({
-    data: {
-      questionId,
-      answerText,
-      score: answerScore,
-      scoreScale: 100,
-      feedback: evaluation,
-      durationSecs: durationSecs || null
-    }
-  });
-
   // Derive question count from session duration: 15 min → 5 Qs, 30 min → 10 Qs, 45 min → 15 Qs
   const maxQuestions = Math.round((session.durationMins / 15) * 5);
   const answeredCount = session.questions.filter(q => q.answer).length + 1;
 
-  if (answeredCount >= maxQuestions) {
-    await completeSessionAndGenerateReport(sessionId, wpm, fillerCount, confidence);
-    return { isComplete: true, reportId: sessionId };
-  } else {
+  let nextQuestionText: string | null = null;
+  if (answeredCount < maxQuestions) {
     // Generate Follow-up with full history
     const qaHistory = session.questions
+      .filter(q => q.answer || q.id === questionId)
       .sort((a, b) => a.orderIndex - b.orderIndex)
       .map(q => {
         if (q.id === questionId) {
@@ -148,14 +137,32 @@ export async function answerInterviewQuestion(
         };
       });
 
-    const nextQuestionText = await generateInterviewFollowUp(
+    nextQuestionText = await generateInterviewFollowUp(
       qaHistory,
       session.resume.parsedData,
+      session.targetRole,
+      session.companyType,
+      session.difficulty,
+      session.interviewStyle,
       session.jobDescription || undefined,
       session.interviewerPersona || undefined,
       session.stressMode || undefined
     );
+  }
 
+  // A failed AI request must leave the current question answerable so the candidate can retry.
+  await prisma.interviewAnswer.create({
+    data: {
+      questionId,
+      answerText,
+      score: answerScore,
+      scoreScale: 100,
+      feedback: evaluation,
+      durationSecs: durationSecs || null
+    }
+  });
+
+  if (nextQuestionText !== null) {
     const nextQuestion = await prisma.interviewQuestion.create({
       data: {
         sessionId,
@@ -167,6 +174,9 @@ export async function answerInterviewQuestion(
 
     return { isComplete: false, nextQuestion };
   }
+
+  await completeSessionAndGenerateReport(sessionId, wpm, fillerCount, confidence);
+  return { isComplete: true, reportId: sessionId };
 }
 
 export async function completeSessionAndGenerateReport(

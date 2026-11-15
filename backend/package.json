@@ -9,6 +9,7 @@
     "build": "npx prisma generate --schema=prisma/schema.prisma && tsc -p tsconfig.json && npm run verify:report-routes",
     "verify:report-routes": "node scripts/verify-report-routes.mjs",
     "test:pdf-runtime": "node scripts/test-pdf-runtime.mjs",
+    "test:interview-questions": "node --import tsx src/tests/test-interview-questions.ts",
     "start": "npx prisma generate --schema=prisma/schema.prisma && node dist/src/main.js",
     "worker": "tsx src/worker.ts",
     "worker:prod": "node dist/worker.js",

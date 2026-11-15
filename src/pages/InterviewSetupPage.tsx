@@ -627,7 +627,7 @@ export const InterviewSetupPage = ({ currentUser, onUserUpdated }: { currentUser
                   <span className="text-[10px] text-zinc-400 block mt-1.5">
                     {interviewerPersona === 'HR Team' && 'Focuses on background verification, cultural fit, and high-level fit.'}
                     {interviewerPersona === 'Hiring Manager' && 'Tests KPI outcomes, system execution, business decisions and ownership.'}
-                    {interviewerPersona === 'Technical Interviewer' && 'Asks for algorithms, data modeling, architecture, logic and detail.'}
+                    {interviewerPersona === 'Technical Interviewer' && 'Tests practical skills, tools, processes and domain knowledge for your target role.'}
                     {interviewerPersona === 'Startup Founder' && 'Aggressive speed review, scaling vision, independence and drive.'}
                   </span>
                 </div>

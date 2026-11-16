@@ -4,7 +4,7 @@ import type { NextFunction, Request, Response } from "express";
 import { env } from "../config/env.js";
 import { prisma } from "../db/prisma.js";
 import { generateInterviewFollowUp, generateInterviewQuestion, InterviewAIUnavailableError } from "../modules/ai/service.js";
-import { answerInterviewQuestion } from "../modules/interview/service.js";
+import { answerInterviewQuestion, createInterviewSession } from "../modules/interview/service.js";
 import { answerQuestion, startInterview } from "../modules/interview/controller.js";
 
 const originalKeys = { OPENAI_API_KEY: env.OPENAI_API_KEY, GEMINI_API_KEY: env.GEMINI_API_KEY };
@@ -126,6 +126,31 @@ await test("technical openings stay within the selected profession, including at
   assert.match(requests[0].prompt, /Retail sales/);
   assert.match(requests[0].prompt, /V-Mart \/ Tanishq/);
 });
+
+for (const identity of [
+  { label: "institution student", userId: "student-1", collegeId: "college-1" },
+  { label: "individual candidate", userId: "candidate-1", collegeId: null },
+  { label: "anonymous candidate", userId: null, collegeId: null },
+]) {
+  await test(`new interviews retain the ${identity.label}'s institution association`, async () => {
+    stubPrismaMethod(prisma.resume, "findUnique", async () => ({ parsedData: resumeData }));
+    const tx = {
+      userCredit: { findUnique: mock.fn(async () => ({ balance: 1 })) },
+      user: { findUnique: mock.fn(async (_args: any) => ({ collegeId: identity.collegeId })) },
+      interviewSession: { create: mock.fn(async ({ data }: any) => ({ id: "new-session", ...data })) },
+    };
+    stubPrismaMethod(prisma, "$transaction", async (work: any) => work(tx));
+    stubPrismaMethod(prisma.interviewQuestion, "create", async ({ data }: any) => ({ id: "first", ...data }));
+
+    const result = await createInterviewSession(identity.userId, "resume-1", "Sales Representative", "Google", "Medium", "Technical", 15);
+    assert.equal(result.session.userId, identity.userId);
+    assert.equal(result.session.collegeId, identity.collegeId);
+    assert.equal(tx.user.findUnique.mock.callCount(), identity.userId ? 1 : 0);
+    if (identity.userId) assert.deepEqual(tx.user.findUnique.mock.calls[0].arguments[0], {
+      where: { id: identity.userId }, select: { collegeId: true },
+    });
+  });
+}
 
 for (const provider of ["OpenAI", "Gemini"]) {
   await test(`${provider} receives the latest sales answer and full history before a follow-up is saved`, async () => {

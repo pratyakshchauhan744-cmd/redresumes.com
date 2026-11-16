@@ -32,6 +32,7 @@ export async function createInterviewSession(
   // Execute credit check and session creation inside a single transaction
   const session = await prisma.$transaction(
     async (tx) => {
+      let collegeId: string | null = null;
       if (userId) {
         const userCredit = await tx.userCredit.findUnique({
           where: { userId }
@@ -40,11 +41,18 @@ export async function createInterviewSession(
         if (!userCredit || userCredit.balance <= 0) {
           throw new Error("You have no interview credits remaining.");
         }
+
+        const user = await tx.user.findUnique({
+          where: { id: userId },
+          select: { collegeId: true }
+        });
+        collegeId = user?.collegeId ?? null;
       }
 
       return tx.interviewSession.create({
         data: {
           userId,
+          collegeId,
           resumeId,
           targetRole,
           companyType,

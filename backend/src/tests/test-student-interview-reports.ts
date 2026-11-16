@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import express from "express";
 import JSZip from "jszip";
 import * as xlsx from "xlsx";
@@ -82,7 +82,21 @@ try {
   const sessionData = { userId: one.user.id, collegeId: a.id, resumeId: one.resume.id, targetRole: "Unfinished", difficulty: "easy", companyType: "product", interviewStyle: "technical", durationMins: 20 };
   await prisma.interviewSession.create({ data: { ...sessionData, status: "completed" } });
   await prisma.interviewSession.create({ data: { ...sessionData, status: "in_progress", report: { create: { overallScore: 99, categoryScores: {}, strengths: [], weaknesses: [], recommendations: [] } } } });
-  await prisma.interviewSession.create({ data: { ...sessionData, collegeId: b.id, status: "completed", report: { create: { overallScore: 100, categoryScores: {}, strengths: [], weaknesses: [], recommendations: [] } } } });
+  const mismatched = await prisma.interviewSession.create({ data: { ...sessionData, collegeId: b.id, status: "completed", report: { create: { overallScore: 100, categoryScores: {}, strengths: [], weaknesses: [], recommendations: [] } } } });
+
+  // Reproduce interviews created before the institution association was saved.
+  const legacySessions = [...one.sessions, ...five.sessions, ...foreign.sessions];
+  await prisma.interviewSession.updateMany({ where: { id: { in: legacySessions.map(session => session.id) } }, data: { collegeId: null } });
+  assert.equal((await json(`${path(five)}/interviews`, scoped.token)).total, 0);
+  const repairSql = await readFile(new URL("../../prisma/migrations/20261116000000_link_student_interview_institutions/migration.sql", import.meta.url), "utf8");
+  await prisma.$executeRawUnsafe(repairSql);
+  for (const session of legacySessions) {
+    const repaired = await prisma.interviewSession.findUniqueOrThrow({ where: { id: session.id } });
+    assert.equal(repaired.collegeId, session.collegeId);
+  }
+  assert.equal((await prisma.interviewSession.findUniqueOrThrow({ where: { id: mismatched.id } })).collegeId, b.id);
+  assert.equal(await prisma.$executeRawUnsafe(repairSql), 0, "Institution repair is safe to rerun");
+  console.log("PASS legacy institution links restored without overwriting existing associations");
 
   for (const [s, count] of [[zero, 0], [one, 1], [five, 5], [twenty, 20]] as const) {
     const first = await json(`${path(s)}/interviews?page=1&limit=10`, scoped.token);

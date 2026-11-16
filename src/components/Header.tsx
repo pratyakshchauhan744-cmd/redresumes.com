@@ -80,22 +80,17 @@ export const Header = ({
             View Templates
           </button>
 
-          {/* Enterprise Button immediately before Create Resume */}
-          <button
-            type="button"
-            id="nav-enterprise-btn"
-            onClick={() => {
-              if (currentUser?.role === 'college_main_faculty' || currentUser?.role === 'college_faculty') {
-                navigate('/enterprise');
-              } else {
-                navigate('/login?portal=enterprise&redirect=/enterprise');
-              }
-            }}
-            className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-50/70 dark:bg-rose-950/40 px-3.5 py-1.5 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-100/70 dark:hover:bg-rose-900/50 shadow-xs transition active:scale-98 whitespace-nowrap xl:px-4 xl:py-2 xl:text-sm"
-          >
-            <Building2 className="h-3.5 w-3.5" />
-            <span>Enterprise</span>
-          </button>
+          {!currentUser && (
+            <button
+              type="button"
+              id="nav-enterprise-btn"
+              onClick={() => navigate('/login?portal=enterprise&redirect=/enterprise')}
+              className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-50/70 dark:bg-rose-950/40 px-3.5 py-1.5 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-100/70 dark:hover:bg-rose-900/50 shadow-xs transition active:scale-98 whitespace-nowrap xl:px-4 xl:py-2 xl:text-sm"
+            >
+              <Building2 className="h-3.5 w-3.5" />
+              <span>Enterprise</span>
+            </button>
+          )}
 
           {currentUser ? (
             <>
@@ -184,22 +179,20 @@ export const Header = ({
           ))}
 
           <div className="mt-2 flex flex-col gap-2 border-t border-zinc-100 pt-3 dark:border-zinc-800">
-            <button
-              type="button"
-              id="mobile-nav-enterprise-btn"
-              onClick={() => {
-                setMobileMenuOpen(false);
-                if (currentUser?.role === 'college_main_faculty' || currentUser?.role === 'college_faculty') {
-                  navigate('/enterprise');
-                } else {
+            {!currentUser && (
+              <button
+                type="button"
+                id="mobile-nav-enterprise-btn"
+                onClick={() => {
+                  setMobileMenuOpen(false);
                   navigate('/login?portal=enterprise&redirect=/enterprise');
-                }
-              }}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-full border border-rose-500/30 bg-rose-50/80 px-5 py-3 text-center text-sm font-bold text-rose-600 dark:bg-rose-950/40 dark:text-rose-400"
-            >
-              <Building2 className="h-4 w-4" />
-              <span>Enterprise</span>
-            </button>
+                }}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-full border border-rose-500/30 bg-rose-50/80 px-5 py-3 text-center text-sm font-bold text-rose-600 dark:bg-rose-950/40 dark:text-rose-400"
+              >
+                <Building2 className="h-4 w-4" />
+                <span>Enterprise</span>
+              </button>
+            )}
             {currentUser ? (
               <button
                 type="button"

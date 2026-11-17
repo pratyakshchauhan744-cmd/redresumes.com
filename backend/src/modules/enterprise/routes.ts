@@ -4138,13 +4138,17 @@ router.get("/audit-logs", requirePermission("AUDIT_VIEW"), async (req, res, next
         skip: (page - 1) * limit,
         take: limit,
         orderBy: { createdAt: "desc" },
-        include: {
-          actor: {
-            select: { id: true, name: true, email: true, role: true },
-          },
-        },
       }),
     ]);
+
+    // Historical logs may reference missing users; including the required actor relation crashes Prisma.
+    // Load this page's actors in one batch and retain the existing actor: null response for missing accounts.
+    const actorIds = [...new Set(logs.map(log => log.actorId))];
+    const actors = actorIds.length ? await prisma.user.findMany({
+      where: { id: { in: actorIds } },
+      select: { id: true, name: true, email: true, role: true },
+    }) : [];
+    const actorsById = new Map(actors.map(actor => [actor.id, actor]));
 
     const totalPages = Math.ceil(total / limit);
 
@@ -4155,14 +4159,7 @@ router.get("/audit-logs", requirePermission("AUDIT_VIEW"), async (req, res, next
         action: l.action,
         entity: l.entity ?? null,
         entityId: l.entityId ?? null,
-        actor: l.actor
-          ? {
-              id: l.actor.id,
-              name: l.actor.name,
-              email: l.actor.email,
-              role: l.actor.role,
-            }
-          : null,
+        actor: actorsById.get(l.actorId) ?? null,
         // Defense in depth for historical rows written before centralized
         // audit sanitization was introduced.
         oldValue: sanitizeAuditValue(l.oldValue),

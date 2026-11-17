@@ -1,5 +1,5 @@
 import { useState, useEffect, type ChangeEvent } from 'react';
-import { Building2, FileText, Clock, Settings, User, Trash2, Edit3, Save, ExternalLink, QrCode } from 'lucide-react';
+import { FileText, Clock, Settings, User, Trash2, Edit3, Save, ExternalLink, QrCode } from 'lucide-react';
 import { Section } from '../components/Section';
 import { Seo } from '../components/Seo';
 import { PrimaryButton, SecondaryButton } from '../components/Buttons';
@@ -29,7 +29,6 @@ const sanitizeProfilePhone = (value: string): string => value.replace(/\D/g, '')
 
 export const DashboardPage = ({
   currentUser,
-  onLogout,
   onUserUpdated,
 }: {
   currentUser: AuthUser | null;
@@ -604,30 +603,12 @@ const CREDIT_PACKAGES: Record<string, { name: string; credits: number; price: nu
               <div className="flex flex-wrap items-center gap-2.5">
                 <button
                   type="button"
-                  id="dashboard-enterprise-btn"
-                  onClick={() => {
-                    if (user?.role === 'college_main_faculty' || user?.role === 'college_faculty') {
-                      navigate('/enterprise');
-                    } else {
-                      navigate('/login?portal=enterprise&redirect=/enterprise');
-                    }
-                  }}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-50 dark:bg-rose-950/40 px-4 py-2 text-xs md:text-sm font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-100/70 transition shadow-xs"
-                >
-                  <Building2 className="h-4 w-4" />
-                  <span>Enterprise</span>
-                </button>
-                <button
-                  type="button"
                   id="dashboard-create-resume-btn"
                   onClick={() => navigate('/builder')}
                   className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs md:text-sm font-bold text-white hover:bg-red-700 transition shadow-xs"
                 >
                   <FileText className="h-4 w-4" />
                   <span>Create Resume</span>
-                </button>
-                <button onClick={onLogout} className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-xs md:text-sm font-semibold text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
-                  Log out
                 </button>
               </div>
             </div>

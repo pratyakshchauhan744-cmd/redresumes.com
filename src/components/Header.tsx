@@ -21,11 +21,16 @@ export const Header = ({
     setMobileMenuOpen(false);
   }, [location.pathname]);
 
+  const isFacultyUser =
+    currentUser?.role === 'college_main_faculty' ||
+    currentUser?.role === 'college_faculty';
+
   const navLinks = [
     { path: '/', label: 'Home' },
     { path: '/resume-examples', label: 'Resume Examples' },
     { path: '/job-finder', label: 'Job Finder' },
     { path: '/interview/setup', label: 'Interview Practice' },
+    ...(isFacultyUser ? [{ path: '/enterprise', label: 'Campus Enterprise' }] : []),
     { path: currentUser ? '/dashboard' : (location.pathname === '/builder' ? '/login?redirect=/builder' : '/login'), label: currentUser ? 'Profile' : 'Login' },
   ];
 

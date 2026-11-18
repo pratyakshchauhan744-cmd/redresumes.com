@@ -1,4 +1,4 @@
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { StudentInterviewHistoryView } from "../components/StudentInterviewHistory";
 import { invitationFeedback, invitationRetryFailure, safeInvitationError, completeStudentOnboarding, studentCreationFailure } from "../utils/studentOnboarding";
 import { authorizedInitialCredits } from "../utils/enterprisePermissions";
@@ -31,6 +31,7 @@ import {
   X,
   UserPlus,
   BookOpen,
+  Home,
   LogOut,
   Pencil,
   UserX,
@@ -1527,7 +1528,15 @@ export default function EnterpriseDashboardPage({ user, token, initialTab = "ove
             </div>
 
             {/* Quick Balance Badge */}
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <Link
+                to="/"
+                className="inline-flex shrink-0 items-center gap-1.5 px-3 py-2.5 rounded-xl bg-white border border-slate-200 hover:bg-rose-50 hover:border-rose-200 text-slate-600 hover:text-rose-700 text-xs font-semibold shadow-sm transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2"
+                title="Go to home page"
+              >
+                <Home className="w-3.5 h-3.5" aria-hidden="true" />
+                Home
+              </Link>
               {canViewCredits && <div className="px-3.5 sm:px-4 py-2 rounded-2xl bg-emerald-50 border border-emerald-100 shadow-sm flex items-center gap-2.5">
                 <Coins className="w-4 h-4 text-emerald-600" />
                 <div>

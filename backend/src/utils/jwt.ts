@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import { randomUUID } from "node:crypto";
 import type { UserRole } from "@prisma/client";
 import { env } from "../config/env.js";
 
@@ -19,13 +20,15 @@ export function signAccessToken(payload: JwtPayload): string {
 }
 
 export function signRefreshToken(payload: JwtPayload): string {
+  // Refresh sessions are revoked in the database on logout or password reset.
   return jwt.sign({ ...payload, type: "refresh" }, env.JWT_SECRET, {
-    expiresIn: env.JWT_REFRESH_EXPIRES as jwt.SignOptions["expiresIn"]
+    jwtid: randomUUID()
   });
 }
 
 export function verifyToken(token: string, expectedType?: "access" | "refresh"): JwtPayload {
-  const payload = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
+  // Refresh expiry is enforced by the stored session, including legacy tokens.
+  const payload = jwt.verify(token, env.JWT_SECRET, { ignoreExpiration: expectedType === "refresh" }) as JwtPayload;
   if (expectedType && payload.type && payload.type !== expectedType) {
     throw new Error(`Token type mismatch: expected ${expectedType}`);
   }

@@ -13,7 +13,7 @@ import { loadSessionContext } from "./session-context.js";
 import { signAccessToken, signRefreshToken, verifyToken } from "../../utils/jwt.js";
 import { normalizeEmailIdentity } from "../../utils/identity.js";
 
-import { REFRESH_COOKIE_NAME, setRefreshCookie, clearRefreshCookie, persistRefreshToken } from "./refresh-session.js";
+import { REFRESH_COOKIE_NAME, PERSISTENT_SESSION_EXPIRES_AT, setRefreshCookie, clearRefreshCookie, persistRefreshToken } from "./refresh-session.js";
 
 const router = Router();
 
@@ -878,6 +878,18 @@ router.post("/refresh", async (req, res, next) => {
 
     const context = await loadSessionContext(stored.user.id, payload);
     const accessToken = signAccessToken(context.payload);
+    // Extend legacy sessions in place so concurrent requests and logout share one token.
+    if (stored.expiresAt.getTime() < PERSISTENT_SESSION_EXPIRES_AT.getTime()) {
+      const renewed = await prisma.refreshToken.updateMany({
+        where: { userId: payload.sub, tokenHash: tokenHash(refreshToken), expiresAt: { gt: new Date() } },
+        data: { expiresAt: PERSISTENT_SESSION_EXPIRES_AT }
+      });
+      if (renewed.count === 0) {
+        res.status(401).json({ message: "Invalid refresh token" });
+        return;
+      }
+    }
+    setRefreshCookie(res, refreshToken);
     res.json({ accessToken });
   } catch (error) {
     next(error);

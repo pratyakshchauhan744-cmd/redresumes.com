@@ -40,10 +40,27 @@ mock(prisma.user, "findUnique", async ({ where }) => {
 });
 mock(prisma.refreshToken, "create", async ({ data }) => { sessions.push(data); return data; });
 mock(prisma.refreshToken, "findFirst", async ({ where }) => {
-  const session = sessions.find((session) => session.userId === where.userId && session.tokenHash === where.tokenHash && session.expiresAt > where.expiresAt.gt);
+  const session = sessions.find((session) => (!where.userId || session.userId === where.userId) && session.tokenHash === where.tokenHash && (!where.expiresAt || session.expiresAt > where.expiresAt.gt));
   return session ? { ...session, user: users.get(session.userId) ?? null } : null;
 });
+mock(prisma.refreshToken, "deleteMany", async ({ where }) => {
+  let count = 0;
+  for (let i = sessions.length - 1; i >= 0; i--) {
+    if (sessions[i].tokenHash === where.tokenHash) { sessions.splice(i, 1); count++; }
+  }
+  return { count };
+});
+mock(prisma.refreshToken, "updateMany", async ({ where, data }) => {
+  let count = 0;
+  for (const session of sessions) {
+    if (session.userId === where.userId && session.tokenHash === where.tokenHash && session.expiresAt > where.expiresAt.gt) {
+      Object.assign(session, data); count++;
+    }
+  }
+  return { count };
+});
 mock(prisma.signInEvent, "create", async () => ({}));
+mock(prisma.signOutEvent, "create", async () => ({}));
 mock(prisma.college, "findUnique", async ({ where }) => colleges.get(where.id) ?? null);
 mock(prisma.collegeFaculty, "findFirst", async ({ where }) => {
   const user = users.get(where.userId);
@@ -71,14 +88,15 @@ const origin = `http://127.0.0.1:${address.port}`;
 async function login(email: string) {
   const res = await fetch(`${origin}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
   assert.equal(res.status, 200);
-  const cookie = res.headers.get("set-cookie")?.split(";")[0];
+  const setCookie = res.headers.get("set-cookie");
+  const cookie = setCookie?.split(";")[0];
   assert(cookie);
-  return { cookie, ...(await res.json()) as { accessToken: string } };
+  return { cookie, setCookie, ...(await res.json()) as { accessToken: string } };
 }
 async function refresh(cookie: string, expected = 200, body?: any) {
   const res = await fetch(`${origin}/api/auth/refresh`, { method: "POST", headers: { Cookie: cookie, "Content-Type": "application/json", "x-target-college-id": collegeB.id }, body: JSON.stringify(body ?? {}) });
   assert.equal(res.status, expected);
-  return await res.json() as { accessToken: string };
+  return { ...(await res.json()) as { accessToken: string }, cookie: res.headers.get("set-cookie")?.split(";")[0] };
 }
 async function students(token: string, expected = 200) {
   const res = await fetch(`${origin}/api/enterprise/students`, { headers: { Authorization: `Bearer ${token}`, "x-target-college-id": collegeB.id } });
@@ -87,6 +105,14 @@ async function students(token: string, expected = 200) {
 }
 try {
   const auth = await login(enterprise.email);
+  const refreshValue = auth.cookie.slice("rr_refresh_token=".length);
+  assert.equal((jwt.decode(refreshValue) as jwt.JwtPayload).exp, undefined);
+  assert.match(auth.setCookie!, /Max-Age=34560000/);
+  const fiveYearsLater = Math.floor(Date.now() / 1000) + 5 * 365 * 24 * 60 * 60;
+  assert.equal((jwt.verify(refreshValue, env.JWT_SECRET, { clockTimestamp: fiveYearsLater }) as any).sub, enterprise.id);
+  assert(sessions.find(session => session.tokenHash === createHash("sha256").update(refreshValue).digest("hex")).expiresAt.getTime() > fiveYearsLater * 1000);
+  assert.equal((await refresh(auth.cookie)).cookie, auth.cookie, "Renewal must renew the persistent cookie without rotating concurrent sessions");
+  console.log("PASS refresh sessions survive time-based expiry and renew their persistent browser cookie");
   const initial = verifyToken(auth.accessToken, "access");
   assert.equal(initial.collegeId, collegeA.id);
   assert(initial.permissions?.includes("STUDENT_VIEW"));
@@ -107,6 +133,20 @@ try {
   const concurrent = await Promise.all(Array.from({ length: 5 }, () => refresh(auth.cookie)));
   for (const next of concurrent) assert.equal(verifyToken(next.accessToken).collegeId, collegeA.id);
   console.log("PASS concurrent backend refreshes retain consistent tenant context");
+  const legacyToken = jwt.sign({ sub: enterprise.id, role: enterprise.role, email: enterprise.email, collegeId: collegeA.id, type: "refresh" }, env.JWT_SECRET, { expiresIn: "30d" });
+  sessions.push({ userId: enterprise.id, tokenHash: createHash("sha256").update(legacyToken).digest("hex"), expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) });
+  const legacyRenewal = await refresh(`rr_refresh_token=${legacyToken}`);
+  assert.equal(legacyRenewal.cookie, `rr_refresh_token=${legacyToken}`);
+  assert.equal(sessions.find(session => session.tokenHash === createHash("sha256").update(legacyToken).digest("hex")).expiresAt.getUTCFullYear(), 9999);
+  const realNow = Date.now;
+  try {
+    Date.now = () => realNow() + 31 * 24 * 60 * 60 * 1000;
+    await refresh(`rr_refresh_token=${legacyToken}`);
+  } finally { Date.now = realNow; }
+  const legacyLogout = await fetch(`${origin}/api/auth/logout`, { method: "POST", headers: { Cookie: legacyRenewal.cookie! } });
+  assert.equal(legacyLogout.status, 204);
+  await refresh(`rr_refresh_token=${legacyToken}`, 401);
+  console.log("PASS existing valid expiring sessions upgrade without rejecting concurrent legacy requests");
   faculty.permissions = ["REPORT_VIEW"];
   const changed = await refresh(auth.cookie);
   assert.deepEqual(verifyToken(changed.accessToken).permissions, ["REPORT_VIEW"]);
@@ -150,10 +190,18 @@ try {
   await refresh("", 401);
   await refresh("rr_refresh_token=invalid", 401);
   const expiredRefresh = jwt.sign({ sub: enterprise.id, role: enterprise.role, type: "refresh" }, env.JWT_SECRET, { expiresIn: -1 });
+  sessions.push({ userId: enterprise.id, tokenHash: createHash("sha256").update(expiredRefresh).digest("hex"), expiresAt: new Date(Date.now() - 1000) });
   await refresh(`rr_refresh_token=${expiredRefresh}`, 401);
   await refresh(`rr_refresh_token=${auth.accessToken}`, 401);
   console.log("PASS invalid/expired/wrong-type tokens and missing/invalid tenant contexts reject securely");
   const regular = await login(candidate.email);
+  const secondSession = await login(candidate.email);
+  assert.notEqual(regular.cookie, secondSession.cookie, "Each login needs an independently revocable session");
+  const logout = await fetch(`${origin}/api/auth/logout`, { method: "POST", headers: { Cookie: secondSession.cookie } });
+  assert.equal(logout.status, 204);
+  assert.match(logout.headers.get("set-cookie")!, /rr_refresh_token=;/);
+  await refresh(secondSession.cookie, 401);
+  console.log("PASS explicit logout revokes its persistent session without revoking other logins");
   const regularToken = verifyToken((await refresh(regular.cookie)).accessToken);
   assert.equal(regularToken.role, "candidate");
   assert.equal(regularToken.collegeId, null);

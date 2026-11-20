@@ -3,7 +3,7 @@ import { FileText, Clock, Settings, User, Trash2, Edit3, Save, ExternalLink, QrC
 import { Section } from '../components/Section';
 import { Seo } from '../components/Seo';
 import { PrimaryButton, SecondaryButton } from '../components/Buttons';
-import { APPLIED_JOBS_STORAGE_KEY, LOCAL_ACCOUNTS_STORAGE_KEY, RESUME_DRAFT_STORAGE_KEY, RESUME_HISTORY_STORAGE_KEY, SAVED_JOBS_STORAGE_KEY, USER_STORAGE_KEY, buildUserScopedStorageKey, clearStoredAuthTokens, setStoredAuthTokens, getStoredAccessToken, isLocalAccessToken, readStoredUser } from '../lib/auth';
+import { APPLIED_JOBS_STORAGE_KEY, LOCAL_ACCOUNTS_STORAGE_KEY, RESUME_DRAFT_STORAGE_KEY, RESUME_HISTORY_STORAGE_KEY, SAVED_JOBS_STORAGE_KEY, USER_STORAGE_KEY, buildUserScopedStorageKey, setStoredAuthTokens, getStoredAccessToken, isLocalAccessToken, readStoredUser } from '../lib/auth';
 import { backendApi, type AuthUser } from '../lib/backendApi';
 import type { LocalAccount } from '../types';
 import type { Page } from '../types';
@@ -45,6 +45,7 @@ export const DashboardPage = ({
   const [profileLocation, setProfileLocation] = useState(currentUser?.location ?? '');
   const [profileBio, setProfileBio] = useState(currentUser?.bio ?? '');
   const [interviewHistory, setInterviewHistory] = useState<any[]>([]);
+  const [showAllInterviews, setShowAllInterviews] = useState(false);
   const [creditsBalance, setCreditsBalance] = useState<number>(currentUser?.credits ?? 0);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [purchaseLoading, setPurchaseLoading] = useState<string | null>(null);
@@ -318,25 +319,9 @@ const CREDIT_PACKAGES: Record<string, { name: string; credits: number; price: nu
         window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(mergedUser));
         onUserUpdated(mergedUser);
       })
-      .catch((err: Error) => {
+      .catch(() => {
         if (!active) return;
-        // If the server explicitly rejects this session (user not found in DB,
-        // expired token, or JWT signed for a different DB), force a clean logout.
-        // This is the critical case where a user's localStorage session points to
-        // a userId that no longer exists in the production database.
-        const isAuthError =
-          err.message?.includes('401') ||
-          err.message?.toLowerCase().includes('unauthorized') ||
-          err.message?.toLowerCase().includes('sign in again');
-
-        if (isAuthError) {
-          clearStoredAuthTokens();
-          window.localStorage.removeItem(USER_STORAGE_KEY);
-          // Redirect to login — the user will sign up/in fresh against Railway DB
-          window.location.href = '/login?reason=session_expired';
-          return;
-        }
-        // For network errors (backend down, timeout), keep showing cached profile
+        // Session renewal and rejection are handled by backendApi.
         setProfileError('Showing saved profile details because the live account service is unavailable.');
       });
 
@@ -790,7 +775,7 @@ const CREDIT_PACKAGES: Record<string, { name: string; credits: number; price: nu
                   </button>
                 </div>
               ) : (
-                interviewHistory.slice(0, 5).map((session: any) => {
+                (showAllInterviews ? interviewHistory : interviewHistory.slice(0, 5)).map((session: any) => {
                   const rawScore = session.report?.overallScore;
                   const hasScore = rawScore !== null && rawScore !== undefined && !isNaN(Number(rawScore));
                   const overallScore = hasScore ? normalizeToCanonicalScore(rawScore) : null;
@@ -813,6 +798,16 @@ const CREDIT_PACKAGES: Record<string, { name: string; credits: number; price: nu
                 })
               )}
             </div>
+            {interviewHistory.length > 5 && (
+              <button
+                type="button"
+                onClick={() => setShowAllInterviews(showAll => !showAll)}
+                aria-expanded={showAllInterviews}
+                className="mt-4 text-sm font-semibold text-primary hover:underline"
+              >
+                {showAllInterviews ? 'Show fewer interviews' : `View all interviews (${interviewHistory.length})`}
+              </button>
+            )}
           </div>
         </div>
       </div>

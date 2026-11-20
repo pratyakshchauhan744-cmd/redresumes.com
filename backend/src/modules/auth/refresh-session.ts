@@ -4,7 +4,9 @@ import { prisma } from "../../db/prisma.js";
 import { env } from "../../config/env.js";
 
 export const REFRESH_COOKIE_NAME = "rr_refresh_token";
-const REFRESH_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+export const PERSISTENT_SESSION_EXPIRES_AT = new Date("9999-12-31T23:59:59.999Z");
+// Browsers cap persistent cookies at 400 days; renew this on each refresh.
+const REFRESH_MAX_AGE_MS = 400 * 24 * 60 * 60 * 1000;
 const cookieOptions = () => ({
   httpOnly: true,
   secure: env.COOKIE_SECURE ?? env.NODE_ENV === "production",
@@ -21,6 +23,7 @@ export async function persistRefreshToken(userId: string, refreshToken: string):
   await prisma.refreshToken.create({ data: {
     userId,
     tokenHash: createHash("sha256").update(refreshToken).digest("hex"),
-    expiresAt: new Date(Date.now() + REFRESH_MAX_AGE_MS),
+    // Keep the existing schema while allowing sessions to last until revoked.
+    expiresAt: PERSISTENT_SESSION_EXPIRES_AT,
   } });
 }
